@@ -1,0 +1,148 @@
+{
+  "repository": "auto-reader",
+  "date": "2026-10-03",
+  "sources": [
+    {
+      "repo": "auto-lang",
+      "commit": "17292c07e792e80d4e4da5495fc3fc2917e8aa1e",
+      "path": "examples/ui/018-book-reader",
+      "primary": true,
+      "fileCount": 24,
+      "pacFields": {
+        "name": "book-reader",
+        "version": "1.0.0",
+        "scene": "ui",
+        "render": "vue",
+        "title": "Book Reader",
+        "title_zh": "图书阅读器",
+        "api": "rust",
+        "front_port": "3018",
+        "back_port": "8018",
+        "desktop": "true"
+      },
+      "files": [
+        {
+          "sourcePath": "examples/ui/018-book-reader/.gitignore",
+          "path": ".gitignore",
+          "sha256": "d414ea2aa471a8eab78147c392b1d6e849313992fb1b8444dadacc0065875776"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/README.md",
+          "path": "README.md",
+          "sha256": "77dfa12fee600cf46befcd68f900758e281443b773dcc2bcbbab01d13901d95c"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/pac.at",
+          "path": "pac.at",
+          "sha256": "8739da343ca28c84dac2a107f9c603ba5f94d2057180c0902a90039a759c3798"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/src/back/api.at",
+          "path": "src/back/api.at",
+          "sha256": "f06519dbba4573d0d59487b1a3d95f2c0be39303fe575375d05e17cebde27d4f"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/src/back/db.at",
+          "path": "src/back/db.at",
+          "sha256": "fbadd8b8a0b21907e56fcc1742ac25c8b940a34fb4dcfd1fd5d8a6c6f52b97ec"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/src/front/app.at",
+          "path": "src/front/app.at",
+          "sha256": "c4227c9b5892013f8939ac0ebe4f4bea54d37e56ccc91fdd61cd1cbdee2eee01"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/src/front/book_store.at",
+          "path": "src/front/book_store.at",
+          "sha256": "fd7b6bdc14e4b512593a68a4976e0e897f5324fcef41e8943106a88c06401c07"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/src/front/components/filetree.at",
+          "path": "src/front/components/filetree.at",
+          "sha256": "27e88afdc9dd25aaafadd7641403fc3672f1e825cc2d59824ee665f5e6884eee"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/src/front/components/package.at",
+          "path": "src/front/components/package.at",
+          "sha256": "9688745193197f15f9ada160678b573abaa385cd654a6085f4bd7447f3c005e7"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/src/front/components/tree_icon.at",
+          "path": "src/front/components/tree_icon.at",
+          "sha256": "5c36454142070609c5216dbce9f748325986490a1d362dca51f0d8737844e258"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/src/front/components/tree_util.at",
+          "path": "src/front/components/tree_util.at",
+          "sha256": "4f4ba6028ca4bc1a39091b3de8103a0bcb1a5c02ae348bebbb6ac1af268ba7a7"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/src/front/components/treeview.at",
+          "path": "src/front/components/treeview.at",
+          "sha256": "d1571ef0fa6f7cb0655eb81833a0cfc277f9e803586b7e5a5ed5c3b2f2bd0047"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/src/front/fmt.at",
+          "path": "src/front/fmt.at",
+          "sha256": "1affd3b94b056bc14dbc4fb5db2a99ebedbff8b00cc7bc5b4a4e1cde3d007b08"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/src/front/pages/book_detail.at",
+          "path": "src/front/pages/book_detail.at",
+          "sha256": "338f06b41149a08cf454dfe12260b1a62ab2aac98bbe999f008fdb35c591af11"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/src/front/pages/bookshelf.at",
+          "path": "src/front/pages/bookshelf.at",
+          "sha256": "29840cf35c9981f3defa5d6e10309f8c60134b237f756b6321ad1a98630aff2d"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/src/front/pages/reading.at",
+          "path": "src/front/pages/reading.at",
+          "sha256": "426f357eeb3314d13b72258f788bf5008b590b212bfd3817c1033154fdc1249a"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/src/front/pages/settings.at",
+          "path": "src/front/pages/settings.at",
+          "sha256": "b5dec9b687af478ec67564df001ca4347ac099b41684045f5ab2ad03bec099eb"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/tests/acceptance.atd",
+          "path": "tests/acceptance.atd",
+          "sha256": "743b7ce9aa1d1f5d6a655f6bf0245868ae6652543018e9123d31d8b865ba1128"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/tests/package.json",
+          "path": "tests/package.json",
+          "sha256": "153ab37cb27c7ba7f1ccc616a303acf26b2c2a5d212dcf731763edbc280feb96"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/tests/playwright.config.ts",
+          "path": "tests/playwright.config.ts",
+          "sha256": "ec827a4725d7216e33f1d8e02112a93eb39d2ee297d0748a29206596e78a7c53"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/tests/pnpm-lock.yaml",
+          "path": "tests/pnpm-lock.yaml",
+          "sha256": "affb484de69571d4a20496d73a380e407d6c106796cde5f354b322cd56c9a3d3"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/tests/smoke.spec.ts",
+          "path": "tests/smoke.spec.ts",
+          "sha256": "06141f7d309289c0f19745767c97fd3e9ffb63e82ef75b0489e913cb46d9f64d"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/vue/src/assets/index.css",
+          "path": "vue/src/assets/index.css",
+          "sha256": "aaeb57d440c0b902cbc2a0ea0e8632cc7005c15a43385720f461c51a3a1855dc"
+        },
+        {
+          "sourcePath": "examples/ui/018-book-reader/vue/src/components/ThemeToggle.vue",
+          "path": "vue/src/components/ThemeToggle.vue",
+          "sha256": "c5292363840477555feb1479cb6bbcd045d3faad10d91403cbe1422f4c8946ed"
+        }
+      ]
+    }
+  ],
+  "note": "Exact committed source snapshots; packaging changes follow in a separate commit. References are not additional installed apps."
+}
