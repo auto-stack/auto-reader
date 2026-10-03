@@ -5,10 +5,10 @@ render: "vue"
 title: "Book Reader"
 title_zh: "图书阅读器"
 api: "rust"
-front_port: 3018
-back_port: 8018
+front_port: 17824
+back_port: 17825
 desktop: "true"
 
 dep stylekit {
-    path: "../stylekit"
+    path: "vendor/stylekit"
 }

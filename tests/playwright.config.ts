@@ -5,7 +5,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
   outputDir: 'test-results/',
   use: {
-    baseURL: process.env.BOOK_URL || 'http://localhost:3018',
+    baseURL: process.env.BOOK_URL || 'http://localhost:17824',
     trace: 'on-first-retry', screenshot: 'only-on-failure', video: 'retain-on-failure',
     actionTimeout: 5000, navigationTimeout: 10000,
   },
