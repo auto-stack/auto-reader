@@ -24,3 +24,9 @@ auto run -r vm
 AutoOS 通过 [`apps/018-book-reader`](https://github.com/auto-stack/auto-os/tree/v0.6-dev/apps/018-book-reader) submodule 固定本仓版本；教学 Demo 保留在来源仓。
 
 已有测试随源导入；端口与平台相关测试需要按本仓配置准备运行环境。安装/启动与双端完整功能验收是不同检查项。
+
+## 产品规划（2026-10-04）
+
+[需求与设计、首版 roadmap、业界调研及前三个实施计划](docs/README.md)。
+
+文档是设计基线，计划均未开始；实现与验收状态以各计划证据为准。
