@@ -157,80 +157,12 @@ pub fn format_of(path str) str {
     return "txt"
 }
 
-// ---- 同模块单测 ----
-// 测试纪律：assert_eq 宏在测试上下文对非字面量实参行为异常（实测把字符串
-// 比较 eval 成对象句柄），字符串/布尔断言一律走 expect()（028 if-form 封装）。
-
-fn expect(cond bool) {
-    if cond {
-        assert_eq(1, 1)
-    } else {
-        assert_eq(1, 0)
-    }
-}
-
-#[test]
-fn t_txt_chapters() {
-    let text = "第一章 山月\n山月不知心底事。\n\n第二章 水风\n水风空落眼前花。\n"
-    let chs = parse_book(text, "txt", "f")
-    expect(chs.len() == 2)
-    expect(chs[0].title == "第一章 山月")
-    expect(chs[0].body == "山月不知心底事。")
-    expect(chs[1].number == 2)
-    expect(chs[1].title == "第二章 水风")
-}
-
-#[test]
-fn t_txt_chapter_variants() {
-    // 第X节 / Chapter / 序章
-    let a = parse_book("第一节 起\n甲\n第二节 承\n乙\n", "txt", "f")
-    expect(a.len() == 2)
-    let b = parse_book("Chapter 1 Dawn\nhello\nChapter 2 Dusk\nworld\n", "txt", "f")
-    expect(b.len() == 2)
-    expect(b[1].title == "Chapter 2 Dusk")
-    let c = parse_book("楔子\n旧事\n第一章 起\n正文\n", "txt", "f")
-    expect(c.len() == 2)
-    expect(c[0].title == "楔子")
-}
-
-#[test]
-fn t_txt_prelude_and_no_heading() {
-    // 章头前有内容 → 开篇章
-    let pre = "引言\n旧事\n\n第一章 起\n正文\n"
-    let chs = parse_book(pre, "txt", "f")
-    expect(chs.len() == 2)
-    expect(chs[0].title == "开篇")
-    expect(chs[0].body == "引言\n旧事")
-    // 无章头 → 单章用 fallback 标题
-    let plain = "只是普通文本\n没有章节标记\n"
-    let one = parse_book(plain, "txt", "书名")
-    expect(one.len() == 1)
-    expect(one[0].title == "书名")
-    expect(one[0].body.contains("没有章节标记"))
-}
-
-#[test]
-fn t_md_chapters() {
-    let md = "# 上卷\n引言正文\n## 小节\n细节\n# 下卷\n尾声\n"
-    let chs = parse_book(md, "md", "f")
-    expect(chs.len() == 3)
-    expect(chs[0].title == "上卷")
-    expect(chs[1].title == "小节")
-    expect(chs[2].title == "下卷")
-    // "###" 深层标题留在正文
-    let md2 = "# 章\nintro\n### 深标题\nbody\n"
-    let chs2 = parse_book(md2, "md", "f")
-    expect(chs2.len() == 1)
-    expect(chs2[0].body.contains("### 深标题"))
-}
-
-#[test]
-fn t_format_of() {
-    expect(format_of("a/b.md") == "md")
-    expect(format_of("b.MD") == "md")
-    expect(format_of("c.txt") == "txt")
-    expect(format_of("d") == "txt")
-}
+// ---- 单测纪律（F-07 修正） ----
+// 本模块的 #[test] 曾因「use 进 VM 测试装置编译失败」而无法执行
+// （`auto test` 对该文件报 failed to compile 且 CLI 仍退出 0——框架缺陷，
+// 登记 T-09/§10）。原 5 个单测的断言完整迁至脚本规格
+// tests/spec/t03_importers_spec.as（脚本轨支持跨模块 use），由
+// `auto tests/spec/t03_importers_spec.as` 执行；本文件不再内嵌 #[test]。
 
 /// 统一入口 JSON 面：行遍历直出 JSON（不经中间 struct——类型化 struct
 /// 的 str 字段读取不稳定而动态 json 稳定，T-01 实测；本函数与 parse_book

@@ -26,9 +26,9 @@ test('T1: 初始书架渲染 — 3 本预置书', async ({ page }) => {
 test('T2: 书籍卡片含进度信息 (Rivers of Time 33%)', async ({ page }) => {
   await waitForShelf(page)
   const body = await page.locator('body').innerText()
-  // 进度百分比文字渲染在卡片底部。
-  expect(body).toContain('33%')
-  expect(body).toContain('100%') // The Last Lighthouse 已读完
+  // 进度百分比文字渲染在卡片底部（pct1 一位小数格式，PLAN-684/T-03 起）。
+  expect(body).toContain('33.0%')
+  expect(body).toContain('100.0%') // The Last Lighthouse 已读完
 })
 
 test('T3: 点击书卡进入详情页 (见作者 + 章节列表)', async ({ page }) => {
@@ -38,7 +38,7 @@ test('T3: 点击书卡进入详情页 (见作者 + 章节列表)', async ({ page
   await page.waitForTimeout(1000)
   const body = await page.locator('body').innerText()
   expect(body).toContain('Ada Lin') // 作者
-  expect(body).toContain('Chapters') // 章节区标题
+  expect(body).toContain('3 entries') // 章节计数（T-03 改版标签）
 })
 
 test('T4: 详情页章节列表渲染 (≥3 章)', async ({ page }) => {
@@ -89,14 +89,14 @@ test('T7: 阅读进度持久化 (进章节后回书架, The Silent Garden 进度
   await page.locator('h1:has-text("Library")').waitFor({ timeout: 10000 })
   await page.waitForTimeout(1200)
   const body = await page.locator('body').innerText()
-  // The Silent Garden 卡片现在应显示一个 >0 的进度（第1/3章 ≈ 33%）。
-  expect(body).toContain('33%')
+  // The Silent Garden 卡片现在应显示一个 >0 的进度（第1/3章 ≈ 33.0%）。
+  expect(body).toContain('33.0%')
 })
 
 test('T8: 添加书 (对话框 → 新书出现)', async ({ page }) => {
   await waitForShelf(page)
   const marker = `PW Book ${Date.now()}`
-  await page.getByRole('button', { name: /Add Book/ }).click()
+  await page.getByRole('button', { name: /Demo 书/ }).click()
   await page.waitForTimeout(500)
   await page.locator('input').nth(0).fill(marker)
   await page.locator('input').nth(1).fill('PW Author')
@@ -105,30 +105,29 @@ test('T8: 添加书 (对话框 → 新书出现)', async ({ page }) => {
   expect(await page.locator('body').innerText()).toContain(marker)
 })
 
-test('T9: 暗色运行时切换 (theme-toggle 点击后 html.dark class 翻转)', async ({ page }) => {
-  await waitForShelf(page)
-  // 生成器默认 <html class="dark">。ThemeToggle 在 onMounted 按保存偏好初始化，
-  // 默认保持 dark。点击后应切到 light（class 被移除）。
-  const html = page.locator('html')
-  const before = await html.getAttribute('class')
-  const wasDark = (before || '').includes('dark')
-
-  // theme-toggle 按钮含 emoji 文本。
-  const toggle = page.locator('button.theme-toggle-btn').first()
-  await toggle.click()
-  await page.waitForTimeout(400)
-  const after = await html.getAttribute('class')
-  const nowDark = (after || '').includes('dark')
-  // 翻转：dark → light 或 light → dark。
-  expect(nowDark).toBe(!wasDark)
+test('T9: 设置页渲染 (theme-toggle 已移除，跟随应用主题)', async ({ page }) => {
+  // settings.at：theme-toggle 已按头注移除（应用跟随宿主主题）——本用例
+  // 验证设置页可达且排版偏好区渲染。
+  await page.goto('/#/settings')
+  await page.waitForTimeout(1000)
+  const body = await page.locator('body').innerText()
+  expect(body).toContain('Settings')
 })
 
 test('T10: 控制台无实质错误', async ({ page }) => {
   const errors: string[] = []
+  const benign = ['favicon', 'vite.svg', 'CORS']
   page.on('console', (m) => {
     if (m.type() === 'error') {
       const t = m.text()
-      if (!t.includes('favicon') && !t.includes('CORS')) errors.push(t)
+      if (!benign.some((k) => t.includes(k))) errors.push(t)
+    }
+  })
+  // 资源级 404 的 console text 不含 URL——从 response 面补齐来源再过滤
+  page.on('response', (r) => {
+    if (r.status() >= 400) {
+      const u = r.url()
+      if (!benign.some((k) => u.includes(k))) errors.push(`HTTP ${r.status()} ${u}`)
     }
   })
   page.on('pageerror', (e) => errors.push(e.message))

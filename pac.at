@@ -4,7 +4,12 @@ scene: "ui"
 render: "vue"
 title: "Book Reader"
 title_zh: "图书阅读器"
-api: "rust"
+# READER-001 F-07：不声明 api: "rust"（014-weather 同款裁定）——该字段会
+# 把缺省 server 强制为 a2r Rust 后端，而本仓后端依赖的动态 JSON 字段访问
+# 等 a2r 映射尚未落地（缺陷群登记于 docs/research/20261005-t00-runtime-
+# capability.md §12，跨仓计划处置）。缺省即 Vue 前端 + AutoVM HTTP 后端
+# （真实数据面）；`-r vm` 缺省 VM+VM 全轨；`--server=rust` 仍可显式选择
+# a2r 轨（构建受阻，属登记中的框架能力差距，非本仓代码缺陷）。
 front_port: 17824
 back_port: 17825
 desktop: "true"

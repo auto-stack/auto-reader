@@ -126,11 +126,19 @@ def main():
           "same-title different-content → distinct", oc)
 
     # 6) 10MiB（AC 目标）置于最后：VM 轨 10M 指令预算硬上限（engine.rs
-    #    CPU_CUMULATIVE_STEP_BUDGET）——登记跨仓能力计划，不以降标顶替；
-    #    此处断言「显式失败而非假成功」。
+    #    CPU_CUMULATIVE_STEP_BUDGET）——登记跨仓能力计划，不以降标顶替。
+    #    Phase 2 诚实化（F-07）：空响应/超时不算「显式错误」，只算无响应；
+    #    无论响应形态如何都对账落盘态——书库索引与受管资产不得出现新书
+    #    （防假成功）。显式错误形态（code=io_error 等结构化响应）才记 PASS。
+    pre_books = curl("GET", "/api/library/books")
+    pre_ids = {x.get("book_id") for x in pre_books.get("books", [])}
     o10 = curl("POST", "/api/library/import", {"path": long_path, "author": "", "force": False})
-    blocked = (o10.get("error") is not None) or (o10.get("code") == "io_error") or o10.get("__empty__")
-    check(blocked, "10MiB import fails explicitly (VM budget ceiling, cross-repo)", o10)
+    explicit_error = (o10.get("error") is not None) or (o10.get("code") in ("io_error", "decode_error", "invalid_path"))
+    check(explicit_error, "10MiB import explicit error (VM budget ceiling, cross-repo)", o10)
+    post_books = curl("GET", "/api/library/books")
+    post_ids = {x.get("book_id") for x in post_books.get("books", [])}
+    check(post_ids == pre_ids, "10MiB attempt leaves library unchanged (no false success)",
+          {"pre": len(pre_ids), "post": len(post_ids)})
 
     print(f"--- summary: {len(FAILS)} fails ---")
     sys.exit(1 if FAILS else 0)
