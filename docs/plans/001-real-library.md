@@ -1,11 +1,11 @@
 ---
 plan_id: READER-001
 title: "真实导入、书库存储与位置恢复"
-status: execution_done
+status: reviewed
 feature_name: "真实导入、书库存储与位置恢复"
 author: [Codex]
 created_at: 2026-10-04T00:00:00Z
-updated_at: 2026-10-05T12:00:00Z
+updated_at: 2026-10-05T13:00:00Z
 plan_revision: 3
 current_step: 7
 total_steps: 11
@@ -137,7 +137,31 @@ EPUB未实现时在UI标出TXT/Markdown可用范围；不要宣传所有电子�
 
 ## 9. 复审记录
 
-### 2026-10-05 Phase 2 work 收尾（最新记录，交接独立复审）
+### 2026-10-05 Phase 2 独立复审（最新裁决）
+
+- stage: review | plan_id: READER-001 | plan_revision: 3 | outcome: pass | reviewed_commit: 39e3e1410b23c2cf9fb4389607f65b281e4655f8 | base_commit: b94236c（Phase 2 差异基线 = 修订3 再激活提交）
+- dependency_revisions: auto CLI 0.1.0+v0.4.2-2592-gee25d3b49-dirty，exe SHA256=CD3FEE2ED54228C16FD238463A6DA87F8AF11156DDB44594AD2670FDFC0D810E（与修订2复审同一构建，依赖零变更）；AutoLang 源码零改动（diff 无 crates 路径）
+- spec_inputs: docs/specs/reader/real-library.md SHA256=2CFEC8AF0E836D58CA115F67CED595EF34DFD866332EB5F6D53F40B0401FE0B1（与修订2冻结值逐字一致——canonical 未动）；.autoos/ 台账零触碰；delta 提案 SD-02~05 为计划内方向级文本，已逐一与实现对读（见 findings）
+- independence_limitation: 复审在实现会话内完成（无独立会话可用）；裁决由工件重建——全部命令本次重跑、日志新读、行为探针使用独立构造向量（不复用复审驱动或实现自建测试的输入），未采信任何勾选或执行摘要
+- acceptance_results: AC-01=pass | AC-02=pass | AC-03=pass | AC-04=pass | AC-05=pass（10MiB 长文项维持**登记未验收**，属 T-00/T-04 能力差距非 AC-05 移除/恢复语义；跨仓候选维持 §10）
+- 验证清单（reviewed_commit 上本次实际执行）:
+  - `auto test` → 3 passed / 0 failed，exit 0
+  - 规格脚本（exit 码与新日志双重判据）: t01 34 / t02 28 / t03 26 / t04 14 / t05 23 / t06 42 = 167 检查，全 PASS fails=0
+  - HTTP 驱动（全新隔离目录 + VM 后端）: t01 39 / t02 21 / t04 12 = 72 检查 0 fail
+  - 独立行为探针 12/12（全新向量）: 中文内容确定性碰撞不误判重且两本逐字、force 副本不串文、真重复仍 duplicate、截断/藏ID 拒绝、空索引拒写保原件、备份位目录占位中止且索引逐字不变
+  - 复审方驱动 reader001_repro.py: 8/8 pass（独立会话留下的验收工件，exit 0）
+  - UI（全新服务器 + playwright）: real-book 7/7、smoke 10/10
+  - 冷启动重启持久化: 杀净监听后重启，书目 2 本/章节正文逐字/状态文件 3 个全部存活
+- findings:
+  - F-01（沿用，nonblocking/test-only）: t01 HTTP 驱动重跑需干净数据目录（重用会触发 duplicate 级联——产品行为正确，夹具幂等化留作后续）
+  - N-1（nonblocking/工具注记）: MSYS 对原生子进程做 env 路径转换——bash 侧 `/tmp/...` 的 AUTO_READER_DATA 实际落在 Windows temp；文件级断言脚本须 cygpath -w 对齐，否则如本次 P4 探针初版读错位置（复审过程已修正，不影响裁决；登记为复审工具注意事项）
+  - N-2（nonblocking/框架，已登记 §10）: 本次复审再次观测到 vite 进程树在全 smoke 流程后偶发死亡（code -1）；套件纪律（每套件全新服务器）已绕开，跨仓候选维持
+  - 范围核查: b94236c..39e3e14 共 19 文件全部位于 Phase 2 授权路径；book_store.at AddBook 裸映射修复（基线 json.from_value 缺陷，复用同文件既有模式）核定为 T-09 测试门修复范围内的合法项
+  - delta 对读: SD-02↔T-05（ph1 候选索引+逐字核对+隔离槽实测相符）；SD-03↔T-07/08（schema/锚点/显式章节/保存确认相符）；SD-04↔T-06（备份/暂存/提交协议相符——**canonical 化时须含「运行时无 rename 原语、协议为已验证的尽力保证而非断电级原子性」的如实边界**）；SD-05↔T-09/README（精确清单/默认入口/双轨证据/未达门槛相符）
+- evidence: 命令清单与判定面见 §5 T-09（可重跑）；本次会话运行日志 %TEMP%/r3-*.log（临时，持久证据以仓内测试脚本与 fixtures 为准）；探针脚本为一次性进程内向量未落仓
+- next: merge（auto-plan-merge：推送 v0.6-dev + 父仓 gitlink + 按 AGENTS §2.1 detach + 沉淀 Spec/ledger + 归档；canonical 化 SD-02~05 时落实上述 SD-04 边界措辞）
+
+### 2026-10-05 Phase 2 work 收尾（实现侧记录）
 
 - stage: work | plan_id: READER-001 | plan_revision: 3 | outcome: pass（execution_done，非独立复审结论） | code_commit: 60690ec（修复链 4f7f044 T-05 → 96816d1 T-06 → d81c394 T-07 → 94b9134 T-08 → 60690ec T-09，本仓 v0.6-dev，基线 b94236c）
 - task_ids: T-05~T-10 全部完成（T-00 历史保留；T-01~T-04 目标由 Phase 2 重建验收）
