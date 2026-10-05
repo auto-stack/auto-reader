@@ -1,7 +1,7 @@
 ---
 plan_id: READER-001
 title: "真实导入、书库存储与位置恢复"
-status: executing
+status: execution_done
 feature_name: "真实导入、书库存储与位置恢复"
 author: [Codex]
 created_at: 2026-10-04T00:00:00Z
@@ -78,11 +78,11 @@ T-00先行；T-01→T-02→T-03→T-04顺序实施。T-00输出能力报告，T-
 
 ## 7. 验收标准（必须保留实际证据）
 
-- [ ] AC-01: 两份中文真实文件可导入且逐字核对，新增书不再生成占位章节。
-- [ ] AC-02: 重启后书与原文件仍在、恢复同段落；同标题不同原文件不互相覆盖。
-- [ ] AC-03: 同hash重复导入有明确选择；异常中断不留下成功却缺原文件的记录。
-- [ ] AC-04: 无法解码/损坏/不可写给错误且不损坏已有书库。
-- [ ] AC-05: 书目移除可恢复，默认不删除用户原路径文件；迁移前有备份。
+- [x] AC-01: 两份中文真实文件可导入且逐字核对，新增书不再生成占位章节。✅ 证据：t01_http「import txt/md ok + ch1/ch3 body verbatim + toc 3 entries」全 PASS（xiaoshuo.txt 3 章、notes.md 3 章，正文逐字比对）；章节为导入器实切非占位。
+- [x] AC-02: 重启后书与原文件仍在、恢复同段落；同标题不同原文件不互相覆盖。✅ 证据：VM 后端重启后 5 本书俱在、章节逐字恢复 PASS；浏览器端到端「已恢复上次位置」+段标记（locator=章节+段序号+同轨签名）；t04「same-title different-content → distinct + distinct book_id + bodies differ」PASS。定位精度为章节+段序（跨轨内容指纹待运行时，见 spec §5）。
+- [x] AC-03: 同hash重复导入有明确选择；异常中断不留下成功却缺原文件的记录。✅ 证据：t01/t04「duplicate detected + existing_id + force distinct archive」PASS（明确选择=打开已有或 force 独立副本）；中断语义 t04「orphan reuse import ok + managed copy reused」PASS（副本已写索引未写→再导入幂等完成）。
+- [x] AC-04: 无法解码/损坏/不可写给错误且不损坏已有书库。✅ 证据：t01/t04「gbk rejected (real bytes)」PASS（真 GBK 字节 decode_error）；「missing file/directory/empty」PASS；索引写失败回滚不落记录（t02「failed write leaves no record」PASS）。
+- [x] AC-05: 书目移除可恢复，默认不删除用户原路径文件；迁移前有备份。✅ 证据：t01「remove ok/managed kept/original untouched/removed.jsonl exists/restore ok/restored chapter verbatim」PASS；library.json 覆写前 .bak（t01「bak exists」PASS）；v0 索引拒绝并保留原件（t04 脚本+HTTP 双面 PASS）。
 
 
 ## 8. 执行步骤与交接
@@ -96,7 +96,10 @@ EPUB未实现时在UI标出TXT/Markdown可用范围；不要宣传所有电子�
 - 实际起点HEAD/工作目录/工具版本：app 仓 `D:/autostack/auto-os/apps/018-book-reader`，分支 `v0.6-dev`，起点 HEAD `4e36f6b`（与 origin/v0.6-dev 同步，工作树干净）；auto CLI `0.1.0+v0.4.2-2592-gee25d3b49-dirty`（auto-lang ee25d3b49-dirty 构建）。2026-10-05 执行。
 - T0能力与阻塞报告：已完成，见 [T-00 能力报告](../research/20261005-t00-runtime-capability.md)。实测证据：`%TEMP%/t00-breadcrumb.log`（VM 轨 10/10 PASS + 2 NOTE）；a2r 映射经 `auto trans` 生成 Rust 逐行核对。阻塞：无——双轨映射集足以支撑全部 AC；hash.\*（sha256）缺失按报告裁定以 ph1 采样哈希替代并如实记录。
 - 各AC项证据路径、命令及结果：T-01 已交付——命令：`auto test`（3 文件 8 测试全过）；`auto tests/spec/t01_library_spec.as`（34 PASS/0 FAIL，日志 %TEMP%/t01-spec.log）；VM 后端启动 `AUTO_READER_DATA=<隔离目录> auto run --server=vm`（17825）；`AUTO_READER_DATA=<隔离目录> python tests/spec/t01_http_verify.py`（39 PASS/0 FAIL，覆盖 AC-01/03/04 与 AC-02/05 主体）；重启持久化逐字比对通过。rust 后端轨 `auto run`（a2r）构建失败 46 错（缺陷清单见 T-00 报告 §12），已按预案登记跨仓候选、保留未完成验收，不以 stub 顶替。
-- 独立复审：未执行；重新对照代码检查AC项、遗漏/延后/workaround、格式/告警/调试输出，不信任已有勾选。
+- 独立复审：未执行（work 阶段终点）；复审者请重跑 §9 所列全部命令并不信任勾选。
+- work 收尾（2026-10-05）：stage: work | plan_id: READER-001 | plan_revision: 2 | outcome: pass(execution_done) | code_commit: 本提交（v0.6-dev，T-00 ddd9596 / T-01 007cce5 / T-02 5d838f5 / T-03 4bee074 / T-04 本提交）| task_ids: T-00~T-04 全部完成 | evidence: 单测 8 通过；脚本规格 34+13+14=61 PASS/0 FAIL；HTTP 驱动 39+12+11=62 PASS/0 FAIL；浏览器端到端导入→阅读→标记→恢复全链路实测；重启持久化实测 | blockers: 见 §10 两条（均登记跨仓候选，未以 stub 顶替）| next: review（auto-plan-review）。
+- 债务与风险：a2r/rust 后端缺陷群（§12 清单）；VM 指令预算 10M 上限（≥1MiB 导入超限）；VM HTTP 请求体多字节损坏（写端点须 ASCII 安全）；char_at 双轨语义错位；json.from_value Vue 轨未映射（基线 AddBook 同缺陷，本计划已绕开）。均详见 docs/research/20261005-t00-runtime-capability.md。
+- 沉淀：docs/specs/reader/real-library.md（实现态规范：数据布局/导入事务/端点/Locator v1/能力边界/前端纪律）；spec-impact 候选=新增 src/back/{pathx,hashx,importers,library}.at 与 /api/library/* 端点面。
 - 债务与风险：未登记；测试真实阻塞不得伪装通过。
 - 沉淀：以frontmatter spec-impact候选登记实际实现组件，更新设计能力表与稳定规范；随后翻reviewed并归档。
 - 合入目标：v0.6-dev；当前未实施，不合入master、不推进OS gitlink。
@@ -107,4 +110,9 @@ EPUB未实现时在UI标出TXT/Markdown可用范围；不要宣传所有电子�
 
 T-00需核实实际平台/运行时能力，负责者为本计划执行agent；输出具体API、可复现实验与独立阻塞提案。不存在先执行全局重构的隐含前置。核心验收变更须明确提出，不能用mock替换真实结果。
 
-草案交接：stage=new；plan_revision=2；outcome=pass（可审查的草案，非代码验收）；next=work（选定计划并确认实施范围后）。当前均未实施。
+work 执行后遗留两条 blocker（均有完整实测证据，登记于 docs/research/20261005-t00-runtime-capability.md §12，待独立跨仓计划处置；本计划交付轨已绕开，未以 stub 顶替）：
+
+1. **rust 后端轨（auto run 缺省 a2r）无法承载真实书库**：动态 JSON 字段访问不转译（E0609×13）、auto_lang::a2r_std 缺 uuid/time、substr i64/i32 失配、path-form use 生成 src::back 与平坦 crate 不符（E0433）、非 api 模块构造 api 端点类型报误导性 undefined——build 失败 46 错为证。交付轨改 `auto run --server=vm`（Vue+VM后端）与 `auto run -r vm --server=vm`。
+2. **10MiB 长文导入超 VM 指令预算**：CPU_CUMULATIVE_STEP_BUDGET=10M 硬编码无配置口，实测 ≥1MiB 即超（512KB 边界响应可超时但服务端完成）。AC 的 10MiB 项验收为「显式失败而非假成功」，跨仓提案：预算可配/分片导入接口。
+
+work 交接：stage=work 收尾 | plan_revision=2 | outcome=pass（execution_done，非独立复审结论）| next=review。T-00~T-04 完成；两条跨仓 blocker（rust 后端缺陷群、VM 指令预算上限）已在 §9/§10 登记，review 裁量处置。
