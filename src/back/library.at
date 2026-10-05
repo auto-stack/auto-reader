@@ -147,7 +147,9 @@ pub fn chapter_json_raw(n int, title str, body str, wc int) str {
 }
 
 /// 现读 library.json 并重序列化为规范全文（动态值直读——可靠形态）。
-/// 文件缺失/为空返回空表；返回 "" 表示解析失败。
+/// 加载语义（F-06 修复）：**缺文件**才可初始化为空表；存在但为空、解析
+/// 失败、版本 ≠1、缺 books 或记录缺字段——一律返回 ""（refuse-to-load），
+/// 调用方拒写并保留原件（人工迁移/诊断），绝不把损坏索引当新库覆盖。
 pub fn books_json() str {
     let lp str = lib_path()
     if !fs.exists(lp) {
@@ -155,39 +157,44 @@ pub fn books_json() str {
     }
     let raw str = fs.read_text(lp)
     if raw == "" {
-        return "{\"version\":1,\"books\":[]}"
-    }
-    let parsed = json.parse(raw)
-    // 版本门：version ≠ 1（含 v0 旧形）拒绝加载并保留原文件（人工迁移），
-    // 不静默清空——调用方以 "" 判别为索引错误（AC-05 迁移前备份语义）。
-    let ver int = parsed.version
-    if ver != 1 {
         return ""
     }
-    var out str = "{\"version\":1,\"books\":["
-    let books = parsed.books
-    var i int = 0
-    // json.parse 数组用 for-in（F-8）；fn 实参先绑定局部
-    for b in books {
-        if i > 0 {
-            out = out + ","
+    var out str = ""
+    // json.parse 对畸形输入会 raise（t05 探针实测）；缺字段访问同样
+    // raise——解析/版本/形态任一失败都归一为 ""，不让异常穿透到端点。
+    try {
+        let parsed = json.parse(raw)
+        let ver int = parsed.version
+        if ver == 1 {
+            let books = parsed.books
+            var acc str = "{\"version\":1,\"books\":["
+            var i int = 0
+            // json.parse 数组用 for-in（F-8）；fn 实参先绑定局部
+            for b in books {
+                if i > 0 {
+                    acc = acc + ","
+                }
+                let v1 str = "" + b.book_id
+                let v2 str = "" + b.source_hash
+                let v3 str = "" + b.title
+                let v4 str = "" + b.author
+                let v5 str = "" + b.format
+                let v6 str = "" + b.original_path
+                let v7 str = "" + b.managed_path
+                let n1 int = b.size
+                let n2 int = b.chapter_count
+                let n3 int = b.import_version
+                let n4 int = b.created_at
+                let rj str = record_json(v1, v2, v3, v4, v5, v6, v7, n1, n2, n3, n4)
+                acc = acc + rj
+                i = i + 1
+            }
+            acc = acc + "]}"
+            out = acc
         }
-        let v1 str = "" + b.book_id
-        let v2 str = "" + b.source_hash
-        let v3 str = "" + b.title
-        let v4 str = "" + b.author
-        let v5 str = "" + b.format
-        let v6 str = "" + b.original_path
-        let v7 str = "" + b.managed_path
-        let n1 int = b.size
-        let n2 int = b.chapter_count
-        let n3 int = b.import_version
-        let n4 int = b.created_at
-        let rj str = record_json(v1, v2, v3, v4, v5, v6, v7, n1, n2, n3, n4)
-        out = out + rj
-        i = i + 1
+    } catch {
+        out = ""
     }
-    out = out + "]}"
     return out
 }
 
@@ -215,7 +222,67 @@ pub fn book_json(book_id str) str {
     return empty_str()
 }
 
-/// 索引落盘（含 AC-05 迁移前备份）。payload 为完整 library.json 内容。
+/// 读回校验写入（F-03/F-06）：write_text 对目录等失败形态会静默返回 0
+/// （t05 探针实测）——返回码之外必须读回逐字比较。
+/// 返回 0 = 写入且读回逐字一致；非 0 = write_text 返回码或 -1（读回不符）。
+fn verified_write(path str, payload str) int {
+    let wrc int = fs.write_text(path, payload)
+    if wrc != 0 {
+        return wrc
+    }
+    let back str = fs.read_text(path)
+    if back != payload {
+        return -1
+    }
+    return 0
+}
+
+/// 备份 + 暂存校验 + 提交的写协议（F-06 修复）。目标已存在时先写 .bak
+/// 并读回校验——备份失败、现内容为空/不可读、目标被目录占位一律中止
+/// （返回负码），目标不被触碰；.bak 就绪后先写 .tmp 读回校验（暂存），
+/// 再提交正式文件并读回校验；提交不一致时尽力从 .bak 还原原件。
+/// 注意：运行时无 rename/delete 原子原语（T-00 映射集），本协议是
+/// 「已验证的暂存-提交-恢复」尽力保证，不冒充断电级原子性（如实记录）。
+/// 返回 0 = 成功；-2 目标是目录；-3 现内容为空/不可读；-4 备份失败；
+/// -5 暂存失败；其余 = write_text/verified_write 返回码。
+fn write_with_backup(path str, payload str) int {
+    if fs.exists(path) {
+        if fs.is_dir(path) {
+            return -2
+        }
+        let prev str = fs.read_text(path)
+        if prev == "" {
+            return -3
+        }
+        let bak str = path + ".bak"
+        let brc int = verified_write(bak, prev)
+        if brc != 0 {
+            return -4
+        }
+    }
+    let tmp str = path + ".tmp"
+    let trc int = verified_write(tmp, payload)
+    if trc != 0 {
+        return -5
+    }
+    let wrc int = verified_write(path, payload)
+    if wrc != 0 {
+        let bak2 str = path + ".bak"
+        if fs.exists(bak2) {
+            if !fs.is_dir(bak2) {
+                let prev2 str = fs.read_text(bak2)
+                if prev2 != "" {
+                    fs.write_text(path, prev2)
+                }
+            }
+        }
+        return wrc
+    }
+    return 0
+}
+
+/// 索引落盘（含 AC-05 迁移前备份）。payload 为完整 library.json 内容，
+/// 经备份/暂存/提交协议写入（write_with_backup）。
 fn write_library_file(payload str) int {
     let lp str = lib_path()
     let dd str = data_dir()
@@ -223,12 +290,7 @@ fn write_library_file(payload str) int {
     if mrc != 0 {
         return mrc
     }
-    if fs.exists(lp) {
-        let bak str = lp + ".bak"
-        let prev str = fs.read_text(lp)
-        fs.write_text(bak, prev)
-    }
-    return fs.write_text(lp, payload)
+    return write_with_backup(lp, payload)
 }
 
 /// 受管副本全文（书不存在或文件被外删时回 ""，由调用方报缺失）。
@@ -652,7 +714,7 @@ pub fn remove_book(book_id str) str {
             let n4 int = b.created_at
             let rj str = record_json(v1, v2, v3, v4, v5, v6, v7, n1, n2, n3, n4)
             entry = "{\"book_id\":\""
-            entry = entry + v1
+            entry = entry + json_escape(v1)
             entry = entry + "\",\"removed_at\":0"
             entry = entry + ",\"record\":"
             entry = entry + rj
@@ -696,7 +758,9 @@ pub fn remove_book(book_id str) str {
     }
     next = next + entry
     next = next + "\n"
-    let wrc int = fs.write_text(rp, next)
+    // 移除日志先于索引改写（崩溃时最多"已移除但仍可见"）；写入读回校验
+    // ——日志是恢复的唯一依据，写失败必须中止移除（F-06）。
+    let wrc int = verified_write(rp, next)
     if wrc != 0 {
         return "removed.jsonl write failed rc=" + wrc.to_string()
     }
@@ -792,7 +856,9 @@ pub fn restore_book(book_id str) str {
     if src != 0 {
         return "library write failed rc=" + src.to_string()
     }
-    // 从 removed.jsonl 剔除该行（其余原样保留）
+    // 从 removed.jsonl 剔除该行（其余原样保留）；清理结果必须读回校验
+    // ——失败时书目已回索引但日志行仍在，返回明确错误（F-06：不忽略
+    // 返回值；重复恢复经 exists 门幂等，日志残留行在下次恢复时剔除）。
     var kept str = ""
     var k int = 0
     while k < lines.len() {
@@ -805,7 +871,10 @@ pub fn restore_book(book_id str) str {
         }
         k = k + 1
     }
-    fs.write_text(rp, kept)
+    let clrc int = verified_write(rp, kept)
+    if clrc != 0 {
+        return "removed log cleanup failed rc=" + clrc.to_string()
+    }
     return ""
 }
 
