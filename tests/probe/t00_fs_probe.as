@@ -78,14 +78,22 @@ fn main() {
         log("FAIL read_text_range valid-utf8 flagged invalid total=" + total.to_string())
     }
 
-    // P4 编码检测：GBK 双字节（0xD6 0xD0 = "中" 的 GBK 编码）必须判 invalid
+    // P4 编码检测：GBK 双字节（0xD6 0xD0 = "中" 的 GBK 编码）必须判 invalid。
+    // T-01 修正：file.write_bytes / File.write_bytes 在 VM 轨均 rc=0 但不落盘
+    // （静默失败）——早期版本此处把「文件缺失→total:-1」误判为编码拒绝。
+    // 写侧校验如实降级为 NOTE；真实 GBK 字节的拒绝证据由应用级 HTTP 验证交付
+    // （测试驱动侧用外部工具构造真 GBK 文件）。
     let gbk_path str = fs.join(base, "gbk.bin")
     file.write_bytes(gbk_path, List<int>.new([0xD6, 0xD0, 0xCE, 0xC4]))
-    let gbk_env = json.parse(file.read_text_range(gbk_path, 0, 4))
-    if gbk_env.total == -1 {
-        log("PASS encoding-detect gbk rejected")
+    if file.exists(gbk_path) {
+        let gbk_env = json.parse(file.read_text_range(gbk_path, 0, 4))
+        if gbk_env.total == -1 {
+            log("PASS encoding-detect gbk rejected")
+        } else {
+            log("FAIL encoding-detect gbk accepted total=" + gbk_env.total.to_string())
+        }
     } else {
-        log("FAIL encoding-detect gbk accepted total=" + gbk_env.total.to_string())
+        log("NOTE write_bytes silently failed on VM (capability debt, see report); gbk rejection verified at app level")
     }
     // read_text 对同一 GBK 文件静默回 ""（不可单独用作编码判据——记录为能力边界）
     let silent str = file.read_text(gbk_path)

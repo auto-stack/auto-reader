@@ -1,0 +1,321 @@
+// importers.at — READER-001 TXT/Markdown 导入适配（统一章节输出）。
+// 职责：把已验证 UTF-8 的全文切成章节数组。不改原文；重排版/EPUB 属
+// READER-003。切分规则（fixture 固化，见 tests/fixtures/library/）：
+//   - Markdown：ATX 标题行（trim 后 "# " 或 "## " 开头）开新章，井号剥除
+//     后为章标题；"###" 及更深留在正文。
+//   - TXT：「第X章/节/回」（≤60字节行）、「Chapter N」（≤60字节）、
+//     序章/楔子/引子/尾声（≤20字节行）视为章头。
+//   - 首个章头之前的非空内容单独成章（临时标题 "开篇"）。
+//   - 全文无章头 → 单章，章标题取文件主名（调用方传入 stem）。
+// 行切分用 str.split("\n")（双轨同语义，T-00 探针）；每行先 trim 吸收 \r。
+// 章头判定不要求前导空行（starts_with 前缀 + 长度上限已足够特异）。
+
+// 内部章节数据（与 api.ChapterRec 字段同名同形；api 类型只能由 db.at
+// 构造——非 api 模块构造 api 导入类型在 a2r 转译面报 undefined，T-01 实测。
+// 本模块持有 ChapterData，db.at 解析 JSON 后构造端点类型）。
+use pathx: basename, json_escape
+
+pub type ChapterData = {
+    number: int
+    title: str
+    body: str
+    word_count: int
+}
+
+/// 章头判定总入口（is_md 选择规则集）。
+fn is_heading(line str, is_md bool) bool {
+    let t str = line.trim()
+    if t == "" {
+        return false
+    }
+    if is_md {
+        if t.starts_with("# ") {
+            return true
+        }
+        if t.starts_with("## ") {
+            return true
+        }
+        return false
+    }
+    if t.len() > 60 {
+        return false
+    }
+    if t.starts_with("第") {
+        if t.contains("章") || t.contains("节") || t.contains("回") {
+            return true
+        }
+    }
+    if t.starts_with("Chapter ") {
+        return true
+    }
+    if t.len() <= 20 {
+        if t.starts_with("序章") || t.starts_with("楔子") {
+            return true
+        }
+        if t.starts_with("引子") || t.starts_with("尾声") {
+            return true
+        }
+    }
+    return false
+}
+
+/// 章标题清理：去掉 Markdown 井号前缀。
+fn heading_title(line str, is_md bool) str {
+    var t str = line.trim()
+    if is_md {
+        while t.starts_with("#") {
+            t = t.substr(1, t.len() - 1).trim()
+        }
+    }
+    return t
+}
+
+/// 章构造工厂（本模块 own 类型）。
+pub fn make_chapter(number int, title str, body str) ChapterData {
+    let trimmed str = body.trim()
+    return ChapterData { number: number, title: title, body: trimmed, word_count: trimmed.len() }
+}
+
+/// 从行数组组章。fallback_title：无任何章头时的单章标题（文件主名）。
+fn group_chapters(lines List, is_md bool, fallback_title str) []ChapterData {
+    var out []ChapterData = []
+    var cur_title str = ""
+    var cur_body str = ""
+    var started bool = false
+    var saw_heading bool = false
+    var i int = 0
+    while i < lines.len() {
+        let raw str = "" + lines[i]
+        if is_heading(raw, is_md) {
+            if started {
+                out.push(make_chapter(out.len() + 1, cur_title, cur_body))
+            }
+            cur_title = heading_title(raw, is_md)
+            cur_body = ""
+            started = true
+            saw_heading = true
+        } else {
+            if !started {
+                if raw.trim() == "" {
+                    i = i + 1
+                    continue
+                }
+                // 章头前内容 → 临时 "开篇" 章
+                cur_title = "开篇"
+                started = true
+            }
+            if cur_body == "" {
+                cur_body = raw
+            } else {
+                cur_body = cur_body + "\n" + raw
+            }
+        }
+        i = i + 1
+    }
+    if !started {
+        // 空文档保护（调用方已拒空文件，此处仅兜底）
+        out.push(make_chapter(1, fallback_title, ""))
+        return out
+    }
+    out.push(make_chapter(out.len() + 1, cur_title, cur_body))
+    if out.len() == 1 {
+        if !saw_heading {
+            // 无章头 → 单章以文件主名为题（重建列表，避免索引赋值）
+            let only = out[0]
+            var renamed []ChapterData = []
+            renamed.push(ChapterData { number: 1, title: fallback_title, body: only.body, word_count: only.word_count })
+            return renamed
+        }
+    }
+    return out
+}
+
+/// 统一入口：按 format 选择切分器（"md"/"markdown" → Markdown；其余 TXT）。
+pub fn parse_book(text str, format str, fallback_title str) []ChapterData {
+    let lines = text.split("\n")
+    if format == "md" || format == "markdown" {
+        return group_chapters(lines, true, fallback_title)
+    }
+    return group_chapters(lines, false, fallback_title)
+}
+
+/// 由文件路径推断格式："md"/"markdown" 扩展名（不分大小写）→ "md"，否则 "txt"。
+pub fn format_of(path str) str {
+    let name str = basename(path)
+    var i int = name.len() - 1
+    while i >= 0 {
+        let c str = name.substr(i, 1)
+        if c == "." {
+            let e str = name.substr(i + 1, name.len() - i - 1).lower()
+            if e == "md" || e == "markdown" {
+                return "md"
+            }
+            return "txt"
+        }
+        i = i - 1
+    }
+    return "txt"
+}
+
+// ---- 同模块单测 ----
+// 测试纪律：assert_eq 宏在测试上下文对非字面量实参行为异常（实测把字符串
+// 比较 eval 成对象句柄），字符串/布尔断言一律走 expect()（028 if-form 封装）。
+
+fn expect(cond bool) {
+    if cond {
+        assert_eq(1, 1)
+    } else {
+        assert_eq(1, 0)
+    }
+}
+
+#[test]
+fn t_txt_chapters() {
+    let text = "第一章 山月\n山月不知心底事。\n\n第二章 水风\n水风空落眼前花。\n"
+    let chs = parse_book(text, "txt", "f")
+    expect(chs.len() == 2)
+    expect(chs[0].title == "第一章 山月")
+    expect(chs[0].body == "山月不知心底事。")
+    expect(chs[1].number == 2)
+    expect(chs[1].title == "第二章 水风")
+}
+
+#[test]
+fn t_txt_chapter_variants() {
+    // 第X节 / Chapter / 序章
+    let a = parse_book("第一节 起\n甲\n第二节 承\n乙\n", "txt", "f")
+    expect(a.len() == 2)
+    let b = parse_book("Chapter 1 Dawn\nhello\nChapter 2 Dusk\nworld\n", "txt", "f")
+    expect(b.len() == 2)
+    expect(b[1].title == "Chapter 2 Dusk")
+    let c = parse_book("楔子\n旧事\n第一章 起\n正文\n", "txt", "f")
+    expect(c.len() == 2)
+    expect(c[0].title == "楔子")
+}
+
+#[test]
+fn t_txt_prelude_and_no_heading() {
+    // 章头前有内容 → 开篇章
+    let pre = "引言\n旧事\n\n第一章 起\n正文\n"
+    let chs = parse_book(pre, "txt", "f")
+    expect(chs.len() == 2)
+    expect(chs[0].title == "开篇")
+    expect(chs[0].body == "引言\n旧事")
+    // 无章头 → 单章用 fallback 标题
+    let plain = "只是普通文本\n没有章节标记\n"
+    let one = parse_book(plain, "txt", "书名")
+    expect(one.len() == 1)
+    expect(one[0].title == "书名")
+    expect(one[0].body.contains("没有章节标记"))
+}
+
+#[test]
+fn t_md_chapters() {
+    let md = "# 上卷\n引言正文\n## 小节\n细节\n# 下卷\n尾声\n"
+    let chs = parse_book(md, "md", "f")
+    expect(chs.len() == 3)
+    expect(chs[0].title == "上卷")
+    expect(chs[1].title == "小节")
+    expect(chs[2].title == "下卷")
+    // "###" 深层标题留在正文
+    let md2 = "# 章\nintro\n### 深标题\nbody\n"
+    let chs2 = parse_book(md2, "md", "f")
+    expect(chs2.len() == 1)
+    expect(chs2[0].body.contains("### 深标题"))
+}
+
+#[test]
+fn t_format_of() {
+    expect(format_of("a/b.md") == "md")
+    expect(format_of("b.MD") == "md")
+    expect(format_of("c.txt") == "txt")
+    expect(format_of("d") == "txt")
+}
+
+/// 统一入口 JSON 面：行遍历直出 JSON（不经中间 struct——类型化 struct
+/// 的 str 字段读取不稳定而动态 json 稳定，T-01 实测；本函数与 parse_book
+/// 共享 is_heading/heading_title 判定，切分语义一致性由 spec/HTTP 双面
+/// 逐字校验兜底）。
+/// 返回 {"chapters":[{"number":n,"title":t,"body":b,"word_count":w},...]}
+pub fn parse_book_json(text str, format str, fallback_title str) str {
+    let lines = text.split("
+")
+    let is_md bool = format == "md" || format == "markdown"
+    var out str = "{\"chapters\":["
+    var n_out int = 0
+    var cur_title str = ""
+    var cur_body str = ""
+    var started bool = false
+    var saw_heading bool = false
+    var i int = 0
+    while i < lines.len() {
+        let raw str = "" + lines[i]
+        if is_heading(raw, is_md) {
+            if started {
+                let ej str = chapter_json_raw(n_out + 1, cur_title, cur_body)
+                if n_out > 0 {
+                    out = out + ","
+                }
+                out = out + ej
+                n_out = n_out + 1
+            }
+            cur_title = heading_title(raw, is_md)
+            cur_body = ""
+            started = true
+            saw_heading = true
+        } else {
+            if !started {
+                if raw.trim() == "" {
+                    i = i + 1
+                    continue
+                }
+                cur_title = "开篇"
+                started = true
+            }
+            if cur_body == "" {
+                cur_body = raw
+            } else {
+                cur_body = cur_body + "
+" + raw
+            }
+        }
+        i = i + 1
+    }
+    if !started {
+        out = out + chapter_json_raw(1, fallback_title, "", 0)
+        out = out + "]}"
+        return out
+    }
+    let ej str = chapter_json_raw(n_out + 1, cur_title, cur_body)
+    if n_out > 0 {
+        out = out + ","
+    }
+    out = out + ej
+    n_out = n_out + 1
+    // 无章头 → 单章以文件主名为题
+    if n_out == 1 {
+        if !saw_heading {
+            out = "{\"chapters\":["
+            out = out + chapter_json_raw(1, fallback_title, cur_body)
+            out = out + "]}"
+            return out
+        }
+    }
+    out = out + "]}"
+    return out
+}
+
+/// 单章 JSON（标量入参；trimmed 语义与 parse_book 对齐）。
+fn chapter_json_raw(n int, title str, body str) str {
+    let t str = body.trim()
+    var out str = "{\"number\":"
+    out = out + n.to_string()
+    out = out + ",\"title\":\""
+    out = out + json_escape(title)
+    out = out + "\",\"body\":\""
+    out = out + json_escape(t)
+    out = out + "\",\"word_count\":"
+    out = out + t.len().to_string()
+    out = out + "}"
+    return out
+}

@@ -25,6 +25,8 @@ pub type Chapter = {
 }
 
 use db
+use library: BookRecord, ImportOutcome, TocEntry, RemoveResult
+use importers: ChapterRec
 
 /// GET /api/books — list every book in the library.
 #[api(method = "GET", path = "/api/books")]
@@ -69,4 +71,54 @@ pub fn get_chapter(book_id int, number int) Chapter {
 #[api(method = "PUT", path = "/api/books/:id/progress")]
 pub fn update_progress(id int, progress int) Book {
     return db.update_progress(id, progress)
+}
+
+// ═══════════════════════════════════════════════════════════
+// READER-001 真实书库端点（thin 体 + JSON 字符串返回——非 api 模块构造
+// api 端点类型在 a2r 转译面报 undefined 且无 serde 派生（T-01 实测），
+// 故与 027-file-manager 同款：后端交 JSON 文本，前端 json.parse 动态取用。
+// 形参名与路径占位符一致；多参数查询走 query（基线 get_chapter 同款）。
+// ═══════════════════════════════════════════════════════════
+
+/// GET /api/library/books — 真实书目 JSON（区别于 demo 的 /api/books）。
+#[api(method = "GET", path = "/api/library/books")]
+pub fn library_books() str {
+    return db.library_books()
+}
+
+/// POST /api/library/import — 导入真实 TXT/Markdown 文件。
+/// body: { path, author?, force? }；同指纹默认 duplicate 提示复用。
+#[api(method = "POST", path = "/api/library/import")]
+pub fn library_import(path str, author str, force bool) str {
+    return db.library_import(path, author, force)
+}
+
+/// GET /api/library/books/:id — 单本真实书（未找到返回 ""）。
+#[api(method = "GET", path = "/api/library/books/:id")]
+pub fn library_book(id str) str {
+    return db.library_book(id)
+}
+
+/// DELETE /api/library/books/:id — 可恢复移除（受管副本与原文件不动）。
+#[api(method = "DELETE", path = "/api/library/books/:id")]
+pub fn library_remove(id str) str {
+    return db.library_remove(id)
+}
+
+/// POST /api/library/books/:id/restore — 从移除记录恢复。
+#[api(method = "POST", path = "/api/library/books/:id/restore")]
+pub fn library_restore(id str) str {
+    return db.library_restore(id)
+}
+
+/// GET /api/library/books/:id/toc — 真实书目录 JSON。
+#[api(method = "GET", path = "/api/library/books/:id/toc")]
+pub fn library_toc(id str) str {
+    return db.library_toc(id)
+}
+
+/// GET /api/library/chapter — 真实书单章 JSON（query: book_id + number）。
+#[api(method = "GET", path = "/api/library/chapter")]
+pub fn library_chapter(book_id str, number int) str {
+    return db.library_chapter(book_id, number)
 }

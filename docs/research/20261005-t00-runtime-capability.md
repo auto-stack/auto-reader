@@ -18,7 +18,7 @@
 | fs.mkdir_all + file.is_dir | PASS |
 | file.write_text/read_text 中文 UTF-8 回环（94 字节） | PASS |
 | file.read_text_range envelope 合法形状（total=94, next_offset:null） | PASS |
-| 编码检测：GBK 双字节 → `total:-1` 拒绝 | PASS |
+| 编码检测：GBK 双字节 → `total:-1` 拒绝 | **T-01 修正：初版判 PASS 为假阳性**——file.write_bytes/File.write_bytes 在 VM 轨 rc=0 但不落盘，当时检验的是「文件缺失→-1」。真实 GBK 字节拒绝由 READER-001 应用级 HTTP 验证交付 |
 | read_text 对 GBK 静默返回 ""（不可单独作编码判据） | NOTE |
 | hash.file_sha256（64 hex） | PASS |
 | file.copy + exists + size | PASS |
@@ -48,6 +48,19 @@
 4. `file.append_text` 在 Windows VM 报 os error 123。规避：read+write 拼接。
 5. `hash.file_sha256` 对缺失文件抛 RuntimeError（stdlib 注释称返回空串，实况不符）。规避：调用前 `fs.exists` 门控。
 6. 约 18 万次线性字符串拼接致 VM 静默退出（exit 0 无输出）。规避：倍增拼接；导入器禁止逐段拼接超长文本。
+7. **（T-01 补录）`file.write_bytes`/`File.write_bytes` 在 VM 轨 rc=0 但不落盘**（静默失败）；a2r 轨映射存在。字节级写侧测试只能在应用外构造文件。
+8. **（T-01 补录）跨模块 fn 调用的多字节字符串实参在脚本/测试上下文被剥离**（如「上卷」「作者五」传入后变空/残缺）；模块→模块调用正常（章节中文正文逐字校验通过）。脚本规格测试一律用 ASCII 路径与作者名，中文内容经文件本体（native 读）进入。
+9. **（T-01 补录）VM 测试装置（#[test]）缺陷三则**：跨模块调用 + var 局部字符串累积会把模块变量名混入局部值；struct/List 作 fn 参数时元素字段清零/串位；模块级数值常量未初始化（除零）。规避：自包含模块单测（pathx/hashx/importers）+ 脚本规格测试（标量参数边界）+ 应用级 HTTP 验证。
+10. **（T-01 补录）`ext` 是保留字**（Plan 035 类型扩展），不能作变量名。
+11. **（T-01 终版修正·根因）本计划早期误判的多起「跨模块字符串实参剥离/struct str 字段清零」实为本仓代码缺陷**：pathx 的 `json_escape`/`normalize` 逐字节 `substr(i,1)` 走查会吞掉全部多字节字符（所有标题/正文/中文路径都流经它们）。改用原生 `replace` 链与 find+substr 渐进切片（字节一致语义，实测 find/substr/replace 均按字节索引且保多字节）后，中文路径/标题/正文全链路逐字一致。`for ch in str` 产出**整数码点**而非字符（且无码点→字符转换），字符级走查不可用。
+12. **（T-01 补录）a2r（rust 后端）转译/编译面缺陷群**（`auto run` 缺省轨当前无法承载本模块，阻断证据=构建错误清单）：
+    - `#[api]` 端点类型必须住 api.at（types.rs 仅收 api.at 的 pub 类型并给 serde 派生；其他模块的 pub struct 无 serde 派生，进不了 JsonResponse）；
+    - 非 api/db 模块构造 api 导入类型 → 转译报误导性 `undefined variable`（同文件 own-type 构造在前还会毒化后续导入类型构造）；
+    - 动态 JSON 字段访问不转译（`parsed.books` → `Value.books`，E0609 ×13）；
+    - `auto_lang::a2r_std` 缺 `uuid`/`time`（转译器 emits、std 缺失）；
+    - path-form `use src.back.x` 生成 `src::back::x` 与平坦 crate 布局不符（E0433）→ 共享模块只能 bare `use x`（生成 `crate::x` ✓），但 bare 形式在 VM 测试装置（#[test] 发现）下不可解析——两轨语法要求冲突；
+    - `substr` 链式调用 i64/i32 失配；基线 `db.at get_chapter` 回退构造也被当前 dirty 构建转译坏（E0308）。
+    结论：rust 后端轨登记为跨仓能力计划候选（auto-lang 仓库），本计划双轨交付改为 `auto run --server=vm`（Vue 前端 + AutoVM HTTP 后端）与 `auto run -r vm --server=vm`（VM 全轨），两条轨均实测通过（见 T-01 证据）。
 
 ## 对 READER-001 设计的决定
 

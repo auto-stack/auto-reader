@@ -1,0 +1,653 @@
+// library.at — READER-001 真实书库存储、导入事务与位置恢复数据服务。
+// 职责：受管副本、library.json 索引、去重（source_hash）、可恢复移除。
+// 双轨纪律（T-00 能力报告）：只用 a2r 已映射 native——fs.exists/is_dir/
+// file_size/read_text/write_text/create_dir、File.read_text_range、str.uuid、
+// Env.get、json.parse；路径助手用 pathx（fs.join/parent 等 VM-only）。
+// 持久化写侧手工转义（pathx.json_escape），读侧 json.parse——json.encode
+// 对动态 map 在 VM 轨只回内部句柄，不可用作持久化（实测记录）。
+//
+// 无状态 + JSON 字符串表面（T-01 实测裁定，VM/a2r 缺陷规避）：
+//   a) 不做进程内缓存——跨调用的类型化 struct 列表元素字段读取不稳。
+//      每次公开调用从 library.json 现读、改完即写；单写入者（同数据目录
+//      同时只跑一个运行时实例），并发写不在 v1 范围。
+//   b) 本模块不构造、不引用 api 端点类型——非 api/db 模块构造 api 导入
+//      类型在 a2r 转译面报 undefined（T-01 实测）。公开面全部为标量与
+//      JSON 字符串；db.at 解析后构造端点类型（基线 create_book 已证 db.at
+//      可构造 api 类型）。
+//   c) struct/List 不作 fn 参数；fn 实参先绑定局部变量；拼接链每步
+//      ≤2 操作数。
+//   d) json.parse 数组用 for-in 遍历（len()/索引有在册缺陷 F-8）。
+//
+// 数据目录（AUTO_READER_DATA env → USERPROFILE/.autoreader → ./.autoreader-data）：
+//   library.json          书目索引（全部记录，version:1）
+//   library.json.bak      上一次成功写入前的备份（AC-05 迁移前备份）
+//   removed.jsonl         移除记录（JSONL，可恢复；restore 后行剔除）
+//   books/<hash 目录>/original.<ext>   受管副本（按内容指纹寻址）
+//
+// 导入事务：校验（存在/非目录/非空/可解码）→ ph1 指纹 → 受管副本落盘
+// → 追加索引 → 索引落盘；任一步失败不产生"成功却缺原文件"的记录。
+// 编码检测双轨：envelope total==-1（头部 64KB）+ read_text 长度对账全文。
+
+use pathx: join, basename, stem_of, mkdirs, json_escape, normalize
+use hashx: ph1
+use importers: parse_book_json, format_of
+
+fn empty_str() str {
+    return ""
+}
+
+// ═══════════════════════════════════════════════════════════
+// 路径
+// ═══════════════════════════════════════════════════════════
+
+/// 数据目录解析（每次调用重算，AUTO_READER_DATA 可在启动前注入）。
+pub fn data_dir() str {
+    let env str = Env.get("AUTO_READER_DATA")
+    if env != "" {
+        return normalize(env)
+    }
+    var home str = Env.get("USERPROFILE")
+    if home == "" {
+        home = Env.get("HOME")
+    }
+    if home != "" {
+        let nh str = normalize(home)
+        return nh + "/.autoreader"
+    }
+    return "./.autoreader-data"
+}
+
+fn lib_path() str {
+    let dd str = data_dir()
+    return join(dd, "library.json")
+}
+
+fn removed_path() str {
+    let dd str = data_dir()
+    return join(dd, "removed.jsonl")
+}
+
+fn hash_dir_of(source_hash str) str {
+    // ':' 在 Windows 目录名非法 → '-'
+    var d str = ""
+    var i int = 0
+    while i < source_hash.len() {
+        let c str = source_hash.substr(i, 1)
+        if c == ":" {
+            d = d + "-"
+        } else {
+            d = d + c
+        }
+        i = i + 1
+    }
+    return d
+}
+
+// ═══════════════════════════════════════════════════════════
+// 序列化助手（只收标量参数）
+// ═══════════════════════════════════════════════════════════
+
+/// 单条记录 JSON（标量入参，步进构建）。
+fn record_json(v1 str, v2 str, v3 str, v4 str, v5 str, v6 str, v7 str, n1 int, n2 int, n3 int, n4 int) str {
+    var out str = "{\"book_id\":\""
+    out = out + json_escape(v1)
+    out = out + "\",\"source_hash\":\""
+    out = out + json_escape(v2)
+    out = out + "\",\"title\":\""
+    out = out + json_escape(v3)
+    out = out + "\",\"author\":\""
+    out = out + json_escape(v4)
+    out = out + "\",\"format\":\""
+    out = out + json_escape(v5)
+    out = out + "\",\"original_path\":\""
+    out = out + json_escape(v6)
+    out = out + "\",\"managed_path\":\""
+    out = out + json_escape(v7)
+    out = out + "\",\"size\":"
+    out = out + n1.to_string()
+    out = out + ",\"chapter_count\":"
+    out = out + n2.to_string()
+    out = out + ",\"import_version\":"
+    out = out + n3.to_string()
+    out = out + ",\"created_at\":"
+    out = out + n4.to_string()
+    out = out + "}"
+    return out
+}
+
+/// 单章 JSON（标量入参）。
+pub fn chapter_json_raw(n int, title str, body str, wc int) str {
+    var out str = "{\"number\":"
+    out = out + n.to_string()
+    out = out + ",\"title\":\""
+    out = out + json_escape(title)
+    out = out + "\",\"body\":\""
+    out = out + json_escape(body)
+    out = out + "\",\"word_count\":"
+    out = out + wc.to_string()
+    out = out + "}"
+    return out
+}
+
+/// 现读 library.json 并重序列化为规范全文（动态值直读——可靠形态）。
+/// 文件缺失/为空返回空表；返回 "" 表示解析失败。
+pub fn books_json() str {
+    let lp str = lib_path()
+    if !fs.exists(lp) {
+        return "{\"version\":1,\"books\":[]}"
+    }
+    let raw str = fs.read_text(lp)
+    if raw == "" {
+        return "{\"version\":1,\"books\":[]}"
+    }
+    let parsed = json.parse(raw)
+    var out str = "{\"version\":1,\"books\":["
+    let books = parsed.books
+    var i int = 0
+    // json.parse 数组用 for-in（F-8）；fn 实参先绑定局部
+    for b in books {
+        if i > 0 {
+            out = out + ","
+        }
+        let v1 str = "" + b.book_id
+        let v2 str = "" + b.source_hash
+        let v3 str = "" + b.title
+        let v4 str = "" + b.author
+        let v5 str = "" + b.format
+        let v6 str = "" + b.original_path
+        let v7 str = "" + b.managed_path
+        let n1 int = b.size
+        let n2 int = b.chapter_count
+        let n3 int = b.import_version
+        let n4 int = b.created_at
+        let rj str = record_json(v1, v2, v3, v4, v5, v6, v7, n1, n2, n3, n4)
+        out = out + rj
+        i = i + 1
+    }
+    out = out + "]}"
+    return out
+}
+
+/// 按 book_id 取单条记录 JSON；未找到返回 ""。
+pub fn book_json(book_id str) str {
+    let cur str = books_json()
+    let parsed = json.parse(cur)
+    let books = parsed.books
+    for b in books {
+        let v1 str = "" + b.book_id
+        if v1 == book_id {
+            let v2 str = "" + b.source_hash
+            let v3 str = "" + b.title
+            let v4 str = "" + b.author
+            let v5 str = "" + b.format
+            let v6 str = "" + b.original_path
+            let v7 str = "" + b.managed_path
+            let n1 int = b.size
+            let n2 int = b.chapter_count
+            let n3 int = b.import_version
+            let n4 int = b.created_at
+            return record_json(v1, v2, v3, v4, v5, v6, v7, n1, n2, n3, n4)
+        }
+    }
+    return empty_str()
+}
+
+/// 索引落盘（含 AC-05 迁移前备份）。payload 为完整 library.json 内容。
+fn write_library_file(payload str) int {
+    let lp str = lib_path()
+    let dd str = data_dir()
+    let mrc int = mkdirs(dd)
+    if mrc != 0 {
+        return mrc
+    }
+    if fs.exists(lp) {
+        let bak str = lp + ".bak"
+        let prev str = fs.read_text(lp)
+        fs.write_text(bak, prev)
+    }
+    return fs.write_text(lp, payload)
+}
+
+/// 受管副本全文（书不存在或文件被外删时回 ""，由调用方报缺失）。
+pub fn content_of(book_id str) str {
+    let rj str = book_json(book_id)
+    if rj == "" {
+        return ""
+    }
+    let r = json.parse(rj)
+    let mp str = "" + r.managed_path
+    if !fs.exists(mp) {
+        return ""
+    }
+    return fs.read_text(mp)
+}
+
+// ═══════════════════════════════════════════════════════════
+// 目录与单章（JSON 字符串面）
+// ═══════════════════════════════════════════════════════════
+
+/// 真实书目录 JSON：[{"number":n,"title":t},...]；书缺失/副本缺失 → []。
+pub fn toc_json(book_id str) str {
+    let text str = content_of(book_id)
+    if text == "" {
+        return "[]"
+    }
+    let rj str = book_json(book_id)
+    let r = json.parse(rj)
+    let mp str = "" + r.managed_path
+    let ttl str = "" + r.title
+    let fmt str = format_of(mp)
+    // 章节数据经 importers 的 JSON 面 + 本帧动态解析（跨模块 struct 的
+    // str 字段直读不可靠，T-01 实测；动态 json 字段访问双轨可靠）
+    let raw str = parse_book_json(text, fmt, ttl)
+    let wrapper = json.parse(raw)
+    let arr = wrapper.chapters
+    var out str = "["
+    var i int = 0
+    for it in arr {
+        if i > 0 {
+            out = out + ","
+        }
+        let n int = it.number
+        let t str = "" + it.title
+        let ej str = chapter_json_raw(n, t, "", 0)
+        out = out + ej
+        i = i + 1
+    }
+    out = out + "]"
+    return out
+}
+
+/// 真实书单章 JSON；书/副本/章节缺失返回 word_count=0 的占位对象
+/// （title="内容缺失"/"章节不存在"，前端按未找到处理）。
+pub fn chapter_json(book_id str, number int) str {
+    let text str = content_of(book_id)
+    if text == "" {
+        return chapter_json_raw(number, "内容缺失", "", 0)
+    }
+    let rj str = book_json(book_id)
+    let r = json.parse(rj)
+    let mp str = "" + r.managed_path
+    let ttl str = "" + r.title
+    let fmt str = format_of(mp)
+    let raw str = parse_book_json(text, fmt, ttl)
+    let wrapper = json.parse(raw)
+    let arr = wrapper.chapters
+    for it in arr {
+        if it.number == number {
+            let n int = it.number
+            let t str = "" + it.title
+            let b str = "" + it.body
+            let w int = it.word_count
+            return chapter_json_raw(n, t, b, w)
+        }
+    }
+    return chapter_json_raw(number, "章节不存在", "", 0)
+}
+
+// ═══════════════════════════════════════════════════════════
+// 导入事务
+// ═══════════════════════════════════════════════════════════
+
+/// 导入结果 JSON：{"code","message","book_id","existing_id"}。
+/// code: ok | duplicate | invalid_path | is_dir | empty_file | decode_error
+/// | io_error。duplicate 时 existing_id 指向已存书目。
+pub fn import_book_json(path str, author str, force bool) str {
+    let trimmed str = path.trim()
+    let p str = normalize(trimmed)
+    if p == "" {
+        return "{\"code\":\"invalid_path\",\"message\":\"路径为空\",\"book_id\":\"\",\"existing_id\":\"\"}"
+    }
+    if !fs.exists(p) {
+        var m str = "{\"code\":\"invalid_path\",\"message\":\"文件不存在: "
+        m = m + json_escape(p)
+        m = m + "\",\"book_id\":\"\",\"existing_id\":\"\"}"
+        return m
+    }
+    if fs.is_dir(p) {
+        var m2 str = "{\"code\":\"is_dir\",\"message\":\"路径是目录而非文件: "
+        m2 = m2 + json_escape(p)
+        m2 = m2 + "\",\"book_id\":\"\",\"existing_id\":\"\"}"
+        return m2
+    }
+    let size int = fs.file_size(p)
+    if size <= 0 {
+        return "{\"code\":\"empty_file\",\"message\":\"文件为空\",\"book_id\":\"\",\"existing_id\":\"\"}"
+    }
+    // 头部 64KB 解码检查（envelope total==-1 = 非法 UTF-8/IO 失败）
+    let head_env str = File.read_text_range(p, 0, 65536)
+    let head = json.parse(head_env)
+    if head.total == -1 {
+        return "{\"code\":\"decode_error\",\"message\":\"无法解码：不是有效的 UTF-8 文本\",\"book_id\":\"\",\"existing_id\":\"\"}"
+    }
+    // 全文解码对账（非法 UTF-8 时 read_text 双轨均回 ""，长度必不等）
+    let text str = fs.read_text(p)
+    if text.len() != size {
+        return "{\"code\":\"decode_error\",\"message\":\"无法解码：文件含无效 UTF-8 序列或读取失败\",\"book_id\":\"\",\"existing_id\":\"\"}"
+    }
+    let fmt str = format_of(p)
+    let base str = basename(p)
+    let title str = stem_of(base)
+    var who str = author
+    if who.trim() == "" {
+        who = "未知"
+    }
+    let hash str = ph1(text, size)
+    // 去重：现读索引动态扫描同指纹
+    let cur str = books_json()
+    let parsed = json.parse(cur)
+    let books = parsed.books
+    var dup_id str = ""
+    var dup_title str = ""
+    for b in books {
+        let bsh str = "" + b.source_hash
+        if bsh == hash {
+            dup_id = "" + b.book_id
+            dup_title = "" + b.title
+        }
+    }
+    if dup_id != "" {
+        if !force {
+            var dm str = "{\"code\":\"duplicate\",\"message\":\"已存在相同内容的书: "
+            dm = dm + json_escape(dup_title)
+            dm = dm + "\",\"book_id\":\"\",\"existing_id\":\""
+            dm = dm + json_escape(dup_id)
+            dm = dm + "\"}"
+            return dm
+        }
+    }
+    // 受管副本（内容寻址；同指纹 force 复用同一副本）
+    let dd str = data_dir()
+    let books_root str = join(dd, "books")
+    let hdir str = hash_dir_of(hash)
+    let dir str = join(books_root, hdir)
+    let mrc int = mkdirs(dir)
+    if mrc != 0 {
+        var em str = "{\"code\":\"io_error\",\"message\":\"书库目录创建失败 rc="
+        em = em + mrc.to_string()
+        em = em + "\",\"book_id\":\"\",\"existing_id\":\"\"}"
+        return em
+    }
+    var ext_name str = "txt"
+    if fmt == "md" {
+        ext_name = "md"
+    }
+    let fname str = "original." + ext_name
+    let managed str = join(dir, fname)
+    if !fs.exists(managed) {
+        let wrc int = fs.write_text(managed, text)
+        if wrc != 0 {
+            var wm str = "{\"code\":\"io_error\",\"message\":\"受管副本写入失败 rc="
+            wm = wm + wrc.to_string()
+            wm = wm + "\",\"book_id\":\"\",\"existing_id\":\"\"}"
+            return wm
+        }
+    }
+    let chs_raw str = parse_book_json(text, fmt, title)
+    let wrapper = json.parse(chs_raw)
+    let chs = wrapper.chapters
+    var nch int = 0
+    for c in chs {
+        nch = nch + 1
+    }
+    let bid str = str.uuid()
+    // 新记录：created_at v1 恒 0（a2r_std 无 time 模块，框架债见 T-00 报告）
+    let nrj str = record_json(bid, hash, title, who, fmt, p, managed, size, nch, 1, 0)
+    // 索引追加：现有记录重序列化 + 新记录
+    var payload str = "{\"version\":1,\"books\":["
+    var i int = 0
+    for b in books {
+        if i > 0 {
+            payload = payload + ","
+        }
+        let v1 str = "" + b.book_id
+        let v2 str = "" + b.source_hash
+        let v3 str = "" + b.title
+        let v4 str = "" + b.author
+        let v5 str = "" + b.format
+        let v6 str = "" + b.original_path
+        let v7 str = "" + b.managed_path
+        let n1 int = b.size
+        let n2 int = b.chapter_count
+        let n3 int = b.import_version
+        let n4 int = b.created_at
+        let rj str = record_json(v1, v2, v3, v4, v5, v6, v7, n1, n2, n3, n4)
+        payload = payload + rj
+        i = i + 1
+    }
+    if i > 0 {
+        payload = payload + ","
+    }
+    payload = payload + nrj
+    payload = payload + "]}"
+    let src int = write_library_file(payload)
+    if src != 0 {
+        var sm str = "{\"code\":\"io_error\",\"message\":\"书库索引写入失败 rc="
+        sm = sm + src.to_string()
+        sm = sm + "\",\"book_id\":\"\",\"existing_id\":\"\"}"
+        return sm
+    }
+    var okm str = "{\"code\":\"ok\",\"message\":\"导入成功\",\"book_id\":\""
+    okm = okm + json_escape(bid)
+    okm = okm + "\",\"existing_id\":\""
+    okm = okm + json_escape(dup_id)
+    okm = okm + "\"}"
+    return okm
+}
+
+/// 移除结果 JSON：{"ok":bool,"message":str}。
+pub fn remove_book_json(book_id str) str {
+    let err str = remove_book(book_id)
+    if err == "" {
+        return "{\"ok\":true,\"message\":\"\"}"
+    }
+    var out str = "{\"ok\":false,\"message\":\""
+    out = out + json_escape(err)
+    out = out + "\"}"
+    return out
+}
+
+/// 恢复结果 JSON：{"ok":bool,"message":str}。
+pub fn restore_book_json(book_id str) str {
+    let err str = restore_book(book_id)
+    if err == "" {
+        return "{\"ok\":true,\"message\":\"\"}"
+    }
+    var out str = "{\"ok\":false,\"message\":\""
+    out = out + json_escape(err)
+    out = out + "\"}"
+    return out
+}
+
+// ═══════════════════════════════════════════════════════════
+// 可恢复移除（AC-05：默认不动用户原路径文件，受管副本保留）
+// ═══════════════════════════════════════════════════════════
+
+/// 移除书目：仅从索引剔除并登记 removed.jsonl；受管副本与用户原文件不动。
+/// 返回 "" = 成功，否则为错误消息。
+pub fn remove_book(book_id str) str {
+    let cur str = books_json()
+    let parsed = json.parse(cur)
+    let books = parsed.books
+    var found bool = false
+    var entry str = ""
+    var payload str = "{\"version\":1,\"books\":["
+    var i int = 0
+    for b in books {
+        let bid str = "" + b.book_id
+        if bid == book_id {
+            found = true
+            // 就地登记（先于索引改写：崩溃时最多"已移除但仍可见"）
+            let v1 str = "" + b.book_id
+            let v2 str = "" + b.source_hash
+            let v3 str = "" + b.title
+            let v4 str = "" + b.author
+            let v5 str = "" + b.format
+            let v6 str = "" + b.original_path
+            let v7 str = "" + b.managed_path
+            let n1 int = b.size
+            let n2 int = b.chapter_count
+            let n3 int = b.import_version
+            let n4 int = b.created_at
+            let rj str = record_json(v1, v2, v3, v4, v5, v6, v7, n1, n2, n3, n4)
+            entry = "{\"book_id\":\""
+            entry = entry + v1
+            entry = entry + "\",\"removed_at\":0"
+            entry = entry + ",\"record\":"
+            entry = entry + rj
+            entry = entry + "}"
+        } else {
+            if i > 0 {
+                payload = payload + ","
+            }
+            let v1 str = "" + b.book_id
+            let v2 str = "" + b.source_hash
+            let v3 str = "" + b.title
+            let v4 str = "" + b.author
+            let v5 str = "" + b.format
+            let v6 str = "" + b.original_path
+            let v7 str = "" + b.managed_path
+            let n1 int = b.size
+            let n2 int = b.chapter_count
+            let n3 int = b.import_version
+            let n4 int = b.created_at
+            let rj str = record_json(v1, v2, v3, v4, v5, v6, v7, n1, n2, n3, n4)
+            payload = payload + rj
+            i = i + 1
+        }
+    }
+    if !found {
+        return "book not found"
+    }
+    payload = payload + "]}"
+    // JSONL 行式登记（追加=拼行，恢复=按行剔除）
+    let rp str = removed_path()
+    var log str = ""
+    if fs.exists(rp) {
+        log = fs.read_text(rp)
+    }
+    var next str = log
+    if next != "" {
+        let tail str = next.substr(next.len() - 1, 1)
+        if tail != "\n" {
+            next = next + "\n"
+        }
+    }
+    next = next + entry
+    next = next + "\n"
+    let wrc int = fs.write_text(rp, next)
+    if wrc != 0 {
+        return "removed.jsonl write failed rc=" + wrc.to_string()
+    }
+    let src int = write_library_file(payload)
+    if src != 0 {
+        return "library write failed rc=" + src.to_string()
+    }
+    return ""
+}
+
+/// 恢复指定书目（removed.jsonl 中取该 id 的记录重加入索引），成功后从
+/// removed.jsonl 剔除该行。返回 "" = 成功。
+pub fn restore_book(book_id str) str {
+    let rp str = removed_path()
+    if !fs.exists(rp) {
+        return "no removed records"
+    }
+    let raw str = fs.read_text(rp)
+    if raw == "" {
+        return "no removed records"
+    }
+    let lines = raw.split("\n")
+    var rec_json str = ""
+    var i int = 0
+    while i < lines.len() {
+        let line str = "" + lines[i]
+        if line.trim() != "" {
+            let e = json.parse(line)
+            let ebid str = "" + e.book_id
+            if ebid == book_id {
+                rec_json = line
+            }
+        }
+        i = i + 1
+    }
+    if rec_json == "" {
+        return "book not in removed records"
+    }
+    let entry = json.parse(rec_json)
+    let rec = entry.record
+    let v1 str = "" + rec.book_id
+    let v2 str = "" + rec.source_hash
+    let v3 str = "" + rec.title
+    let v4 str = "" + rec.author
+    let v5 str = "" + rec.format
+    let v6 str = "" + rec.original_path
+    let v7 str = "" + rec.managed_path
+    let n1 int = rec.size
+    let n2 int = rec.chapter_count
+    let n3 int = rec.import_version
+    let n4 int = rec.created_at
+    let rj str = record_json(v1, v2, v3, v4, v5, v6, v7, n1, n2, n3, n4)
+    let cur str = books_json()
+    let parsed = json.parse(cur)
+    let books = parsed.books
+    var exists bool = false
+    var payload str = "{\"version\":1,\"books\":["
+    var j int = 0
+    for b in books {
+        let bbid str = "" + b.book_id
+        if bbid == book_id {
+            exists = true
+        }
+        if j > 0 {
+            payload = payload + ","
+        }
+        let w1 str = "" + b.book_id
+        let w2 str = "" + b.source_hash
+        let w3 str = "" + b.title
+        let w4 str = "" + b.author
+        let w5 str = "" + b.format
+        let w6 str = "" + b.original_path
+        let w7 str = "" + b.managed_path
+        let m1 int = b.size
+        let m2 int = b.chapter_count
+        let m3 int = b.import_version
+        let m4 int = b.created_at
+        let rj2 str = record_json(w1, w2, w3, w4, w5, w6, w7, m1, m2, m3, m4)
+        payload = payload + rj2
+        j = j + 1
+    }
+    if !exists {
+        if j > 0 {
+            payload = payload + ","
+        }
+        payload = payload + rj
+    }
+    payload = payload + "]}"
+    let src int = write_library_file(payload)
+    if src != 0 {
+        return "library write failed rc=" + src.to_string()
+    }
+    // 从 removed.jsonl 剔除该行（其余原样保留）
+    var kept str = ""
+    var k int = 0
+    while k < lines.len() {
+        let line str = "" + lines[k]
+        if line.trim() != "" {
+            if line != rec_json {
+                kept = kept + line
+                kept = kept + "\n"
+            }
+        }
+        k = k + 1
+    }
+    fs.write_text(rp, kept)
+    return ""
+}
+
+// ---- 单测说明 ----
+// library 级事务测试不放 #[test]：VM 测试装置在「跨模块调用 + var 局部
+// 字符串累积」时会把模块变量名混入局部值（T-01 实测记录，pathx/hashx/
+// importers 自包含测试不受影响）。
+// 本模块行为由 tests/spec/t01_library_spec.as（脚本模式，跨模块无此缺陷）
+// 与运行中应用的 HTTP 端点验证共同覆盖。

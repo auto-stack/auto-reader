@@ -3,6 +3,7 @@
 // NOTE: seed strings ASCII-only (field-splitter limitation, see 017-chat).
 
 use api: Book, Chapter
+use library: books_json, book_json, toc_json, chapter_json, import_book_json, remove_book_json, restore_book_json
 
 // ═══════════════════════════════════════════════════════════
 // In-memory storage
@@ -171,4 +172,37 @@ pub fn get_chapter(book_id int, number int) Chapter {
         return found
     }
     return found
+}
+
+// ═══════════════════════════════════════════════════════════
+// READER-001 真实书库（library.at JSON 字符串直通——端点类型构造的
+// a2r 缺陷规避，见 api.at 头注；前端 json.parse 动态取用）
+// ═══════════════════════════════════════════════════════════
+
+pub fn library_books() str {
+    return books_json()
+}
+
+pub fn library_import(path str, author str, force bool) str {
+    return import_book_json(path, author, force)
+}
+
+pub fn library_book(id str) str {
+    return book_json(id)
+}
+
+pub fn library_remove(id str) str {
+    return remove_book_json(id)
+}
+
+pub fn library_restore(id str) str {
+    return restore_book_json(id)
+}
+
+pub fn library_toc(id str) str {
+    return toc_json(id)
+}
+
+pub fn library_chapter(book_id str, number int) str {
+    return chapter_json(book_id, number)
 }

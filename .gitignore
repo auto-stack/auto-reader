@@ -36,3 +36,6 @@ __pycache__/
 /tmp/
 /test-results/
 /playwright-report/
+
+# a2r single-file transpile artifacts
+*.a2r.rs

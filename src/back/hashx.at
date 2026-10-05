@@ -1,0 +1,69 @@
+// hashx.at — READER-001 内容指纹（source_hash）。
+// 背景（T-00 能力报告）：hash.* native 无 a2r 映射（VM-only），sha256 双轨
+// 不可用。v1 采用纯 .at 逐行多项式指纹：对全文按行取 (行字节长, 前 64 字符
+// 码点) 折叠进模大质数空间，外拼文件字节数。char_at 按字符索引取码点，
+// VM/a2r 同语义（s.chars().nth(i)）。算法名 ph1 随 source_hash 前缀落库，
+// import_version 升级时可换算法不影响旧记录判读。
+// 语义边界（如实记录）：ph1 保证同一文件重复导入稳定同值；不同内容撞值
+// 概率极低但非密码学零——撞值时的表现是「重复导入提示」，用户仍可选择
+// 保留独立副本，不产生静默覆盖。超长单行只折叠前 64 字符（行长字节信息
+// 已单独入折），防止超长行解释循环拖慢导入。
+// 实现注记：模数/乘数用字面量内联——模块级数值常量在 #[test] 上下文曾
+// 未初始化（除零），字面量规避（T-01 实测记录）。
+
+/// 首字符折叠值：空行贡献 0；多字节字符取整字符比较无歧义
+/// （for-in 对 str 按字符迭代，VM/a2r 同语义，见 T-00 探针）。
+fn fold_line(h int, line str) int {
+    var acc int = (h * 131 + line.len() + 1) % 1000000007
+    var i int = 0
+    while i < 64 {
+        let cp int = line.char_at(i)
+        if cp == 0 {
+            break
+        }
+        acc = (acc * 131 + cp + 1) % 1000000007
+        i = i + 1
+    }
+    return acc
+}
+
+/// ph1 指纹："ph1:<size>:<fold>"。text 为已验证 UTF-8 全文，size 为原文件
+/// 字节数（fs.file_size）。
+pub fn ph1(text str, size int) str {
+    var h int = 17
+    var lines = text.split("\n")
+    var i int = 0
+    while i < lines.len() {
+        h = fold_line(h, lines[i])
+        i = i + 1
+    }
+    h = (h * 131 + size % 1000000007 + 1) % 1000000007
+    return "ph1:" + size.to_string() + ":" + h.to_string()
+}
+
+// ---- 同模块单测 ----
+// 测试纪律：assert_eq 宏在测试上下文对非字面量实参行为异常（实测把字符串
+// 比较 eval 成对象句柄），字符串/布尔断言一律走 expect()（028 if-form 封装）。
+
+fn expect(cond bool) {
+    if cond {
+        assert_eq(1, 1)
+    } else {
+        assert_eq(1, 0)
+    }
+}
+
+#[test]
+fn t_ph1_stable_and_discriminating() {
+    let a = ph1("第一章 山月\n正文一段\n正文二段\n", 30)
+    let b = ph1("第一章 山月\n正文一段\n正文二段\n", 30)
+    expect(a == b)
+    let c = ph1("第一章 山月\n正文一段 changed\n", 26)
+    expect(!(a == c))
+    let d = ph1("", 0)
+    expect(d.substr(0, 4) == "ph1:")
+    // 同内容不同 size（例如换行差异）→ 不同指纹
+    let e = ph1("x\ny\n", 4)
+    let f = ph1("x\ny", 3)
+    expect(!(e == f))
+}

@@ -1,0 +1,195 @@
+// pathx.at — READER-001 纯 Auto 路径/文本助手。
+// 背景（T-00 能力报告）：fs.join/parent/basename 等目录类 native 只有 VM 面
+// （a2r 生成裸调用 E0425），因此书库共享代码的路径拼装/解析必须用本模块的
+// 纯 .at 实现，保证 Vue(rust back) 与 VM 双轨同语义。分隔符统一以 '/' 存储与
+// 比较，仅在调用 fs.* 前保持原样（Windows API 接受 '/'）。
+
+/// 路径拼装：base 为空返回 rest；避免双分隔符。
+pub fn join(base str, rest str) str {
+    if base == "" {
+        return rest
+    }
+    if rest == "" {
+        return base
+    }
+    var b str = base
+    let last str = b.substr(b.len() - 1, 1)
+    if last == "/" || last == "\\" {
+        b = b.substr(0, b.len() - 1)
+    }
+    let first str = rest.substr(0, 1)
+    if first == "/" || first == "\\" {
+        return b + rest
+    }
+    return b + "/" + rest
+}
+
+/// 最后一个路径段（文件名或末级目录名）。'/','\' 均为分隔符。
+pub fn basename(p str) str {
+    if p == "" {
+        return ""
+    }
+    var i int = p.len() - 1
+    while i >= 0 {
+        let c str = p.substr(i, 1)
+        if c == "/" || c == "\\" {
+            return p.substr(i + 1, p.len() - i - 1)
+        }
+        i = i - 1
+    }
+    return p
+}
+
+/// 最后一个路径段之前的完整前缀；无分隔符返回 ""。
+pub fn parent(p str) str {
+    var i int = p.len() - 1
+    while i >= 0 {
+        let c str = p.substr(i, 1)
+        if c == "/" || c == "\\" {
+            return p.substr(0, i)
+        }
+        i = i - 1
+    }
+    return ""
+}
+
+/// 含点扩展名（"a.txt" → ".txt"；无扩展名返回 ""）。
+pub fn ext_of(p str) str {
+    let name str = basename(p)
+    var i int = name.len() - 1
+    while i >= 0 {
+        let c str = name.substr(i, 1)
+        if c == "." {
+            if i == 0 {
+                return ""
+            }
+            return name.substr(i, name.len() - i)
+        }
+        i = i - 1
+    }
+    return ""
+}
+
+/// 去扩展名的文件主名（"notes.txt" → "notes"）。
+pub fn stem_of(p str) str {
+    let name str = basename(p)
+    var i int = name.len() - 1
+    while i >= 0 {
+        let c str = name.substr(i, 1)
+        if c == "." {
+            if i == 0 {
+                return name
+            }
+            return name.substr(0, i)
+        }
+        i = i - 1
+    }
+    return name
+}
+
+/// 逐级建目录（fs.mkdir_all 无 a2r 映射的替代；已存在不报错）。
+/// 返回 0 = 全部就绪，非 0 = 首个失败段的 create_dir 返回码。
+pub fn mkdirs(path str) int {
+    if path == "" {
+        return 0
+    }
+    let p str = normalize(path)
+    if fs.exists(p) {
+        return 0
+    }
+    // 逐段累积创建；绝对路径的 "C:" 段跳过 create_dir
+    var acc str = ""
+    var segs = p.split("/")
+    var i int = 0
+    while i < segs.len() {
+        let seg str = segs[i]
+        if acc == "" {
+            acc = seg
+        } else {
+            acc = acc + "/" + seg
+        }
+        if seg == "" {
+            i = i + 1
+            continue
+        }
+        if acc.substr(acc.len() - 1, 1) == ":" {
+            i = i + 1
+            continue
+        }
+        if !fs.exists(acc) {
+            let rc int = fs.create_dir(acc)
+            if rc != 0 {
+                if !fs.exists(acc) {
+                    return rc
+                }
+            }
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+/// '\' 归一为 '/'（存储与比较统一形态）。
+pub fn normalize(p str) str {
+    // 原生 replace（多字节安全——逐字节 substr 走查会吞掉路径中的
+    // 多字节字符，T-01 实测修正）
+    return p.replace("\\", "/")
+}
+
+/// JSON 字符串转义（原生 replace 链，多字节安全——逐字节 substr 走查
+/// 会吞掉全部多字节字符，T-01 实测修正）。先替换反斜杠避免二次转义。
+pub fn json_escape(s str) str {
+    var out str = s
+    if out.find("\\") >= 0 {
+        out = out.replace("\\", "\\\\")
+    }
+    if out.find("\"") >= 0 {
+        out = out.replace("\"", "\\\"")
+    }
+    if out.find("\n") >= 0 {
+        out = out.replace("\n", "\\n")
+    }
+    if out.find("\r") >= 0 {
+        out = out.replace("\r", "\\r")
+    }
+    if out.find("\t") >= 0 {
+        out = out.replace("\t", "\\t")
+    }
+    return out
+}
+
+// ---- 同模块单测 ----
+// 测试纪律：assert_eq 宏在测试上下文对非字面量实参行为异常（实测把字符串
+// 比较 eval 成对象句柄），字符串/布尔断言一律走 expect()（028 if-form 封装）。
+
+fn expect(cond bool) {
+    if cond {
+        assert_eq(1, 1)
+    } else {
+        assert_eq(1, 0)
+    }
+}
+
+#[test]
+fn t_join_and_parts() {
+    expect(join("a", "b") == "a/b")
+    expect(join("", "b") == "b")
+    expect(join("a/", "b") == "a/b")
+    expect(join("a", "/b") == "a/b")
+    expect(basename("D:/x/y/book.txt") == "book.txt")
+    expect(basename("book.txt") == "book.txt")
+    expect(parent("D:/x/y/book.txt") == "D:/x/y")
+    expect(parent("book.txt") == "")
+    expect(ext_of("a/b/c.md") == ".md")
+    expect(ext_of("noext") == "")
+    expect(stem_of("notes.txt") == "notes")
+    expect(stem_of("archive.tar.gz") == "archive.tar")
+}
+
+#[test]
+fn t_json_escape() {
+    expect(json_escape("say \"hi\"") == "say \\\"hi\\\"")
+    expect(json_escape("line1\nline2") == "line1\\nline2")
+    expect(json_escape("back\\slash") == "back\\\\slash")
+    expect(json_escape("tab\there") == "tab\\there")
+}
