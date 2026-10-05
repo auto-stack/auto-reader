@@ -607,10 +607,14 @@ pub fn restore_book_json(book_id str) str {
 // 阅读状态（ReadingState + Locator v1 + settings 基础）
 // 存储：<data>/reading/<book_id>.json，逐书一份；书删除时状态保留
 // （恢复书目后阅读位置随之恢复）。
-// Locator v1（TXT/MD 单资源语义，PRODUCT DESIGN §3 的可落地面）：
-//   chapter_number + paragraph_index + quote_prefix（定位段落首 ≤64 字符，
-//   恢复时校验章节与段落文本前缀，不匹配则标记需重定位）。
-//   定位不存像素/百分比；settings（font_size/line_height）随状态持久化。
+// Locator v1（TXT/MD 单资源语义，PRODUCT DESIGN §3 的可落地面；
+// Phase 2 / SD-03 修订）：
+//   chapter_number + paragraph_index（原文行号，-1 = 章级书签）
+//   + para_hash（段文本锚点签名 sig1:<字符长>:1，写入与恢复双侧校验）
+//   + quote_prefix（段首前缀 ≤64 字符，可选备注位）。
+//   写侧 schema 强校验（严格整数/枚举/范围/锚点一致，见 put_reading_json）；
+//   读侧容错（坏状态不冒充有效状态）；定位不存像素/百分比；
+//   settings（font_size/line_height）随状态持久化。
 // ═══════════════════════════════════════════════════════════
 
 fn reading_dir() str {
@@ -624,7 +628,9 @@ fn reading_path(book_id str) str {
     return join(rd, fname)
 }
 
-/// 读取阅读状态 JSON；无记录返回 ""。
+/// 读取阅读状态 JSON；无记录返回 ""。读侧容错（F-04）：存在但内容为空
+/// 或解析失败（畸形/截断）→ 返回 ""（前端按无状态处理，绝不把坏文件
+/// 冒充有效状态），损坏文件原样保留供诊断，不被后续写入静默覆盖。
 pub fn get_reading_json(book_id str) str {
     let rp str = reading_path(book_id)
     if !fs.exists(rp) {
@@ -634,47 +640,265 @@ pub fn get_reading_json(book_id str) str {
     if raw == "" {
         return ""
     }
+    var ok bool = false
+    try {
+        let v = json.parse(raw)
+        // 有解析结果即认读（结构由写侧 schema 保证）；再要求为对象形态
+        let t str = "" + v.book_id
+        if t != "" {
+            ok = true
+        }
+    } catch {
+        ok = false
+    }
+    if !ok {
+        return ""
+    }
     return raw
 }
 
-/// 写入阅读状态。校验：书必须在库、payload 必须是 JSON 对象且包含该
-/// book_id（最小校验——完整 schema 由前端契约保证，见 spec 增量）。
-/// 返回 "" = 成功，否则错误消息。
+/// 统计 tag 在 s 中的出现次数（键重复检测；substr/find 均字符索引）。
+fn count_tag(s str, tag str) int {
+    var n int = 0
+    var pos int = 0
+    while pos <= s.len() {
+        let rest str = s.substr(pos, s.len() - pos)
+        let f int = rest.find(tag)
+        if f < 0 {
+            break
+        }
+        n = n + 1
+        pos = pos + f + tag.len()
+    }
+    return n
+}
+
+/// 严格整数判别：s 必须恰为整数的规范十进制形态（to_int 回环一致）。
+/// 返回整数值；非法回 -2147483647 哨兵（合法域 chapter≥1、paragraph≥-1、
+/// updated_at 任意整数均不含该哨兵）。
+fn strict_int(s str) int {
+    let n int = s.to_int()
+    let back str = n.to_string()
+    if back == s {
+        return n
+    }
+    return -2147483647
+}
+
+/// 状态行锚点签名（与前端 para_hash 同式）：sig1:<长度>:<行数>。
+/// 行文本不含换行，行数恒 1。长度口径**双轨并存**：VM len() 为字节长、
+/// Vue 面为 JS 字符长（同一行内容两种计数值，T-07 实测）——校验按
+/// sig_matches 双口径接受，同轨逐字、跨轨不误拒。
+fn line_sig_matches(line str, ph str) bool {
+    let t str = line.trim()
+    var sig str = "sig1:"
+    sig = sig + t.len().to_string()
+    sig = sig + ":1"
+    if ph == sig {
+        return true
+    }
+    // 字符口径（for-in 逐码点计数）
+    var n int = 0
+    for c in t {
+        n = n + 1
+        if n > 1048576 {
+            break
+        }
+    }
+    var sig2 str = "sig1:"
+    sig2 = sig2 + n.to_string()
+    sig2 = sig2 + ":1"
+    return ph == sig2
+}
+
+/// 错误响应（F-04 起 put 面统一 {"ok":false,"message"} 形态，与成功响应
+/// 同构——错误不再以裸字符串返回）。
+fn reading_err(msg str) str {
+    var out str = "{\"ok\":false,\"message\":\""
+    out = out + json_escape(msg)
+    out = out + "\"}"
+    return out
+}
+
+/// 写入阅读状态（Locator v1 + settings）。校验（F-04 修复——真实解析与
+/// schema，替换旧「首字符 + 子串在场」检查）：
+///   book_id 严格相等（藏在无关字段的 ID 不算数）；chapter_number/
+///   paragraph_index/updated_at 严格整数；chapter ∈ [1, 章节数]；
+///   paragraph ∈ {-1(章级书签)} ∪ {指向本章非空行的原文行号}；
+///   para_hash 必须与该行原文锚点签名一致（防"标了段"假定位）；
+///   font_size/line_height 枚举校验；键重复拒绝。
+/// 校验通过后按备份/暂存/提交协议写入原文 payload（逐字回环）；任一步
+/// 失败不落盘、不损坏上一有效状态。返回 {"ok":bool,"message"}。
 pub fn put_reading_json(book_id str, payload str) str {
     if book_id == "" {
-        return "book_id required"
+        return reading_err("book_id required")
     }
     let rj str = book_json(book_id)
     if rj == "" {
-        return "book not found"
+        return reading_err("book not found")
     }
+    let rec = json.parse(rj)
+    let ch_total int = rec.chapter_count
     let trimmed str = payload.trim()
     if trimmed.substr(0, 1) != "{" {
-        return "payload must be a JSON object"
+        return reading_err("payload must be a JSON object")
     }
-    // 宽松校验（JSON 序列化器的冒号空格风格不定）：键名与 id 值都须在场
-    let key_tag str = "\"book_id\""
-    if trimmed.find(key_tag) < 0 {
-        return "payload book_id mismatch"
+    // 真实解析先行（json.parse 对畸形输入 raise——截断/垃圾文本在此拒绝；
+    // 键重复检查必须在解析之后，否则截断形态会误报「键重复」）
+    var parsed = null
+    try {
+        parsed = json.parse(trimmed)
+    } catch {
+        return reading_err("payload is not valid JSON")
     }
-    if trimmed.find(book_id) < 0 {
-        return "payload book_id mismatch"
+    // 键重复：运行时解析为后值覆盖（探针实测）——身份/定位键必须恰出现
+    // 一次；缺失与重复都拒绝，不给歧义形态落盘机会
+    var tag_n int = count_tag(trimmed, "\"book_id\":")
+    if tag_n == 0 {
+        return reading_err("missing book_id key")
     }
+    if tag_n > 1 {
+        return reading_err("duplicate book_id key")
+    }
+    tag_n = count_tag(trimmed, "\"chapter_number\":")
+    if tag_n == 0 {
+        return reading_err("missing chapter_number key")
+    }
+    if tag_n > 1 {
+        return reading_err("duplicate chapter_number key")
+    }
+    tag_n = count_tag(trimmed, "\"paragraph_index\":")
+    if tag_n == 0 {
+        return reading_err("missing paragraph_index key")
+    }
+    if tag_n > 1 {
+        return reading_err("duplicate paragraph_index key")
+    }
+    // 字段提取（缺字段/null 访问 raise——统一归为 schema 非法；
+    // quote_prefix 为可选备注位，缺省 ""）
+    var bid_s str = ""
+    var ch_s str = ""
+    var pi_s str = ""
+    var ph str = ""
+    var qp str = ""
+    var font str = ""
+    var lineh str = ""
+    var ua_s str = ""
+    var extract_ok bool = true
+    try {
+        bid_s = "" + parsed.book_id
+        ch_s = "" + parsed.chapter_number
+        pi_s = "" + parsed.paragraph_index
+        ph = "" + parsed.para_hash
+        font = "" + parsed.font_size
+        lineh = "" + parsed.line_height
+        ua_s = "" + parsed.updated_at
+        qp = ""
+        try {
+            qp = "" + parsed.quote_prefix
+        } catch {
+            qp = ""
+        }
+    } catch {
+        extract_ok = false
+    }
+    if !extract_ok {
+        return reading_err("payload schema invalid")
+    }
+    if bid_s != book_id {
+        return reading_err("payload book_id mismatch")
+    }
+    let ch int = strict_int(ch_s)
+    if ch < 1 {
+        return reading_err("chapter_number must be an integer >= 1")
+    }
+    if ch > ch_total {
+        return reading_err("chapter_number out of range")
+    }
+    let pi int = strict_int(pi_s)
+    if pi < -1 {
+        return reading_err("paragraph_index must be an integer >= -1")
+    }
+    let ua_back str = strict_int(ua_s).to_string()
+    if ua_back != ua_s {
+        return reading_err("updated_at must be an integer")
+    }
+    if qp.len() > 64 {
+        return reading_err("quote_prefix too long")
+    }
+    var font_ok bool = false
+    if font == "small" {
+        font_ok = true
+    }
+    if font == "medium" {
+        font_ok = true
+    }
+    if font == "large" {
+        font_ok = true
+    }
+    if !font_ok {
+        return reading_err("invalid font_size")
+    }
+    var line_ok bool = false
+    if lineh == "compact" {
+        line_ok = true
+    }
+    if lineh == "comfy" {
+        line_ok = true
+    }
+    if !line_ok {
+        return reading_err("invalid line_height")
+    }
+    if !ph.starts_with("sig1:") {
+        return reading_err("invalid para_hash")
+    }
+    // 段级定位（pi >= 0）：验证资源与原文锚点——行必须在场、非空，且
+    // para_hash 与行文本签名逐字一致
+    if pi >= 0 {
+        let cj str = chapter_json(book_id, ch)
+        let c = json.parse(cj)
+        let ctitle str = "" + c.title
+        if ctitle == "内容缺失" {
+            return reading_err("chapter content unavailable")
+        }
+        if ctitle == "章节不存在" {
+            return reading_err("chapter_number out of range")
+        }
+        let body str = "" + c.body
+        let lines = body.split("\n")
+        if pi >= lines.len() {
+            return reading_err("paragraph_index out of range")
+        }
+        let ln str = "" + lines[pi]
+        if ln.trim() == "" {
+            return reading_err("paragraph_index out of range")
+        }
+        if !line_sig_matches(ln, ph) {
+            return reading_err("paragraph anchor mismatch")
+        }
+    }
+    // 写协议：备份 → 暂存 → 提交，全部读回校验（F-06 同源）；失败不落盘
     let rd str = reading_dir()
     let mrc int = mkdirs(rd)
     if mrc != 0 {
-        return "reading dir create failed rc=" + mrc.to_string()
+        return reading_err("reading dir create failed rc=" + mrc.to_string())
     }
     let rp str = reading_path(book_id)
-    if fs.exists(rp) {
-        // 覆写前留上一份（与 library.json.bak 同语义）
-        let bak str = rp + ".bak"
-        let prev str = fs.read_text(rp)
-        fs.write_text(bak, prev)
+    let wrc int = write_with_backup(rp, trimmed)
+    if wrc == -2 {
+        return reading_err("reading state path occupied")
     }
-    let wrc int = fs.write_text(rp, trimmed)
+    if wrc == -3 {
+        return reading_err("reading state unreadable (empty) — refusing overwrite")
+    }
+    if wrc == -4 {
+        return reading_err("reading state backup failed — state not modified")
+    }
+    if wrc == -5 {
+        return reading_err("reading state stage failed — state not modified")
+    }
     if wrc != 0 {
-        return "reading state write failed rc=" + wrc.to_string()
+        return reading_err("reading state write failed rc=" + wrc.to_string())
     }
     return "{\"ok\":true,\"message\":\"\"}"
 }
