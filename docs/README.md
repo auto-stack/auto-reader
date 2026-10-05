@@ -9,13 +9,13 @@
 
 ## 首批计划
 
-1. [READER-001：真实导入、书库存储与位置恢复](plans/archive/001-real-library.md)（已交付 reviewed→archived，2026-10-05；实现态规范 [docs/specs/reader/real-library.md](../specs/reader/real-library.md)）
+1. [READER-001：真实导入、书库存储与位置恢复](plans/001-real-library.md)（2026-10-05独立复审needs_fix，已重新激活executing/r3，新增Phase 2；现行规范 [docs/specs/reader/real-library.md](specs/reader/real-library.md)，待修正项见计划）
 2. [READER-002：阅读体验、摘录与知识交接](plans/002-reading-annotations.md)
 3. [READER-003：重排版 EPUB 导入与阅读](plans/003-epub-reflow.md)
 
 ## 给执行agent
 
-先读仓根README、SOURCE-IMPORT.json、对应计划和产品设计，再核对当前git状态及源码。所有计划暂为drafting；选定计划后按现有auto-plan规则确认并翻为executing，按任务执行，留证据，经独立复审才合入v0.6-dev。不要执行全部roadmap，不要以写过文档为验收。
+先读仓根README、SOURCE-IMPORT.json、对应计划和产品设计，再核对当前git状态及源码。001已重新激活executing；002/003仍为drafting。选定计划后按现有auto-plan规则执行，按任务执行，留证据，经独立复审才合入v0.6-dev。不要执行全部roadmap，不要以写过文档为验收。
 
 本轮在各独立应用仓内从001–003编号，plan_id带应用前缀；核对本仓活动/归档计划为空后独占创建，不占用AutoLang/AutoOS的.next-id，也不与主力机739/740共用编号。新建后续计划按本仓取号机制检查活动及归档目录；本批不重新分配已存在ID。工作位置按2026-10-04用户约定，统一为D:/autostack/auto-os/apps/018-book-reader；在该检出的v0.6-dev编写计划和实施，不使用外部临时clone作为工作入口。不同app可并行，同app保持一个写入者，禁止junction/symlink。
 
