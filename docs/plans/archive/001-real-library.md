@@ -1,11 +1,11 @@
 ---
 plan_id: READER-001
 title: "真实导入、书库存储与位置恢复"
-status: reviewed
+status: archived
 feature_name: "真实导入、书库存储与位置恢复"
 author: [Codex]
 created_at: 2026-10-04T00:00:00Z
-updated_at: 2026-10-05T13:00:00Z
+updated_at: 2026-10-05T14:00:00Z
 plan_revision: 3
 current_step: 7
 total_steps: 11
@@ -195,6 +195,13 @@ EPUB未实现时在UI标出TXT/Markdown可用范围；不要宣传所有电子�
 - 债务与风险：未登记；测试真实阻塞不得伪装通过。
 - 沉淀：以frontmatter spec-impact候选登记实际实现组件，更新设计能力表与稳定规范；随后翻reviewed并归档。
 - 合入目标：v0.6-dev；当前未实施，不合入master、不推进OS gitlink。
+
+合并回执 READER-001:r3（2026-10-05）：
+- prepared: reviewed 基线 39e3e14（复审记录提交 c2be376）；canonical Spec=docs/specs/reader/real-library.md（SD-02~05 落地，SD-04 含「运行时无 rename 原语、已验证尽力保证」边界措辞）；交付轨=v0.6-dev
+- landed: 交付提交 8efc8ce（spec+ledger 纯文档后代，实现/依赖零变更已核对）；v0.6-dev 线性推送 origin；本仓按 AGENTS §2.1 以 apps 子检出为工作位，无独立 dev 分支/worktree
+- ledger_refreshed: .autoos/specs.json 六节（project=auto-reader）：R001-2/3/4 现行知识更新至 Phase 2 语义；R001-5 修正为完整复审链（r2 pass → r2 独立复审 needs_fix → r3 pass）；R001-6 报告更新；读回校验通过
+- archived: docs/plans/archive/001-real-library.md，status=archived，completion_kind=delivered
+- cleaned: 不适用（无 .wt worktree/独立分支需清除；检出按 AGENTS §2.1 detach 收尾）
 
 [整体roadmap](../roadmap-v0.6.md) · [agent执行说明](../README.md)
 
