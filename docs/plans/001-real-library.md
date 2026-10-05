@@ -1,13 +1,13 @@
 ---
 plan_id: READER-001
 title: "真实导入、书库存储与位置恢复"
-status: drafting
+status: executing
 feature_name: "真实导入、书库存储与位置恢复"
 author: [Codex]
 created_at: 2026-10-04T00:00:00Z
-updated_at: 2026-10-04T00:00:00Z
+updated_at: 2026-10-05T00:00:00Z
 plan_revision: 2
-current_step: 0
+current_step: 1
 total_steps: 5
 created: 2026-10-04
 base_branch: v0.6-dev
@@ -60,7 +60,7 @@ AutoLang/AutoUI `.at`、既有Vue/VM宿主；后端纯.at。协议使用版本�
 
 T-00先行；T-01→T-02→T-03→T-04顺序实施。T-00输出能力报告，T-01形成接口/fixture，T-02/03接入实现，T-04完成整体验证与文档。任务输出见每项说明；T-00/04核查AC-01–05全体，中间任务按对应行为覆盖。每项实测命令/证据写入§9，不把未创建的测试入口说成已有。
 
-- [ ] T-00: T0验证文件选择/读取、编码和存储在Vue/VM实际路径；确定最小统一内容输出，记录缺失能力。
+- [x] T-00: T0验证文件选择/读取、编码和存储在Vue/VM实际路径；确定最小统一内容输出，记录缺失能力。✅ 已完成 2026-10-05：实测探针 `tests/probe/t00_fs_probe.as` 等（VM 轨直跑全 PASS，含 27MB 大文读回、GBK 编码拒绝、json.parse 字段访问）；a2r 转译面逐 native 核对（`auto trans`）。结论与双轨映射清单见 [T-00 能力报告](../research/20261005-t00-runtime-capability.md)：共享 back 代码限定双轨映射集（fs.exists/is_dir/file_size/read_text/write_text/create_dir + File.read_text_range + str.uuid + Env.get + json.parse）；hash.\*/目录类 fs.\* 为 VM-only → source_hash 用纯 .at 采样哈希（ph1）、mkdir_all 用逐段 create_dir、移除语义为记录移除内容保留。
 - [ ] T-01: 导入UTF-8 TXT/Markdown、管理原文件副本、稳定book_id/source_hash和真实章节；编码错误不给假成功。
 - [ ] T-02: 实现metadata及ReadingState持久化、读取位置locator和settings基础。
 - [ ] T-03: 接入现有书架/阅读页；用户可区分真实书与demo书。
@@ -93,8 +93,8 @@ EPUB未实现时在UI标出TXT/Markdown可用范围；不要宣传所有电子�
 
 ## 9. 复审记录
 
-- 实际起点HEAD/工作目录/工具版本：未执行。
-- T0能力与阻塞报告：未执行。
+- 实际起点HEAD/工作目录/工具版本：app 仓 `D:/autostack/auto-os/apps/018-book-reader`，分支 `v0.6-dev`，起点 HEAD `4e36f6b`（与 origin/v0.6-dev 同步，工作树干净）；auto CLI `0.1.0+v0.4.2-2592-gee25d3b49-dirty`（auto-lang ee25d3b49-dirty 构建）。2026-10-05 执行。
+- T0能力与阻塞报告：已完成，见 [T-00 能力报告](../research/20261005-t00-runtime-capability.md)。实测证据：`%TEMP%/t00-breadcrumb.log`（VM 轨 10/10 PASS + 2 NOTE）；a2r 映射经 `auto trans` 生成 Rust 逐行核对。阻塞：无——双轨映射集足以支撑全部 AC；hash.\*（sha256）缺失按报告裁定以 ph1 采样哈希替代并如实记录。
 - 各AC项证据路径、命令及结果：未执行。
 - 独立复审：未执行；重新对照代码检查AC项、遗漏/延后/workaround、格式/告警/调试输出，不信任已有勾选。
 - 债务与风险：未登记；测试真实阻塞不得伪装通过。

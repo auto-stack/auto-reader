@@ -1,0 +1,27 @@
+// t00_a2r_probe.at — READER-001 T-00 a2r 转译面探针。
+// 用法：auto trans tests/probe/t00_a2r_probe.at --target rust
+// 目的：检查计划采用的 fs/file native 在 a2r 轨是否都有映射（未映射 → 生成
+// Rust 中出现未解析调用，即 file-manager P670-D1 所记 E0425 债）。
+
+pub type ProbeOut = {
+    ok: bool
+    detail: str
+}
+
+pub fn probe_all(path str) ProbeOut {
+    let e bool = fs.exists(path)
+    let d bool = fs.is_dir(path)
+    let sz int = fs.file_size(path)
+    let txt str = fs.read_text(path)
+    let rng str = fs.read_text_range(path, 0, 64)
+    let w int = fs.write_text(path, "x")
+    let a int = fs.append_text(path, "y")
+    let cr int = fs.create_dir(path)
+    let ma int = fs.mkdir_all(path)
+    let cp int = fs.copy(path, path)
+    let del int = fs.delete(path)
+    let det str = json.parse(rng).total.to_string()
+    let u str = str.uuid()
+    let out = ProbeOut { ok: e, detail: det + u }
+    return out
+}

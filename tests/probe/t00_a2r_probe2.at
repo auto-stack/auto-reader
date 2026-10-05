@@ -1,0 +1,24 @@
+// t00_a2r_probe2.at — READER-001 T-00 a2r 转译面探针（第2组候选 native）。
+// 逐项验证计划备选 native 的 a2r 映射；产物 .a2r.rs 中未映射调用会以
+// `fs.xxx`/`file.xxx` 裸模块路径出现（cargo 构建即 E0425）。
+
+pub fn probe2(path str, dst str) int {
+    let a str = fs.read_to_string(path)
+    let b int = fs.write(path, a)
+    let c int = fs.remove_file(dst)
+    let d str = fs.metadata(path)
+    let e str = fs.walk(path)
+    let f int = fs.copy_recursive(path, dst)
+    let g str = fs.read_dir(path)
+    let h bool = file.exists(path)
+    let i bool = file.is_dir(path)
+    let j int = file.size(path)
+    let k str = file.read_text(path)
+    let w int = file.write_text(path, k)
+    let m str = file.read_text_range(path, 0, 64)
+    let n int = file.write_bytes(path, List<int>.new([1, 2]))
+    let o int = file.copy(path, dst)
+    let p int = file.delete(dst)
+    let q int = file.create_dir(dst)
+    return a.len() + b + c + d.len() + e.len() + f + g.len() + j + k.len() + w + m.len() + n + o + p + q
+}

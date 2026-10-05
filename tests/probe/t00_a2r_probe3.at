@@ -1,0 +1,13 @@
+// t00_a2r_probe3.at — READER-001 T-00 a2r 转译面探针（第3组：env/uuid/字节）。
+
+pub fn probe3(path str) str {
+    let home str = Env.get("USERPROFILE")
+    let id str = str.uuid()
+    let raw str = fs.read_bytes(path)
+    let raw2 str = File.read_bytes(path)
+    let sz int = File.size(path)
+    let ex bool = File.exists(path)
+    let isr bool = File.is_dir(path)
+    let rng str = File.read_text_range(path, 0, 64)
+    return home + id + raw + raw2 + sz.to_string() + rng
+}
