@@ -3,14 +3,19 @@
 // PLAN-043 走查修复（2026-09-24）：`use back.api` 直接导入在 VM 轨不可解析
 // （P-15 静默跳过 → 符号未定义 → 无法启动）——改走 back HTTP 端点
 // （GET/POST/DELETE /api/books*；lazy back 随首次请求孵化，020/029 同配方）。
+// READER-001 T-03：新增真实书架面——real_books（/api/library/books）、
+// 导入（/api/library/import）、可恢复移除（DELETE /api/library/books/:id）。
+// 真实书与 demo 书在书架层合并展示，is_real 标记供 UI 区分。
 
 store BooksStore {
     model {
         var books = []
+        var real_books = []
         var loading bool = false
+        var last_import = null
     }
 
-    msg { Init, AddBook(str, str), RemoveBook(int), SetProgress(int, int) }
+    msg { Init, AddBook(str, str), RemoveBook(int), SetProgress(int, int), ImportBook(str, str, bool), RemoveReal(str), Reload }
 
     on {
         .Init -> {
@@ -18,6 +23,21 @@ store BooksStore {
             // （gallery 嵌入 back-proxy 500 时仍显示空书架引导）。
             .loading = false
             .books = Http.get_json("/api/books")
+            try {
+                let v = json.parse(Http.get_json("/api/library/books"))
+                .real_books = v.books
+            } catch {
+                .real_books = []
+            }
+        }
+        .Reload -> {
+            .books = Http.get_json("/api/books")
+            try {
+                let v = json.parse(Http.get_json("/api/library/books"))
+                .real_books = v.books
+            } catch {
+                .real_books = []
+            }
         }
         .AddBook(title str, author str) -> {
             try { Http.post("/api/books", json.from_value({ title: title, author: author })) } catch { }
@@ -30,6 +50,40 @@ store BooksStore {
         .SetProgress(id int, progress int) -> {
             try { Http.put("/api/books/" + id.to_string() + "/progress", json.from_value({ progress: progress })) } catch { }
             .books = Http.get_json("/api/books")
+        }
+        // 真实书导入：结果存 last_import（{code,message,book_id,existing_id}）
+        // 供书架对话框呈现（duplicate 提示复用 / 错误不给假成功）。
+        // 端点返回 JSON 字符串（双层编码）——Http.post 解析一次得文本，
+        // 再 json.parse 得对象（双轨 Http.post 均返回解析一次的响应）。
+        .ImportBook(path str, author str, force bool) -> {
+            // 语句拆分 + 裸映射实参：Http.post 嵌在 json.parse 实参位时
+            // Vue codegen 静默失败；json.from_value 在 Vue 轨未映射
+            // （ReferenceError 被 catch 吞——基线 AddBook 同缺陷，T-03 实测）。
+            // Vue 面 JSON.stringify(裸映射) 产出正确请求体。
+            var parsed = null
+            try {
+                let resp = Http.post("/api/library/import", { path: path, author: author, force: force })
+                parsed = json.parse(resp)
+            } catch {
+                parsed = null
+            }
+            .last_import = parsed
+            try {
+                let v = json.parse(Http.get_json("/api/library/books"))
+                .real_books = v.books
+            } catch {
+                .real_books = []
+            }
+        }
+        // 可恢复移除：受管副本与用户原文件不动（library 端点语义）
+        .RemoveReal(book_id str) -> {
+            try { Http.delete("/api/library/books/" + book_id) } catch { }
+            try {
+                let v = json.parse(Http.get_json("/api/library/books"))
+                .real_books = v.books
+            } catch {
+                .real_books = []
+            }
         }
     }
 }

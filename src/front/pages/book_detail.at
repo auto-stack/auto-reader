@@ -1,4 +1,6 @@
 // book_detail.at — "/book/:id" 书籍详情 + 章节目录。
+// READER-001 T-03：真实书分支——/book/<uuid> 走 /api/library/*（详情/目录/
+// 进度），demo 书保持基线（/api/books/:id(/chapters)）。
 use fmt: pct1
 
 /// progress → 当前章（1-based）；与 bookshelf 的同名 fn 去重（T-15：重名定义毒化链接符号表）。
@@ -20,10 +22,12 @@ fn detail_chapter_from_progress(progress int, chapter_count int) int {
 }
 
 widget book_detail {
-    msg { Init, Back, ReadChapter(int), ContinueReading, OpenChapter(int) }
+    msg { Init, Back, ReadChapter(int), ContinueReading, OpenChapter(int), ContinueReal }
 
     model {
         var book_id int = 0
+        var route_id str = ""
+        var is_real bool = false
         var book = null
         var has_book bool = false
         var chapters = []
@@ -31,6 +35,7 @@ widget book_detail {
         var loaded bool = false
         var current_ch int = 1
         var progress_label str = ""
+        var real_format str = ""
     }
 
     view {
@@ -51,11 +56,29 @@ widget book_detail {
                 } else {
                     col {
                         style: "gap-6"
-                        text .book.title { style: "text-2xl font-bold text-foreground" }
-                        text .book.author { style: "text-muted-foreground" }
-                        text .chapters_label { style: "text-xs text-muted-foreground" }
-                        // PLAN-712 r3：章节目录列表——点击进阅读页（此前本页
-                        // 只有计数标签，章节入口只能绕 ContinueReading）。
+                        col {
+                            style: "gap-2"
+                            row {
+                                style: "items-center gap-3"
+                                if .is_real {
+                                    col {
+                                        style: "px-2 py-0.5 rounded bg-primary/15 text-primary text-xs"
+                                        text "真实" {}
+                                    }
+                                }
+                                text .book.title { style: "text-2xl font-bold text-foreground" }
+                            }
+                            text .book.author { style: "text-muted-foreground" }
+                            text .chapters_label { style: "text-xs text-muted-foreground" }
+                        }
+                        if .is_real {
+                            button {
+                                onclick: .ContinueReal
+                                style: "inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 w-fit"
+                                text "继续阅读" {}
+                            }
+                        }
+                        // 章节目录（demo 与真实书同为 {number,title} 形）
                         col {
                             style: "gap-1"
                             for ch in .chapters {
@@ -74,34 +97,98 @@ widget book_detail {
 
     on {
         .Init -> {
-            .book_id = router.param("id")
+            .route_id = router.param("id")
+            .book_id = router.param("id").to_int()
+            // 真实书探测（/api/library/* 双层编码——parse_lib 二次解析）
+            var probe = null
             try {
-                .book = Http.get_json("/api/books/" + .book_id.to_string())
-                .chapters = Http.get_json("/api/books/" + .book_id.to_string() + "/chapters")
-                .has_book = true
-                .chapters_label = .chapters.len().to_string() + " entries"
+                let pv = json.parse(Http.get_json("/api/library/books/" + .route_id))
+                if pv != null {
+                    if pv != "" {
+                        probe = pv
+                    }
+                }
             } catch {
-                .has_book = false
-                .chapters = []
-                .chapters_label = "0 entries"
+                probe = null
             }
-            if .has_book == true {
-                .current_ch = detail_chapter_from_progress(.book.progress, .book.chapter_count)
-                .progress_label = pct1(.book.progress) + "%"
+            if probe != null {
+                let pb str = "" + probe.book_id
+                if pb != "" {
+                    if pb != "undefined" {
+                        .is_real = true
+                    }
+                }
+            }
+            if .is_real {
+                .book = probe
+                .has_book = true
+                .real_format = "" + probe.format
+                var toc = []
+                try {
+                    let tv = json.parse(Http.get_json("/api/library/books/" + .route_id + "/toc"))
+                    if tv != null {
+                        if tv != "" {
+                            toc = tv
+                        }
+                    }
+                } catch {
+                    toc = []
+                }
+                .chapters = toc
+                .chapters_label = toc.len().to_string() + " entries"
+                // 恢复进度（locator v1）
+                var pr = null
+                try {
+                    let pv2 = json.parse(Http.get_json("/api/library/progress?book_id=" + .route_id))
+                    if pv2 != null {
+                        if pv2 != "" {
+                            pr = pv2
+                        }
+                    }
+                } catch {
+                    pr = null
+                }
+                var pc int = 1
+                if pr != null {
+                    pc = pr.chapter_number
+                }
+                if pc < 1 {
+                    pc = 1
+                }
+                .current_ch = pc
+                .progress_label = ""
+            } else {
+                try {
+                    .book = Http.get_json("/api/books/" + .book_id.to_string())
+                    .chapters = Http.get_json("/api/books/" + .book_id.to_string() + "/chapters")
+                    .has_book = true
+                    .chapters_label = .chapters.len().to_string() + " entries"
+                } catch {
+                    .has_book = false
+                    .chapters = []
+                    .chapters_label = "0 entries"
+                }
+                if .has_book == true {
+                    .current_ch = detail_chapter_from_progress(.book.progress, .book.chapter_count)
+                    .progress_label = pct1(.book.progress) + "%"
+                }
             }
             .loaded = true
         }
         .Back -> { router.push("/") }
         // PLAN-712 r3：点章节 → 阅读页（路由 /book/:id/chapter/:ch）。
         .OpenChapter(n int) -> {
-            router.push("/book/" + .book_id.to_string() + "/chapter/" + n.to_string())
+            router.push("/book/" + .route_id + "/chapter/" + n.to_string())
+        }
+        .ContinueReal -> {
+            router.push("/book/" + .route_id + "/chapter/" + .current_ch.to_string())
         }
         .ContinueReading -> {
             var current int = 1
             if .has_book == true {
                 current = detail_chapter_from_progress(.book.progress, .book.chapter_count)
             }
-            router.push("/book/" + .book_id.to_string() + "/chapter/" + current.to_string())
+            router.push("/book/" + .route_id + "/chapter/" + current.to_string())
         }
     }
 }

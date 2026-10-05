@@ -7,6 +7,14 @@
 // PLAN-043 走查修复（2026-09-24）：`use back.api` 直接导入 VM 轨不可解析
 // ——章节/书目改 Http.get_json 拉（/api/chapters?book_id=&number= 与
 // /api/books/:id(/chapters)，lazy back 随请求孵化）。
+// READER-001 T-03：真实书模式——/book/<uuid>/chapter/<n>（id 为字符串）。
+// 探测 /api/library/books/:id 命中即真实书：目录/章节/进度走 /api/library/*，
+// 正文按段渲染（Locator v1：tap 段落记录 chapter_number + paragraph_index
+// + para_hash(段文本 ph1 指纹，ASCII 安全——VM HTTP 请求体多字节损坏规避，
+// 见 T-00 报告)；打开时恢复章节与段标记）。demo 书保持基线行为。
+// 逻辑内联于 handler（widget 内局部 fn 不支持——T-03 实测 parse error）；
+// 纯计算下沉文件级 fn。/api/library/* 响应双层编码——统一经 parse_lib
+// 二次解析（缺书/失败回 null，守卫跨 Vue/VM 双轨安全）。
 use store: BooksStore
 use fmt: pct1
 
@@ -22,11 +30,74 @@ fn pct_of(cur int, total int) int {
     return (cur * 100 / total) as int
 }
 
+/// 段文本校验签名（Locator v1 corroboration）。
+/// v1 = 字节长 + 行数（ASCII 输出）。注：char_at 在 Vue 面是 JS charAt
+/// （返回字符，算术 NaN）、VM 面返回码点——双轨语义错位，跨轨一致指纹
+/// 待运行时补齐（T-03 实测记录）；校验值仅同轨一致，跨轨恢复由章节号
+/// + 段序号定位。
+fn para_hash(text str) str {
+    let lines = text.split("
+")
+    return "sig1:" + text.len().to_string() + ":" + lines.len().to_string()
+}
+
+/// 正文 → 段落数组 [{idx, text}]（去空行；idx = 原行号）。
+fn split_paragraphs(body str) List {
+    let lines = body.split("\n")
+    var out List = []
+    var i int = 0
+    while i < lines.len() {
+        let t str = ("" + lines[i]).trim()
+        if t != "" {
+            out.push({ idx: i, text: t })
+        }
+        i = i + 1
+    }
+    return out
+}
+
+/// /api/library/* 响应二次解析（双层编码）；缺书（""）或解析失败回 null。
+fn parse_lib(text str) JsonValue? {
+    var out JsonValue? = null
+    if text != "" {
+        let v = json.parse(text)
+        if v != null {
+            if v != "" {
+                out = v
+            }
+        }
+    }
+    return out
+}
+
+/// Locator v1 保存载荷（纯 ASCII：uuid/整数/ph1 指纹——VM HTTP 请求体
+/// 多字节损坏规避）。段文本指纹由调用方算好传入。
+/// 参数名禁与 widget model 变量同名（vue codegen 会对同名参数误加
+/// .value 致 undefined——T-03 实测），故用 rid。
+fn real_payload(rid str, ch int, para int, ph str, font str, line str) str {
+    var payload str = "{\"book_id\":\""
+    payload = payload + rid
+    payload = payload + "\",\"chapter_number\":"
+    payload = payload + ch.to_string()
+    payload = payload + ",\"paragraph_index\":"
+    payload = payload + para.to_string()
+    payload = payload + ",\"para_hash\":\""
+    payload = payload + ph
+    payload = payload + "\",\"font_size\":\""
+    payload = payload + font
+    payload = payload + "\",\"line_height\":\""
+    payload = payload + line
+    payload = payload + "\",\"updated_at\":0}"
+    return payload
+}
+
 widget reading {
-    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int) }
+    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int) }
 
     model {
         var book_id int = 0
+        var route_id str = ""
+        var is_real bool = false
         var chapter_num int = 1
         var chapter = { book_id: 0, number: 1, title: "", body: "", word_count: 0 }
         var chapters List = []
@@ -38,6 +109,11 @@ widget reading {
         var line_height str = "comfy"
         var body_style str = "text-foreground text-base leading-relaxed"
         var progress_label str = "0.0%"
+        // 真实书模式
+        var paragraphs List = []
+        var cur_paragraph int = -1
+        var cur_para_text str = ""
+        var restored_note str = ""
     }
 
     view {
@@ -87,15 +163,40 @@ widget reading {
                         }
                     }
                 }
-                // Reading column — 字号/行距真实生效
+                // Reading column — 字号/行距真实生效；真实书按段渲染
                 col {
                     style: "flex-1 overflow-y-auto"
                     if .loaded {
                         col {
                             style: "max-w-2xl mx-auto px-6 py-10 gap-6"
                             h1 .chapter.title { style: "text-2xl font-bold text-foreground" }
-                            // 字号/行距 class 由 Init 期写入 model，避免 view 内嵌套 if
-                            text .chapter.body { style: .body_style }
+                            if .is_real {
+                                if .restored_note != "" {
+                                    col {
+                                        style: "px-4 py-2 rounded-lg bg-primary/10 text-sm text-foreground"
+                                        text .restored_note {}
+                                    }
+                                }
+                                if .paragraphs.len() == 0 {
+                                    text "（本章无内容）" { style: .body_style }
+                                } else {
+                                    for p in .paragraphs {
+                                        col {
+                                            onclick: .TapParagraph(p.idx)
+                                            style: ["px-3 py-2 rounded-lg cursor-pointer transition-colors",
+                                                if p.idx == .cur_paragraph {
+                                                    "bg-primary/10 border-l-4 border-primary"
+                                                } else {
+                                                    "border-l-4 border-transparent hover:bg-muted"
+                                                }]
+                                            text f"¶${p.idx}" { style: "text-xs text-muted-foreground/60 font-mono" }
+                                            text p.text { style: .body_style }
+                                        }
+                                    }
+                                }
+                            } else {
+                                text .chapter.body { style: .body_style }
+                            }
                         }
                     } else {
                         col {
@@ -142,31 +243,108 @@ widget reading {
         .Init -> {
             // Route params are strings — coerce to int so arithmetic like
             // .chapter_num + 1 doesn't do string concat ("1" + 1 = "11").
+            .route_id = router.param("id")
             .book_id = router.param("id").to_int()
             .chapter_num = router.param("ch").to_int()
-            .chapter = Http.get_json("/api/chapters?book_id=" + .book_id.to_string() + "&number=" + .chapter_num.to_string())
-            .chapters = Http.get_json("/api/books/" + .book_id.to_string() + "/chapters")
-            let book = Http.get_json("/api/books/" + .book_id.to_string())
-            if book != null {
-                .chapter_count = book.chapter_count
+            // 真实书探测：/api/library/books/:id 命中（book_id 非空）即真实书
+            let probe = parse_lib(Http.get_json("/api/library/books/" + .route_id))
+            if probe != null {
+                let pb str = "" + probe.book_id
+                if pb != "" {
+                    if pb != "undefined" {
+                        .is_real = true
+                    }
+                }
             }
-            let total int = .chapter_count
-            if total > 0 {
-                // parseInt: JS `/` yields a float (1*100/3 = 33.33), but the
-                // backend progress field is i64 and rejects fractional JSON.
-                .progress_pct = pct_of(.chapter_num, total)
+            if .is_real {
+                // 恢复：状态里的章节优先于路由参数
+                let pr = parse_lib(Http.get_json("/api/library/progress?book_id=" + .route_id))
+                if pr != null {
+                    let pc int = pr.chapter_number
+                    if pc >= 1 {
+                        .chapter_num = pc
+                    }
+                    let pf str = "" + pr.font_size
+                    if pf != "" {
+                        .font_size = pf
+                    }
+                    let lh str = "" + pr.line_height
+                    if lh != "" {
+                        .line_height = lh
+                    }
+                }
+                let toc = parse_lib(Http.get_json("/api/library/books/" + .route_id + "/toc"))
+                if toc != null {
+                    .chapters = toc
+                    .chapter_count = toc.len()
+                }
+                if .chapter_count < 1 {
+                    .chapter_count = 1
+                }
+                if .chapter_num < 1 {
+                    .chapter_num = 1
+                }
+                router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
+                let chv = parse_lib(Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string()))
+                if chv != null {
+                    .chapter = chv
+                }
+                .paragraphs = split_paragraphs("" + .chapter.body)
+                .cur_paragraph = -1
+                .cur_para_text = ""
+                // 恢复段标记 + 提示
+                if pr != null {
+                    let pc2 int = pr.chapter_number
+                    if pc2 == .chapter_num {
+                        let pi int = pr.paragraph_index
+                        if pi >= 0 {
+                            .cur_paragraph = pi
+                            var i int = 0
+                            while i < .paragraphs.len() {
+                                let p = .paragraphs[i]
+                                if p.idx == pi {
+                                    .cur_para_text = "" + p.text
+                                    i = .paragraphs.len()
+                                }
+                                i = i + 1
+                            }
+                        }
+                    }
+                    .restored_note = "已恢复上次位置（点任意段落可更新）"
+                }
+                let total int = .chapter_count
+                if total > 0 {
+                    .progress_pct = pct_of(.chapter_num, total)
+                }
+                .progress_label = pct1(.progress_pct) + "%"
+            } else {
+                .chapter = Http.get_json("/api/chapters?book_id=" + .book_id.to_string() + "&number=" + .chapter_num.to_string())
+                .chapters = Http.get_json("/api/books/" + .book_id.to_string() + "/chapters")
+                let book = Http.get_json("/api/books/" + .book_id.to_string())
+                if book != null {
+                    .chapter_count = book.chapter_count
+                }
+                let total int = .chapter_count
+                if total > 0 {
+                    .progress_pct = pct_of(.chapter_num, total)
+                }
+                .progress_label = pct1(.progress_pct) + "%"
             }
-            // PLAN-684: 排版偏好接线（settings.at 写入，这里读取）
+            // 排版偏好：进度态优先，退回 storage
             let fs = storage.get("br-font-size")
             if fs != nil {
                 if fs != "" {
-                    .font_size = fs
+                    if .font_size == "medium" {
+                        .font_size = fs
+                    }
                 }
             }
-            let lh = storage.get("br-line-height")
-            if lh != nil {
-                if lh != "" {
-                    .line_height = lh
+            let lh2 = storage.get("br-line-height")
+            if lh2 != nil {
+                if lh2 != "" {
+                    if .line_height == "comfy" {
+                        .line_height = lh2
+                    }
                 }
             }
             var size_cls str = "text-base"
@@ -181,51 +359,122 @@ widget reading {
                 lead_cls = "leading-snug"
             }
             .body_style = "text-foreground " + size_cls + " " + lead_cls
-            .progress_label = pct1(.progress_pct) + "%"
             .loaded = true
-            store.SetProgress(.book_id, .progress_pct)
+            if !.is_real {
+                store.SetProgress(.book_id, .progress_pct)
+            }
         }
-        .Back -> { router.push("/book/" + .book_id.to_string()) }
+        .Back -> { router.push("/book/" + .route_id) }
         .ToggleToc -> { .show_toc = !.show_toc }
         .SelectChapter(n int) -> {
             .show_toc = false
             if n != .chapter_num {
                 .chapter_num = n
-                router.push("/book/" + .book_id.to_string() + "/chapter/" + .chapter_num.to_string())
-                .chapter = Http.get_json("/api/chapters?book_id=" + .book_id.to_string() + "&number=" + .chapter_num.to_string())
+                router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
+                if .is_real {
+                    let chv = parse_lib(Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string()))
+                    if chv != null {
+                        .chapter = chv
+                    }
+                    .paragraphs = split_paragraphs("" + .chapter.body)
+                    .cur_paragraph = -1
+                    .cur_para_text = ""
+                } else {
+                    .chapter = Http.get_json("/api/chapters?book_id=" + .book_id.to_string() + "&number=" + .chapter_num.to_string())
+                }
                 let total int = .chapter_count
                 if total > 0 {
                     .progress_pct = pct_of(.chapter_num, total)
                 }
                 .progress_label = pct1(.progress_pct) + "%"
-                store.SetProgress(.book_id, .progress_pct)
+                if .is_real {
+                    let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height)
+                    try {
+                        Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+                    } catch { }
+                } else {
+                    store.SetProgress(.book_id, .progress_pct)
+                }
             }
         }
         .PrevChapter -> {
             if .chapter_num > 1 {
                 .chapter_num = .chapter_num - 1
-                router.push("/book/" + .book_id.to_string() + "/chapter/" + .chapter_num.to_string())
-                .chapter = Http.get_json("/api/chapters?book_id=" + .book_id.to_string() + "&number=" + .chapter_num.to_string())
+                router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
+                if .is_real {
+                    let chv = parse_lib(Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string()))
+                    if chv != null {
+                        .chapter = chv
+                    }
+                    .paragraphs = split_paragraphs("" + .chapter.body)
+                    .cur_paragraph = -1
+                    .cur_para_text = ""
+                } else {
+                    .chapter = Http.get_json("/api/chapters?book_id=" + .book_id.to_string() + "&number=" + .chapter_num.to_string())
+                }
                 let total int = .chapter_count
                 if total > 0 {
                     .progress_pct = pct_of(.chapter_num, total)
                 }
                 .progress_label = pct1(.progress_pct) + "%"
-                store.SetProgress(.book_id, .progress_pct)
+                if .is_real {
+                    let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height)
+                    try {
+                        Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+                    } catch { }
+                } else {
+                    store.SetProgress(.book_id, .progress_pct)
+                }
             }
         }
         .NextChapter -> {
             if .chapter_num < .chapter_count {
                 .chapter_num = .chapter_num + 1
-                router.push("/book/" + .book_id.to_string() + "/chapter/" + .chapter_num.to_string())
-                .chapter = Http.get_json("/api/chapters?book_id=" + .book_id.to_string() + "&number=" + .chapter_num.to_string())
+                router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
+                if .is_real {
+                    let chv = parse_lib(Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string()))
+                    if chv != null {
+                        .chapter = chv
+                    }
+                    .paragraphs = split_paragraphs("" + .chapter.body)
+                    .cur_paragraph = -1
+                    .cur_para_text = ""
+                } else {
+                    .chapter = Http.get_json("/api/chapters?book_id=" + .book_id.to_string() + "&number=" + .chapter_num.to_string())
+                }
                 let total int = .chapter_count
                 if total > 0 {
                     .progress_pct = pct_of(.chapter_num, total)
                 }
                 .progress_label = pct1(.progress_pct) + "%"
-                store.SetProgress(.book_id, .progress_pct)
+                if .is_real {
+                    let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height)
+                    try {
+                        Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+                    } catch { }
+                } else {
+                    store.SetProgress(.book_id, .progress_pct)
+                }
             }
+        }
+        // Locator v1：tap 段落即记录（段 index + 段文本指纹），幂等保存
+        .TapParagraph(idx int) -> {
+            .cur_paragraph = idx
+            var i int = 0
+            while i < .paragraphs.len() {
+                let p = .paragraphs[i]
+                if p.idx == idx {
+                    .cur_para_text = "" + p.text
+                    i = .paragraphs.len()
+                }
+                i = i + 1
+            }
+            let ph str = para_hash(.cur_para_text)
+            let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, ph, .font_size, .line_height)
+            try {
+                Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+            } catch { }
+            .restored_note = f"已记录位置：第 ${idx} 段"
         }
     }
 }
