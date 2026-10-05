@@ -155,6 +155,14 @@ widget book_detail {
                 if pc < 1 {
                     pc = 1
                 }
+                // F-05 同源：保存章节超范围（旧状态/外部损坏）→ 钳到最后一章，
+                // 继续阅读仍落到真实存在的章节
+                let tcount int = toc.len()
+                if tcount > 0 {
+                    if pc > tcount {
+                        pc = tcount
+                    }
+                }
                 .current_ch = pc
                 .progress_label = ""
             } else {

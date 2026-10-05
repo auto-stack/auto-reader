@@ -40,7 +40,10 @@ store BooksStore {
             }
         }
         .AddBook(title str, author str) -> {
-            try { Http.post("/api/books", json.from_value({ title: title, author: author })) } catch { }
+            // json.from_value 在 Vue 轨未映射（T-00 报告缺陷、基线 AddBook
+            // 即坏——ReferenceError 被 catch 吞）——与本文件 ImportBook 同款
+            // 裸映射实参（Vue 面 JSON.stringify 产出正确请求体）。T-09 修复。
+            try { Http.post("/api/books", { title: title, author: author }) } catch { }
             .books = Http.get_json("/api/books")
         }
         .RemoveBook(id int) -> {

@@ -185,7 +185,7 @@ widget reading {
                                             onclick: .TapParagraph(p.idx)
                                             style: ["px-3 py-2 rounded-lg cursor-pointer transition-colors",
                                                 if p.idx == .cur_paragraph {
-                                                    "bg-primary/10 border-l-4 border-primary"
+                                                    "bg-primary/10 border-l-4 border-primary para-marked"
                                                 } else {
                                                     "border-l-4 border-transparent hover:bg-muted"
                                                 }]
@@ -257,13 +257,10 @@ widget reading {
                 }
             }
             if .is_real {
-                // 恢复：状态里的章节优先于路由参数
+                // F-05 修复：章节号一律以路由为准（显式入口不被旧状态
+                // 覆盖）；旧状态只提供排版设置与段级恢复判定
                 let pr = parse_lib(Http.get_json("/api/library/progress?book_id=" + .route_id))
                 if pr != null {
-                    let pc int = pr.chapter_number
-                    if pc >= 1 {
-                        .chapter_num = pc
-                    }
                     let pf str = "" + pr.font_size
                     if pf != "" {
                         .font_size = pf
@@ -284,6 +281,9 @@ widget reading {
                 if .chapter_num < 1 {
                     .chapter_num = 1
                 }
+                if .chapter_num > .chapter_count {
+                    .chapter_num = .chapter_count
+                }
                 router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
                 let chv = parse_lib(Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string()))
                 if chv != null {
@@ -292,25 +292,37 @@ widget reading {
                 .paragraphs = split_paragraphs("" + .chapter.body)
                 .cur_paragraph = -1
                 .cur_para_text = ""
-                // 恢复段标记 + 提示
+                // 恢复段标记：仅当保存章节 == 当前章节；段范围 + 原文锚点
+                // 双重校验（F-05）——失配诚实提示需重定位，绝不假显示"已恢复"
                 if pr != null {
                     let pc2 int = pr.chapter_number
                     if pc2 == .chapter_num {
                         let pi int = pr.paragraph_index
                         if pi >= 0 {
-                            .cur_paragraph = pi
+                            var matched bool = false
                             var i int = 0
                             while i < .paragraphs.len() {
                                 let p = .paragraphs[i]
                                 if p.idx == pi {
-                                    .cur_para_text = "" + p.text
+                                    let sig str = para_hash("" + p.text)
+                                    let saved_sig str = "" + pr.para_hash
+                                    if sig == saved_sig {
+                                        .cur_paragraph = pi
+                                        .cur_para_text = "" + p.text
+                                        .restored_note = "已恢复上次位置（点任意段落可更新）"
+                                    } else {
+                                        .restored_note = "上次保存的段落内容已变化，请重新点选位置"
+                                    }
+                                    matched = true
                                     i = .paragraphs.len()
                                 }
                                 i = i + 1
                             }
+                            if !matched {
+                                .restored_note = "上次保存的段落在本章已不存在，请重新点选位置"
+                            }
                         }
                     }
-                    .restored_note = "已恢复上次位置（点任意段落可更新）"
                 }
                 let total int = .chapter_count
                 if total > 0 {
@@ -360,6 +372,12 @@ widget reading {
             }
             .body_style = "text-foreground " + size_cls + " " + lead_cls
             .loaded = true
+            // 恢复滚动（F-05 收口实测）：跨轨滚动原语缺失——document 透传
+            // 在 VM 轨 handler 合成报 Undefined variable 毒化整个 Init（实测
+            // t09-vmfull2.log）；autodown 的 scroll_sync/scroll_top 绑定仅
+            // autodown 元素真消费，泛用 col 不支持（aura_view_builder 实查）。
+            // 结论：恢复语义落在「标记 + 诚实提示」，滚动位置恢复登记为
+            // 框架能力差距（计划 §10 / SD-05），不在共享源码里做单轨 hack。
             if !.is_real {
                 store.SetProgress(.book_id, .progress_pct)
             }
@@ -389,9 +407,16 @@ widget reading {
                 .progress_label = pct1(.progress_pct) + "%"
                 if .is_real {
                     let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height)
+                    var save_ok bool = false
                     try {
-                        Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+                        let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+                        if resp.find("\"ok\":true") >= 0 {
+                            save_ok = true
+                        }
                     } catch { }
+                    if !save_ok {
+                        .restored_note = "位置保存失败：后端未确认，请重试"
+                    }
                 } else {
                     store.SetProgress(.book_id, .progress_pct)
                 }
@@ -419,9 +444,16 @@ widget reading {
                 .progress_label = pct1(.progress_pct) + "%"
                 if .is_real {
                     let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height)
+                    var save_ok bool = false
                     try {
-                        Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+                        let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+                        if resp.find("\"ok\":true") >= 0 {
+                            save_ok = true
+                        }
                     } catch { }
+                    if !save_ok {
+                        .restored_note = "位置保存失败：后端未确认，请重试"
+                    }
                 } else {
                     store.SetProgress(.book_id, .progress_pct)
                 }
@@ -449,15 +481,24 @@ widget reading {
                 .progress_label = pct1(.progress_pct) + "%"
                 if .is_real {
                     let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height)
+                    var save_ok bool = false
                     try {
-                        Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+                        let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+                        if resp.find("\"ok\":true") >= 0 {
+                            save_ok = true
+                        }
                     } catch { }
+                    if !save_ok {
+                        .restored_note = "位置保存失败：后端未确认，请重试"
+                    }
                 } else {
                     store.SetProgress(.book_id, .progress_pct)
                 }
             }
         }
-        // Locator v1：tap 段落即记录（段 index + 段文本指纹），幂等保存
+        // Locator v1：tap 段落即记录（段 index + 段文本指纹），幂等保存。
+        // F-05 修复：保存成功必须由后端响应确认；失败诚实提示可重试，
+        // 不再吞异常后无条件显示"已记录"。
         .TapParagraph(idx int) -> {
             .cur_paragraph = idx
             var i int = 0
@@ -471,10 +512,18 @@ widget reading {
             }
             let ph str = para_hash(.cur_para_text)
             let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, ph, .font_size, .line_height)
+            var save_ok bool = false
             try {
-                Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+                let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+                if resp.find("\"ok\":true") >= 0 {
+                    save_ok = true
+                }
             } catch { }
-            .restored_note = f"已记录位置：第 ${idx} 段"
+            if save_ok {
+                .restored_note = f"已记录位置：第 ${idx} 段"
+            } else {
+                .restored_note = "位置保存失败：后端未确认，请重试"
+            }
         }
     }
 }
