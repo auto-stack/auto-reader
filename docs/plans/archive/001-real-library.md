@@ -202,6 +202,7 @@ EPUB未实现时在UI标出TXT/Markdown可用范围；不要宣传所有电子�
 - ledger_refreshed: .autoos/specs.json 六节（project=auto-reader）：R001-2/3/4 现行知识更新至 Phase 2 语义；R001-5 修正为完整复审链（r2 pass → r2 独立复审 needs_fix → r3 pass）；R001-6 报告更新；读回校验通过
 - archived: docs/plans/archive/001-real-library.md，status=archived，completion_kind=delivered
 - cleaned: 不适用（无 .wt worktree/独立分支需清除；检出按 AGENTS §2.1 detach 收尾）
+- final: 交付线最终 tip=897c534（539ea37 归档改名 + 897c534 归档内容补全；8efc8ce→539ea37→897c534 纯文档链，实现/依赖零变更）；父仓 auto-os gitlink=b02e67c→935ffb3（v0.6-dev 已推）
 
 [整体roadmap](../roadmap-v0.6.md) · [agent执行说明](../README.md)
 
