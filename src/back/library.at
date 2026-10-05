@@ -24,8 +24,11 @@
 //   removed.jsonl         移除记录（JSONL，可恢复；restore 后行剔除）
 //   books/<hash 目录>/original.<ext>   受管副本（按内容指纹寻址）
 //
-// 导入事务：校验（存在/非目录/非空/可解码）→ ph1 指纹 → 受管副本落盘
-// → 追加索引 → 索引落盘；任一步失败不产生"成功却缺原文件"的记录。
+// 导入事务：校验（存在/非目录/非空/可解码）→ ph1 指纹（候选索引）→
+// 同指纹记录逐字核对受管副本（F-02：采样指纹可确定性碰撞，不核对必串文）
+// → 资产槽位分配（主槽 + d1..d64 隔离槽，碰撞不复用错误资产）→ 受管副本
+// 落盘并读回校验（F-03）→ 追加索引（备份/暂存/提交协议，F-06）→ 索引落盘；
+// 任一步失败不产生"成功却缺原文件"的记录。
 // 编码检测双轨：envelope total==-1（头部 64KB）+ read_text 长度对账全文。
 
 use pathx: join, basename, stem_of, mkdirs, json_escape, normalize
@@ -34,6 +37,20 @@ use importers: parse_book_json, format_of
 
 fn empty_str() str {
     return ""
+}
+
+/// 受管文件与给定全文的逐字比较（F-02 修复：ph1 只是候选索引，去重与
+/// 资产复用必须核对完整内容）。
+/// 返回 1 = 内容逐字相等；0 = 存在但内容不同（碰撞/损坏）；-1 = 不存在。
+fn content_equal(path str, text str) int {
+    if !fs.exists(path) {
+        return -1
+    }
+    let cur str = fs.read_text(path)
+    if cur == text {
+        return 1
+    }
+    return 0
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -339,7 +356,10 @@ pub fn import_book_json(path str, author str, force bool) str {
         who = "未知"
     }
     let hash str = ph1(text, size)
-    // 去重：现读索引动态扫描同指纹
+    // 去重（F-02 修复）：ph1 同值只作候选——必须读候选记录的受管副本与
+    // 本次全文逐字比较；相等才是真重复，不等即指纹碰撞，不误去重、
+    // 不串换正文。副本缺失（记录在而文件被外删）时无法证实同文，同样
+    // 不判重，按新书导入（旧记录保持，读取面报「内容缺失」不伪造）。
     let cur str = books_json()
     if cur == "" {
         return "{\"code\":\"io_error\",\"message\":\"书库索引版本不受支持：已保留原文件，需人工迁移\",\"book_id\":\"\",\"existing_id\":\"\"}"
@@ -351,8 +371,12 @@ pub fn import_book_json(path str, author str, force bool) str {
     for b in books {
         let bsh str = "" + b.source_hash
         if bsh == hash {
-            dup_id = "" + b.book_id
-            dup_title = "" + b.title
+            let cmp str = "" + b.managed_path
+            let eq int = content_equal(cmp, text)
+            if eq == 1 {
+                dup_id = "" + b.book_id
+                dup_title = "" + b.title
+            }
         }
     }
     if dup_id != "" {
@@ -365,7 +389,11 @@ pub fn import_book_json(path str, author str, force bool) str {
             return dm
         }
     }
-    // 受管副本（内容寻址；同指纹 force 复用同一副本）
+    // 受管资产分配（F-02/F-03 修复）：主槽位 books/<hdir>/original.<ext>，
+    // 内容碰撞或已有资产损坏（内容不等）时隔离到 d1..d64 子槽位——按
+    // book 独立资产，force 永不复用内容不符的资产，不串换正文。首个
+    // 「不存在」或「内容逐字相等」的槽位命中：相等即复用（中断幂等语义，
+    // 无重写）。
     let dd str = data_dir()
     let books_root str = join(dd, "books")
     let hdir str = hash_dir_of(hash)
@@ -382,7 +410,47 @@ pub fn import_book_json(path str, author str, force bool) str {
         ext_name = "md"
     }
     let fname str = "original." + ext_name
-    let managed str = join(dir, fname)
+    let primary str = join(dir, fname)
+    var managed str = ""
+    var reused bool = false
+    var slot int = 0
+    var exhausted bool = false
+    while !reused {
+        if slot > 64 {
+            exhausted = true
+            reused = true
+        } else {
+            var cand str = primary
+            if slot > 0 {
+                let ddir str = join(dir, "d" + slot.to_string())
+                cand = join(ddir, fname)
+            }
+            let eq int = content_equal(cand, text)
+            if eq == 1 {
+                managed = cand
+                reused = true
+            } else {
+                if eq == -1 {
+                    if slot > 0 {
+                        let pdir str = join(dir, "d" + slot.to_string())
+                        let mrc2 int = mkdirs(pdir)
+                        if mrc2 != 0 {
+                            var em2 str = "{\"code\":\"io_error\",\"message\":\"受管资产目录创建失败 rc="
+                            em2 = em2 + mrc2.to_string()
+                            em2 = em2 + "\",\"book_id\":\"\",\"existing_id\":\"\"}"
+                            return em2
+                        }
+                    }
+                    managed = cand
+                    reused = true
+                }
+            }
+            slot = slot + 1
+        }
+    }
+    if exhausted {
+        return "{\"code\":\"io_error\",\"message\":\"受管资产槽位耗尽（同指纹冲突超过上限）\",\"book_id\":\"\",\"existing_id\":\"\"}"
+    }
     if !fs.exists(managed) {
         let wrc int = fs.write_text(managed, text)
         if wrc != 0 {
@@ -390,6 +458,11 @@ pub fn import_book_json(path str, author str, force bool) str {
             wm = wm + wrc.to_string()
             wm = wm + "\",\"book_id\":\"\",\"existing_id\":\"\"}"
             return wm
+        }
+        // 新写入读回校验（F-03）：副本逐字完整才允许继续建索引记录
+        let rb str = fs.read_text(managed)
+        if rb != text {
+            return "{\"code\":\"io_error\",\"message\":\"受管副本写入校验失败（读回与源不一致）\",\"book_id\":\"\",\"existing_id\":\"\"}"
         }
     }
     let chs_raw str = parse_book_json(text, fmt, title)
