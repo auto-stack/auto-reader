@@ -48,6 +48,11 @@ created_at(=0，见 §6)`。字段以 record_json 实际输出为准。
 错误码：`ok | duplicate | invalid_path | is_dir | empty_file |
 decode_error | io_error`。编码错误不给假成功；io_error 时索引保持原状。
 
+索引版本门：library.json 的 `version` ≠ 1（含 v0 旧形/字段残缺）→ 索引
+拒绝加载并**保留原件**（books_json 返回 ""，导入/移除/恢复以 io_error
+或显式错误拒绝，消息含「人工迁移」），不静默清空、不自动改写（T-04
+实测：脚本+HTTP 双面）。迁移为人工动作；library.json.bak 供回退。
+
 ## 4. 端点（JSON 字符串返回——双层编码，前端二次解析）
 
 | 方法+路径 | 语义 |
