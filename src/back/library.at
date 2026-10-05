@@ -141,6 +141,12 @@ pub fn books_json() str {
         return "{\"version\":1,\"books\":[]}"
     }
     let parsed = json.parse(raw)
+    // 版本门：version ≠ 1（含 v0 旧形）拒绝加载并保留原文件（人工迁移），
+    // 不静默清空——调用方以 "" 判别为索引错误（AC-05 迁移前备份语义）。
+    let ver int = parsed.version
+    if ver != 1 {
+        return ""
+    }
     var out str = "{\"version\":1,\"books\":["
     let books = parsed.books
     var i int = 0
@@ -335,6 +341,9 @@ pub fn import_book_json(path str, author str, force bool) str {
     let hash str = ph1(text, size)
     // 去重：现读索引动态扫描同指纹
     let cur str = books_json()
+    if cur == "" {
+        return "{\"code\":\"io_error\",\"message\":\"书库索引版本不受支持：已保留原文件，需人工迁移\",\"book_id\":\"\",\"existing_id\":\"\"}"
+    }
     let parsed = json.parse(cur)
     let books = parsed.books
     var dup_id str = ""
@@ -543,6 +552,9 @@ pub fn put_reading_json(book_id str, payload str) str {
 /// 返回 "" = 成功，否则为错误消息。
 pub fn remove_book(book_id str) str {
     let cur str = books_json()
+    if cur == "" {
+        return "library index unsupported version"
+    }
     let parsed = json.parse(cur)
     let books = parsed.books
     var found bool = false
@@ -665,6 +677,9 @@ pub fn restore_book(book_id str) str {
     let n4 int = rec.created_at
     let rj str = record_json(v1, v2, v3, v4, v5, v6, v7, n1, n2, n3, n4)
     let cur str = books_json()
+    if cur == "" {
+        return "library index unsupported version"
+    }
     let parsed = json.parse(cur)
     let books = parsed.books
     var exists bool = false

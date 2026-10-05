@@ -7,7 +7,7 @@ author: [Codex]
 created_at: 2026-10-04T00:00:00Z
 updated_at: 2026-10-05T00:00:00Z
 plan_revision: 2
-current_step: 4
+current_step: 5
 total_steps: 5
 created: 2026-10-04
 base_branch: v0.6-dev
@@ -64,7 +64,7 @@ T-00先行；T-01→T-02→T-03→T-04顺序实施。T-00输出能力报告，T-
 - [x] T-01: 导入UTF-8 TXT/Markdown、管理原文件副本、稳定book_id/source_hash和真实章节；编码错误不给假成功。✅ 已完成 2026-10-05：新增 `src/back/pathx.at`（纯.at 路径/JSON转义助手，#[test] 2 通过）、`hashx.at`（ph1 内容指纹，#[test] 1 通过）、`importers.at`（TXT/MD 章节切分，#[test] 5 通过）、`library.at`（导入事务/受管副本/可恢复移除，无状态 JSON 字符串表面）；`api.at`/`db.at` 增 7 个 /api/library/* 端点（thin 体 + JSON 直通）。脚本规格 `tests/spec/t01_library_spec.as` 34 PASS/0 FAIL；应用级 `tests/spec/t01_http_verify.py` 39 PASS/0 FAIL（含真 GBK 字节拒绝、受管副本逐字一致、去重/强制、同题不同文件不互覆、移除恢复生命周期）；重启持久化 5 本书俱在且章节逐字恢复。双轨=Vue+VM后端（--server=vm）与 VM 全轨（-r vm --server=vm）均实测通过；rust 后端轨因 a2r 框架缺陷群阻塞（证据与清单见 [T-00 报告](../research/20261005-t00-runtime-capability.md) §12），按计划§8 登记跨仓能力计划候选，未以 stub 顶替。
 - [x] T-02: 实现metadata及ReadingState持久化、读取位置locator和settings基础。✅ 已完成 2026-10-05：library.at 增 reading/<book_id>.json 逐书状态存取（put/get，覆写留 .bak，校验书在库+payload 对象+id 在场），Locator v1 = chapter_number + paragraph_index + quote_prefix（段首前缀，恢复时校验用），settings（font_size/line_height）随状态持久化，created_at/updated_at v1 恒 0（a2r_std 缺 time，已登记）。端点 GET /api/library/progress?book_id= 与 POST /api/library/progress（写端点用 POST——VM HTTP 层 PUT+str 丢响应体，实测）。证据：`auto tests/spec/t02_reading_spec.as` 13 PASS/0 FAIL；`python tests/spec/t02_http_verify.py` 12 PASS/0 FAIL（含 ASCII 安全 u转义传输下中文引言逐字还原、覆写最新值、错误族三例、失败不落盘）。VM HTTP 请求体须 ASCII 安全（u转义）与快处理器空响应竞态已登记 T-00 报告。
 - [x] T-03: 接入现有书架/阅读页；用户可区分真实书与demo书。✅ 已完成 2026-10-05：book_store.at 增真实书架面（/api/library/* 双层解码 + 裸映射 POST 体）；bookshelf.at 合并书架（真实/Demo 徽标、导入对话框含 duplicate 提示与 force 开关、可恢复移除）；reading.at 真实书模式（按段渲染、Locator v1 保存/恢复、TOC 抽屉、章节切换），book_detail.at 真实书分支（真实徽标/目录/继续阅读）。浏览器端到端（IAB + Vue 轨实测）：导入对话框→书架「真实」卡（xiaoshuo/3章）→阅读页段落逐字（山月不知心底事…）→点段保存→服务端 locator（sig1 签名+settings）→刷新后「已恢复上次位置」+段标记。Vue codegen 限制实测并记录：widget 内局部 fn 不支持、f-string 插值内二元加法被吞、if/else 嵌套配对不可靠、同名参数被误加 .value、json.from_value 未映射（基线 AddBook 同缺陷）、Http.post 嵌套调用静默失败——均已在代码注释与 T-00 报告登记。
-- [ ] T-04: 建立迁移、重复导入、导入中断和长文fixture，提供干净数据目录启动方式。
+- [x] T-04: 建立迁移、重复导入、导入中断和长文fixture，提供干净数据目录启动方式。✅ 已完成 2026-10-05：fixtures（tests/fixtures/library/：中文 TXT/MD/无章头/空文件/真 GBK 字节/同内容异名/同题异容/migration 库存 v0 旧形 + 容量阶梯现场生成器）；library.at 增版本门（version≠1 拒绝加载并保留原件，人工迁移语义，AC-05 备份前置）；中断语义经孤儿状态驱动验证（副本已写索引未写→再导入幂等完成并复用副本；记录在副本被外删→内容缺失占位不伪造）。证据：auto tests/spec/t04_library_spec.as 14 PASS/0 FAIL；python tests/spec/t04_http_verify.py 11 PASS/0 FAIL（含容量阶梯 64KB 多章/512KB 边界响应超时但完成/10MiB 显式失败）。**10MiB 长文导入被 VM 指令预算硬上限阻断**（engine.rs CPU_CUMULATIVE_STEP_BUDGET=10M，实测 ≥1MiB 即超），登记跨仓能力计划候选，AC 未以 stub/降标顶替——见 §10。干净数据目录启动：bash tests/spec/run_fresh_server.sh（隔离数据目录 + 端口回显）。
 
 ## 6. 测试设计
 
