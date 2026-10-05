@@ -460,6 +460,82 @@ pub fn restore_book_json(book_id str) str {
 }
 
 // ═══════════════════════════════════════════════════════════
+// 阅读状态（ReadingState + Locator v1 + settings 基础）
+// 存储：<data>/reading/<book_id>.json，逐书一份；书删除时状态保留
+// （恢复书目后阅读位置随之恢复）。
+// Locator v1（TXT/MD 单资源语义，PRODUCT DESIGN §3 的可落地面）：
+//   chapter_number + paragraph_index + quote_prefix（定位段落首 ≤64 字符，
+//   恢复时校验章节与段落文本前缀，不匹配则标记需重定位）。
+//   定位不存像素/百分比；settings（font_size/line_height）随状态持久化。
+// ═══════════════════════════════════════════════════════════
+
+fn reading_dir() str {
+    let dd str = data_dir()
+    return join(dd, "reading")
+}
+
+fn reading_path(book_id str) str {
+    let rd str = reading_dir()
+    let fname str = book_id + ".json"
+    return join(rd, fname)
+}
+
+/// 读取阅读状态 JSON；无记录返回 ""。
+pub fn get_reading_json(book_id str) str {
+    let rp str = reading_path(book_id)
+    if !fs.exists(rp) {
+        return ""
+    }
+    let raw str = fs.read_text(rp)
+    if raw == "" {
+        return ""
+    }
+    return raw
+}
+
+/// 写入阅读状态。校验：书必须在库、payload 必须是 JSON 对象且包含该
+/// book_id（最小校验——完整 schema 由前端契约保证，见 spec 增量）。
+/// 返回 "" = 成功，否则错误消息。
+pub fn put_reading_json(book_id str, payload str) str {
+    if book_id == "" {
+        return "book_id required"
+    }
+    let rj str = book_json(book_id)
+    if rj == "" {
+        return "book not found"
+    }
+    let trimmed str = payload.trim()
+    if trimmed.substr(0, 1) != "{" {
+        return "payload must be a JSON object"
+    }
+    // 宽松校验（JSON 序列化器的冒号空格风格不定）：键名与 id 值都须在场
+    let key_tag str = "\"book_id\""
+    if trimmed.find(key_tag) < 0 {
+        return "payload book_id mismatch"
+    }
+    if trimmed.find(book_id) < 0 {
+        return "payload book_id mismatch"
+    }
+    let rd str = reading_dir()
+    let mrc int = mkdirs(rd)
+    if mrc != 0 {
+        return "reading dir create failed rc=" + mrc.to_string()
+    }
+    let rp str = reading_path(book_id)
+    if fs.exists(rp) {
+        // 覆写前留上一份（与 library.json.bak 同语义）
+        let bak str = rp + ".bak"
+        let prev str = fs.read_text(rp)
+        fs.write_text(bak, prev)
+    }
+    let wrc int = fs.write_text(rp, trimmed)
+    if wrc != 0 {
+        return "reading state write failed rc=" + wrc.to_string()
+    }
+    return "{\"ok\":true,\"message\":\"\"}"
+}
+
+// ═══════════════════════════════════════════════════════════
 // 可恢复移除（AC-05：默认不动用户原路径文件，受管副本保留）
 // ═══════════════════════════════════════════════════════════
 

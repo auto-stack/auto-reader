@@ -122,3 +122,18 @@ pub fn library_toc(id str) str {
 pub fn library_chapter(book_id str, number int) str {
     return db.library_chapter(book_id, number)
 }
+
+/// GET /api/library/progress — 阅读状态 JSON（query: book_id；无记录 ""）。
+#[api(method = "GET", path = "/api/library/progress")]
+pub fn library_get_reading(book_id str) str {
+    return db.library_get_reading(book_id)
+}
+
+/// POST /api/library/progress — 写阅读状态（locator v1 + settings）。
+/// body: { book_id, payload }，payload 为状态 JSON 字符串（幂等保存，
+/// 非创建语义）；校验失败 500 带 library 错误消息。VM HTTP 层对
+/// PUT+str 返回会丢响应体（T-02 实测），故写端点用 POST。
+#[api(method = "POST", path = "/api/library/progress")]
+pub fn library_put_reading(book_id str, payload str) str {
+    return db.library_put_reading(book_id, payload)
+}

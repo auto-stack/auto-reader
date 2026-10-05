@@ -3,7 +3,7 @@
 // NOTE: seed strings ASCII-only (field-splitter limitation, see 017-chat).
 
 use api: Book, Chapter
-use library: books_json, book_json, toc_json, chapter_json, import_book_json, remove_book_json, restore_book_json
+use library: books_json, book_json, toc_json, chapter_json, import_book_json, remove_book_json, restore_book_json, get_reading_json, put_reading_json
 
 // ═══════════════════════════════════════════════════════════
 // In-memory storage
@@ -205,4 +205,12 @@ pub fn library_toc(id str) str {
 
 pub fn library_chapter(book_id str, number int) str {
     return chapter_json(book_id, number)
+}
+
+pub fn library_get_reading(book_id str) str {
+    return get_reading_json(book_id)
+}
+
+pub fn library_put_reading(book_id str, payload str) str {
+    return put_reading_json(book_id, payload)
 }
