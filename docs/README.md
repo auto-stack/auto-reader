@@ -9,7 +9,7 @@
 
 ## 首批计划
 
-1. [READER-001：真实导入、书库存储与位置恢复](plans/001-real-library.md)
+1. [READER-001：真实导入、书库存储与位置恢复](plans/archive/001-real-library.md)（已交付 reviewed→archived，2026-10-05；实现态规范 [docs/specs/reader/real-library.md](../specs/reader/real-library.md)）
 2. [READER-002：阅读体验、摘录与知识交接](plans/002-reading-annotations.md)
 3. [READER-003：重排版 EPUB 导入与阅读](plans/003-epub-reflow.md)
 

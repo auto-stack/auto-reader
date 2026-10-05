@@ -1,7 +1,7 @@
 ---
 plan_id: READER-001
 title: "真实导入、书库存储与位置恢复"
-status: reviewed
+status: archived
 feature_name: "真实导入、书库存储与位置恢复"
 author: [Codex]
 created_at: 2026-10-04T00:00:00Z
@@ -118,3 +118,10 @@ work 执行后遗留两条 blocker（均有完整实测证据，登记于 docs/r
 2. **10MiB 长文导入超 VM 指令预算**：CPU_CUMULATIVE_STEP_BUDGET=10M 硬编码无配置口，实测 ≥1MiB 即超（512KB 边界响应可超时但服务端完成）。AC 的 10MiB 项验收为「显式失败而非假成功」，跨仓提案：预算可配/分片导入接口。
 
 work 交接：stage=work 收尾 | plan_revision=2 | outcome=pass（execution_done，非独立复审结论）| next=review。T-00~T-04 完成；两条跨仓 blocker（rust 后端缺陷群、VM 指令预算上限）已在 §9/§10 登记，review 裁量处置。
+
+合并回执 READER-001:r2（2026-10-05）：
+- prepared: reviewed 基线 849b6e5（复审续提交 33c1259），canonical Spec=docs/specs/reader/real-library.md（复审补版本门），交付轨=v0.6-dev
+- landed: v0.6-dev 线性推送 origin（交付提交=复审链 33c1259+bookkeeping，无 merge commit；本仓按 AGENTS §2.1 以 apps 子检出为工作位，无独立 dev 分支/worktree）
+- ledger_refreshed: .autoos/specs.json 六节（project=auto-reader，R001-1~6，canonical 指向 docs/specs/reader/real-library.md）
+- archived: docs/plans/archive/001-real-library.md，status=archived，completion_kind=delivered
+- cleaned: 不适用（无 .wt worktree/独立分支需清除；检出按 AGENTS §2.1 detach 收尾）
