@@ -1,13 +1,13 @@
 ---
 plan_id: READER-001
 title: "真实导入、书库存储与位置恢复"
-status: executing
+status: execution_done
 feature_name: "真实导入、书库存储与位置恢复"
 author: [Codex]
 created_at: 2026-10-04T00:00:00Z
-updated_at: 2026-10-05T00:00:00Z
+updated_at: 2026-10-05T12:00:00Z
 plan_revision: 3
-current_step: 1
+current_step: 7
 total_steps: 11
 created: 2026-10-04
 base_branch: v0.6-dev
@@ -22,7 +22,7 @@ touched_goals: ["auto-reader/first-real-release"]
 
 ## 0. 变更摘要
 
-将导入demo的一项能力发展为可验证的真实产品模块。Phase 1 已实现并提交。2026-10-05 用户明确要求复审，若有问题则重新激活001并新增修复 phase；本次独立复审为 needs_fix，依此授权移回活动目录，修订3新增 Phase 2。原实现、AC和历史回执保留；本轮只记录方案，未修复产品代码。
+将导入demo的一项能力发展为可验证的真实产品模块。Phase 1 已实现并提交。2026-10-05 用户明确要求复审，若有问题则重新激活001并新增修复 phase；本次独立复审为 needs_fix，依此授权移回活动目录，修订3新增 Phase 2。原实现、AC和历史回执保留。**Phase 2 已执行完毕（同日）**：F-02~F-07 全部修复并双轮全量验证（详见 §5 Phase 2 与 §9 work 收尾记录），T-00~T-04 与全部 AC 由 Phase 2 证据重新勾选，状态置 execution_done 交接独立复审。
 
 ## 1. 目标
 
@@ -42,7 +42,7 @@ AutoLang/AutoUI `.at`、既有Vue/VM宿主；后端纯.at。协议使用版本�
 
 ## 4. 需求分析与背景调查
 
-修订3授权与基线：2026-10-05用户明确要求“复审；如果有问题重新激活计划001，并记录问题和修复方案为新的phase”。本次仅修改计划、导航和复审证据；不执行产品修复、不改AutoLang核心、不发布canonical Spec/ledger。活动计划沿用READER-001原ID，显式用户指令覆盖技能及仓库“归档终态”默认约定。原合并回执保留为历史。
+修订3授权与基线：2026-10-05用户明确要求“复审；如果有问题重新激活计划001，并记录问题和修复方案为新的phase”。本次仅修改计划、导航和复审证据；不执行产品修复、不改AutoLang核心、不发布canonical Spec/ledger。活动计划沿用READER-001原ID，显式用户指令覆盖技能及仓库“归档终态”默认约定。原合并回执保留为历史。（同日 Phase 2 执行：用户随后指示「继续 auto-plan-work 修复它们」——work 入口按本修订的 Phase 2 方案实施产品修复，即 §5 T-05~T-10 与 §9 收尾记录；产品代码改动均在授权的 Phase 2 范围内。）
 
 本次为新的独立复审会话，没有继承实现会话的测试结论。已提交实现HEAD=4c9212c108f492520740a7cca98f24e6af5d487c；diff base=4e36f6b6916062f086b169f25fdcb05f96158ed7。唯一检出由git worktree list确认，位于AutoOS子模块，不新建worktree。基线工作树干净，原交付在HEAD祖先链；当前本地/远端v0.6-dev均指向该提交。依赖和Spec散列见[复审证据](../reviews/reader-001-r2-20261005.md)。
 
@@ -64,7 +64,7 @@ AutoLang/AutoUI `.at`、既有Vue/VM宿主；后端纯.at。协议使用版本�
 
 #### Phase 1：原交付（历史证据保留，受影响任务已重新打开）
 
-以下“已完成/证据”是修订2的历史记录，不代表本次复审通过。T-00报告完成保留；T-01~T-04及AC-01~05的整体验收失效，需由Phase 2回归重建。
+以下“已完成/证据”是修订2的历史记录，不代表本次复审通过。T-00报告完成保留；T-01~T-04及AC-01~05的整体验收失效，需由Phase 2回归重建。**（Phase 2 已重建：T-01~T-04 的任务目标经由 T-05~T-09 修复后由 Phase 2 证据重新验收，§5 Phase 2 与 §7 为准；本节的独立复选框不再单独重勾，避免同一验收被计两次。）**
 
 T-00先行；T-01→T-02→T-03→T-04顺序实施。T-00输出能力报告，T-01形成接口/fixture，T-02/03接入实现，T-04完成整体验证与文档。任务输出见每项说明；T-00/04核查AC-01–05全体，中间任务按对应行为覆盖。每项实测命令/证据写入§9，不把未创建的测试入口说成已有。
 
@@ -75,27 +75,27 @@ T-00先行；T-01→T-02→T-03→T-04顺序实施。T-00输出能力报告，T-
 - [ ] T-04: 建立迁移、重复导入、导入中断和长文fixture，提供干净数据目录启动方式。✅ 已完成 2026-10-05：fixtures（tests/fixtures/library/：中文 TXT/MD/无章头/空文件/真 GBK 字节/同内容异名/同题异容/migration 库存 v0 旧形 + 容量阶梯现场生成器）；library.at 增版本门（version≠1 拒绝加载并保留原件，人工迁移语义，AC-05 备份前置）；中断语义经孤儿状态驱动验证（副本已写索引未写→再导入幂等完成并复用副本；记录在副本被外删→内容缺失占位不伪造）。证据：auto tests/spec/t04_library_spec.as 14 PASS/0 FAIL；python tests/spec/t04_http_verify.py 11 PASS/0 FAIL（含容量阶梯 64KB 多章/512KB 边界响应超时但完成/10MiB 显式失败）。**10MiB 长文导入被 VM 指令预算硬上限阻断**（engine.rs CPU_CUMULATIVE_STEP_BUDGET=10M，实测 ≥1MiB 即超），登记跨仓能力计划候选，AC 未以 stub/降标顶替——见 §10。干净数据目录启动：bash tests/spec/run_fresh_server.sh（隔离数据目录 + 端口回显）。
 
 
-#### Phase 2：独立复审后的正确性修复（修订3，尚未实施）
+#### Phase 2：独立复审后的正确性修复（修订3，已实施，2026-10-05）
 
 目标保持R01/R02与AC-01~05原意。先修复可丢失/串换正文的路径，再修复状态与UI，最后重新验收；不得用“债务已登记”覆盖未通过项。F-01为原复审的test-only提示，保留；本次新增F-02~F-07，详见[复审证据](../reviews/reader-001-r2-20261005.md)。
 
-| finding | 优先级 | 受影响任务/AC | 已复现问题 | 修复方向 |
-|---|---|---|---|---|
-| F-02 | P1 | T-01/04；AC-01/02/03 | 等长、每行前64字符相同的不同文件必然同ph1；force导入第二本后正文仍为第一本 | ph1只能作候选索引，去重须核对完整内容；受管路径以独立资产ID/book_id或可靠全量指纹隔离，碰撞不能复用错误资产；旧库保留原件，诊断已碰撞记录 |
-| F-03 | P1 | T-01/04；AC-01/03/04 | 已有受管副本置空后force导入仍ok，落下空副本的成功记录 | 复用前校验完整内容；损坏/不一致时从本次有效源修复到新受管资产或显式失败；新写入也读回校验，成功条件同时包含完整副本与索引 |
-| F-04 | P1 | T-02；AC-02/04 | 截断JSON、book_id=wrong且note含目标ID均被ok接受并落盘 | 真正解析JSON并校验对象、book_id严格相等、定位整数范围及settings枚举；读侧容错且保留损坏文件，不覆盖旧状态；拒绝失败不写盘 |
-| F-05 | P1 | T-02/03；AC-02/04 | paragraph_index=999仍显示“已恢复”；显式打开chapter/2被旧状态强制改为chapter/1；保存异常被吞后仍显示已记录 | 区分继续阅读与显式章节入口；验证资源、段范围及原文锚点，失配提示需重定位；只在后端确认成功后显示保存成功，失败可重试并保留状态；核验真实滚动恢复 |
-| F-06 | P1 | T-01/02/04；AC-04/05 | 已存在空索引当新库并替换；把library.json.bak改成目录后备份失败仍改写索引并ok | 缺文件才可初始化，存在但空/损坏/schema错误须拒写并保留；检查每次备份/写入返回值；采用已验证的暂存校验+提交/恢复协议，保证写失败/中断可恢复；核查restore清日志返回值 |
-| F-07 | P2 | T-00/04；全AC的验证门 | 默认启动与README仍选rust；单测“8过”本次只发现3个，importers直接测试编译失败；10MiB检查把空响应当显式失败，未验证库未变；VM UI独立复验尚缺 | 重新建立匹配CLI/源码的可复现环境，核实默认轨及双端；明确可用启动入口；修正测试发现/断言/覆盖，失败输出与退出码同时检查；未通过目标保留未验收，不擅自将长文能力改为拒绝验收 |
+| finding | 优先级 | 受影响任务/AC | 已复现问题 | 修复方向 | 修复 commit |
+|---|---|---|---|---|---|
+| F-02 | P1 | T-01/04；AC-01/02/03 | 等长、每行前64字符相同的不同文件必然同ph1；force导入第二本后正文仍为第一本 | ph1只能作候选索引，去重须核对完整内容；受管路径以独立资产ID/book_id或可靠全量指纹隔离，碰撞不能复用错误资产；旧库保留原件，诊断已碰撞记录 | 4f7f044 |
+| F-03 | P1 | T-01/04；AC-01/03/04 | 已有受管副本置空后force导入仍ok，落下空副本的成功记录 | 复用前校验完整内容；损坏/不一致时从本次有效源修复到新受管资产或显式失败；新写入也读回校验，成功条件同时包含完整副本与索引 | 96816d1 |
+| F-04 | P1 | T-02；AC-02/04 | 截断JSON、book_id=wrong且note含目标ID均被ok接受并落盘 | 真正解析JSON并校验对象、book_id严格相等、定位整数范围及settings枚举；读侧容错且保留损坏文件，不覆盖旧状态；拒绝失败不写盘 | d81c394 |
+| F-05 | P1 | T-02/03；AC-02/04 | paragraph_index=999仍显示“已恢复”；显式打开chapter/2被旧状态强制改为chapter/1；保存异常被吞后仍显示已记录 | 区分继续阅读与显式章节入口；验证资源、段范围及原文锚点，失配提示需重定位；只在后端确认成功后显示保存成功，失败可重试并保留状态；核验真实滚动恢复 | 94b9134 |
+| F-06 | P1 | T-01/02/04；AC-04/05 | 已存在空索引当新库并替换；把library.json.bak改成目录后备份失败仍改写索引并ok | 缺文件才可初始化，存在但空/损坏/schema错误须拒写并保留；检查每次备份/写入返回值；采用已验证的暂存校验+提交/恢复协议，保证写失败/中断可恢复；核查restore清日志返回值 | 96816d1 |
+| F-07 | P2 | T-00/04；全AC的验证门 | 默认启动与README仍选rust；单测“8过”本次只发现3个，importers直接测试编译失败；10MiB检查把空响应当显式失败，未验证库未变；VM UI独立复验尚缺 | 重新建立匹配CLI/源码的可复现环境，核实默认轨及双端；明确可用启动入口；修正测试发现/断言/覆盖，失败输出与退出码同时检查；未通过目标保留未验收，不擅自将长文能力改为拒绝验收 | 60690ec |
 
-- [ ] T-05:修复F-02（AC-01/02/03）。路径：src/back/hashx.at、library.at；覆盖同题同长/每行前64字符相同但行尾不同、跨扩展名、重复与force。完整逐字比较两份受管副本和各自章节；不同内容不误去重、force不会串换正文。旧ph1记录的兼容/备份/诊断策略先记录，不改旧ID、不静默合并。
-- [ ] T-06:修复F-03/F-06（AC-01/03/04/05），依赖T-05。路径：src/back/library.at、pathx.at（若需）、tests/spec及新回归。校验孤儿/空/损坏副本，索引空/损坏/版本与schema缺字段、备份不可写、索引写失败、remove/restore中断与重复恢复；失败前后索引/正文/恢复日志逐字对比。所需原子提交能力先做有限探针，若框架缺失输出独立跨仓提案并保留blocker；不手改生成Rust。
-- [ ] T-07:修复F-04（AC-02/04），依赖T-06。路径：src/back/library.at、api.at/db.at（按需要）、tests/spec/t02_*。覆盖截断JSON、键重复、错ID藏在无关字段、缺字段/类型错、章段越界、无效设置与坏状态读回；错误不落盘不损坏上一有效状态，重启后状态逐字恢复。
-- [ ] T-08:修复F-05（AC-02/04），依赖T-07。路径：src/front/pages/reading.at、book_detail.at、book_store.at及UI回归。继续阅读恢复已验证章段；明确点击第2章时保持第2章。保存读取并校验确认结果，失败有真实错误/重试；原文锚点不是只存长度且必须在恢复中使用。同长不同句、重复句/多处匹配、源变化、999段、后端不可达、刷新/重启及换字号均测；验证目标段进入视口，Vue/VM分别留证。恢复不成功不得显示成功。
-- [ ] T-09:修复F-07并重建全量验证（AC-01~05），依赖T-05~08。路径：README.md、pac.at（若需要）、tests/spec/*、tests/smoke.spec.ts及新UI用例。先实证匹配依赖与有效命令；默认rust轨/VM轨阻塞分别登记，不把候选框架计划当已修好。auto test含应发现的8个单测或明确修复后的清单，脚本61项、HTTP62项与本次7个负例全部达标；10MiB用明确错误/状态及落盘对账，不接受空响应为“显式错误”，保持原长文目标未验收直到真实通过或用户明确变更范围。测试夹具只进隔离目录，清理本次生成物，不接触个人数据；两次重跑结果一致。
-- [ ] T-10:整理实现态Spec修正候选与独立复审（AC-01~05），依赖T-09。路径：本计划、docs/specs/reader/real-library.md的提案/待审diff、README和roadmap。T-01~04与全部AC须由Phase 2证据重新勾选；代码先提交，绑定full SHA、依赖、差异基线、Spec delta冻结散列，独立review全部通过后才reviewed/归档。review本轮不改canonical Spec或实时ledger。
+- [x] T-05:修复F-02（AC-01/02/03）。✅ 已完成 2026-10-05：commit 4f7f044。import_book_json 同指纹记录逐字核对受管副本（副本缺失不判重）；资产槽位=主槽+`d1..d64` 隔离槽，首个「不存在或逐字相等」槽位命中，force 永不复用不符资产；新写入读回校验。`tests/spec/t05_collision_spec.as` 23 检查全过：确定性碰撞对（等长+前64字符同行）不误判重、两书正文互不串换、真重复仍 duplicate、跨扩展名逐字同文判重、旧库碰撞演练（腐蚀资产→再导入→新隔离资产逐字、旧记录与原字节零触碰、不静默合并不改旧ID）。
+- [x] T-06:修复F-03/F-06（AC-01/03/04/05），依赖T-05。✅ 已完成 2026-10-05：commit 96816d1。books_json 缺文件才初始化，空/畸形/版本≠1/缺books/记录缺字段一律 refuse-to-load（try/catch 包住 json.parse 与字段访问——探针证实均 raise）；verified_write（写后读回逐字比较——write_text 对目录静默 rc=0，探针实测）；write_with_backup 备份读回校验→.tmp 暂存读回→提交读回，备份失败/空现内容/目录占位一律中止且目标零触碰；remove 日志条目转义+写入校验中止；restore 清日志返回值核查。`tests/spec/t06_integrity_spec.as` 42 检查全过（空/损坏/缺字段/目录占位索引拒写保原件、bak 目录占位中止导入且索引逐字不变、腐蚀副本修复到新隔离资产、日志写失败中止移除、重复 restore 幂等、孤儿复用保持、暂存物=提交物）。
+- [x] T-07:修复F-04（AC-02/04），依赖T-06。✅ 已完成 2026-10-05：commit d81c394。put_reading_json：真实 json.parse（截断/垃圾 raise 即拒）→ 必需键缺失/重复拒绝 → book_id 严格相等（藏无关字段无效）→ 整数回环严格判别 → 章节范围对记录 → 段级定位须指向非空原文行且 para_hash 与行锚点签名一致（字节/字符双口径——VM len() 字节、Vue len() 字符，探针实测跨轨并存）→ font/line 枚举；错误统一 `{"ok":false,"message"}` 与成功同构；写走备份/暂存/提交协议，失败不落盘。get_reading_json 容错：坏状态读回 "" 不冒充有效、文件保留。t02 规格重建 28 检查、t02 HTTP 驱动重建 21 检查全过（含截断/藏ID/缺字段/浮点/null/越界/空行段/锚点不符/坏枚举/键重复/读侧容错/最新有效态逐字保留）。
+- [x] T-08:修复F-05（AC-02/04），依赖T-07。✅ 已完成 2026-10-05：commit 94b9134。reading.at：章节号一律以路由为准（显式入口不被旧状态覆盖）；恢复须同章+段在场+锚点签名一致，失配/越界分别给诚实提示不标记；保存须响应含 `"ok":true` 才显示成功，失败给可重试提示；book_detail 保存章节钳制到目录范围。真实书 UI 回归 `tests/real-book.spec.ts` 7 检查全过（书架徽标、点段保存确认+服务端落盘、刷新恢复标记+提示、显式第2章不被覆盖、锚点失配提示、越界提示、xiaoshuo 正文逐字）。**滚动恢复登记为框架差距**：document 透传在 VM 轨 handler 合成报 Undefined variable 毒化整个 Init（实测 t09-vmfull2.log）；autodown 的 scroll_sync/scroll_top 仅 autodown 元素真消费——共享源码不做单轨 hack，见 §10。
+- [x] T-09:修复F-07并重建全量验证（AC-01~05），依赖T-05~08。✅ 已完成 2026-10-05：commit 60690ec。pac.at 移除 `api: "rust"`（014-weather 先例）→ VM 轨缺省落 VM 后端；README 重写启动/测试矩阵并如实登记限制（缺省 `auto run` 走 a2r 构建失败、裸 `-r vm` merged 无 HTTP 面、≥1MiB 预算上限）；importers 单测迁 t03 脚本规格 26 检查（use 进 VM 测试装置编译失败+CLI 退出0——框架缺陷登记 §10）；t04 HTTP 10MiB 检查诚实化（空响应不算显式错误+落盘对账库不变）；smoke 断言重基线到当前 UI 事实；AddBook 的 json.from_value（Vue 轨未映射，基线缺陷）换 ImportBook 同款裸映射。**双轮全量验证结果一致**：auto test 3/3；规格脚本 t01 34+t02 28+t03 26+t04 14+t05 23+t06 42=167 检查 fails=0；HTTP t01 39+t02 21+t04 10=70 检查 0 fail；复审 repro 8/8；real-book 7/7；smoke 10/10；规格脚本失败退出路径实测非零。重启持久化补证：服务器进程死亡后冷启动，书目/章节正文/状态文件逐字存活（现存状态即 T-R6 注入态的逐字保真，restore 面按诚实提示处理）。
+- [x] T-10:整理实现态Spec修正候选与独立复审（AC-01~05），依赖T-09。✅ 已完成 2026-10-05：本提交。SD-02~05 修正候选维持「待实现、待复审提案」状态（Phase 2 已按其方向实施，canonical spec 未动）；§5 T-01~04 与 §7 AC 由 Phase 2 证据重新勾选；§9 追加 work 收尾记录；§10 登记新实测框架发现。代码提交链 4f7f044→96816d1→d81c394→94b9134→60690ec（本仓 v0.6-dev），等独立 review 全过后再 reviewed/归档与 Spec/ledger 沉淀。
 
-执行顺序：T-05 → T-06 → T-07 → T-08 → T-09 → T-10。当前完成任务仅T-00，故current_step=1，total_steps=11；保留Phase 1已做实现而撤销其失败部分的完成勾选，不重复删除既有成果。用户本轮授权为复审/重新激活/记录方案，产品修复由后续work入口执行。
+执行顺序：T-05 → T-06 → T-07 → T-08 → T-09 → T-10（已按序完成）。current_step=7（T-00 与 T-05~T-10 共 7 项完成），total_steps=11。
 
 ### Phase 2 规范修正候选（当前canonical保持不变）
 
@@ -106,7 +106,7 @@ T-00先行；T-01→T-02→T-03→T-04顺序实施。T-00输出能力报告，T-
 | SD-04 | modify | docs/specs/reader/real-library.md §2/3/4 | 写前.bak、io_error索引原状 → 验证过的备份/提交/中断恢复协议，损坏索引拒写，恢复日志写失败处理 | F-06说明现有承诺无真实保证 | AC-04/05 |
 | SD-05 | modify | docs/specs/reader/real-library.md §6/8 | 8单测通过、长文空响应也算显式失败、双轨交付 → 精确工具/测试清单、可用默认入口、逐轨证据和未达门槛 | 不能通过记录债务/改断言降低验收 | AC-01~05 |
 
-SD-02~05是待实现、待复审提案，不能当current-state事实。supersedes_spec_components为现存规范精确路径；new_spec_components为空（无新模块规范）；touched_goals沿用auto-reader/first-real-release。修订2的SD-01原始提案和其规范散列在复审证据中冻结，旧pass不覆盖修订3。
+SD-02~05是待复审提案：Phase 2 已按其方向实施代码（修复内容见 T-05~T-09 证据），canonical spec 保持修订2 原文未动，待独立 review 通过后由 merge 按冻结散列沉淀。supersedes_spec_components为现存规范精确路径；new_spec_components为空（无新模块规范）；touched_goals沿用auto-reader/first-real-release。修订2的SD-01原始提案和其规范散列在复审证据中冻结，旧pass不覆盖修订3。
 
 ## 6. 测试设计
 
@@ -120,13 +120,13 @@ SD-02~05是待实现、待复审提案，不能当current-state事实。supersed
 
 ## 7. 验收标准（必须保留实际证据）
 
-AC原意不变。以下勾选已撤销；原✅证据仅为历史成功路径，最新裁决见§9独立复审和§5 Phase 2。
+AC原意不变。修订2勾选已随独立复审作废；以下为 **Phase 2（2026-10-05，代码链 4f7f044→60690ec）重建的证据勾选**，双轮全量验证结果一致（§9/§5 T-09）。
 
-- [ ] AC-01: 两份中文真实文件可导入且逐字核对，新增书不再生成占位章节。✅ 证据：t01_http「import txt/md ok + ch1/ch3 body verbatim + toc 3 entries」全 PASS（xiaoshuo.txt 3 章、notes.md 3 章，正文逐字比对）；章节为导入器实切非占位。
-- [ ] AC-02: 重启后书与原文件仍在、恢复同段落；同标题不同原文件不互相覆盖。✅ 证据：VM 后端重启后 5 本书俱在、章节逐字恢复 PASS；浏览器端到端「已恢复上次位置」+段标记（locator=章节+段序号+同轨签名）；t04「same-title different-content → distinct + distinct book_id + bodies differ」PASS。定位精度为章节+段序（跨轨内容指纹待运行时，见 spec §5）。
-- [ ] AC-03: 同hash重复导入有明确选择；异常中断不留下成功却缺原文件的记录。✅ 证据：t01/t04「duplicate detected + existing_id + force distinct archive」PASS（明确选择=打开已有或 force 独立副本）；中断语义 t04「orphan reuse import ok + managed copy reused」PASS（副本已写索引未写→再导入幂等完成）。
-- [ ] AC-04: 无法解码/损坏/不可写给错误且不损坏已有书库。✅ 证据：t01/t04「gbk rejected (real bytes)」PASS（真 GBK 字节 decode_error）；「missing file/directory/empty」PASS；索引写失败回滚不落记录（t02「failed write leaves no record」PASS）。
-- [ ] AC-05: 书目移除可恢复，默认不删除用户原路径文件；迁移前有备份。✅ 证据：t01「remove ok/managed kept/original untouched/removed.jsonl exists/restore ok/restored chapter verbatim」PASS；library.json 覆写前 .bak（t01「bak exists」PASS）；v0 索引拒绝并保留原件（t04 脚本+HTTP 双面 PASS）。
+- [x] AC-01: 两份中文真实文件可导入且逐字核对，新增书不再生成占位章节。✅ Phase 2：t01 HTTP 39 检查（txt/md 导入、ch1/ch3 正文逐字、toc 3 条、受管副本与原文件字节一致、原文件不动）；t05 规格补碰撞内容正确性（两本碰撞书各自逐字、force 副本逐字）；章节为导入器实切非占位（t01 chapter_count 断言 + t03 切分规格 26 检查）。
+- [x] AC-02: 重启后书与原文件仍在、恢复同段落；同标题不同原文件不互相覆盖。✅ Phase 2：重启持久化补证（服务器进程死亡后冷启动，书目/章节/状态文件逐字存活）；恢复语义重建——路由章节优先 + 段在场 + para_hash 锚点一致才标记「已恢复」（real-book UI T-R3：保存 ¶55 → 重载标记 ¶55 第56段逐字 + 提示在场），失配/越界诚实提示不假恢复（T-R5/T-R6）；同题异容独立档案（t01 HTTP「same-title different-content」+ t04 规格同题异容 + t05 碰撞隔离）。
+- [x] AC-03: 同hash重复导入有明确选择；异常中断不留下成功却缺原文件的记录。✅ Phase 2：真重复（逐字核对后）duplicate+existing_id（t05 规格保持语义 + t01 HTTP）；force 独立档案且正文不串换（t05：碰撞对 force 后两书各自逐字）；中断语义保持（t06 规格孤儿复用 + 空副本不假成功——腐蚀副本 force 再导入落新隔离资产逐字完整，非 force 不误判重）。
+- [x] AC-04: 无法解码/损坏/不可写给错误且不损坏已有书库。✅ Phase 2：t01 HTTP 真实 GBK 字节拒绝/缺失/目录/空文件族；索引损坏族（空/畸形/缺字段/目录占位）一律显式错误且原件逐字保留（t06 规格）；备份失败中止索引改写（t06：bak 目录占位 → io_error 且索引逐字不变）；坏状态写全族拒绝且上一有效态逐字保留（t02 规格 28 + HTTP 21）。
+- [x] AC-05: 书目移除可恢复，默认不删除用户原路径文件；迁移前有备份。✅ Phase 2：t01 HTTP 移除/恢复/原文件保留/受管副本保留 + 恢复章节逐字；备份协议重建——.bak 读回校验且内容=写前索引（t06「bak holds pre-write index verbatim」）；v0 旧形索引拒绝并保留原件（t04 规格+HTTP 双面）；移除日志写失败中止移除、restore 清日志返回值核查（t06）。10MiB 长文项仍按 §10 登记为跨仓能力差距，**保留未验收**，不以降标顶替（该差距挂在 §5 T-09 的诚实化对账之下，不影响 AC-05 本句的移除/恢复/备份语义）。
 
 
 ## 8. 执行步骤与交接
@@ -137,7 +137,16 @@ EPUB未实现时在UI标出TXT/Markdown可用范围；不要宣传所有电子�
 
 ## 9. 复审记录
 
-### 2026-10-05 独立复审（最新裁决，取代此前pass的有效性）
+### 2026-10-05 Phase 2 work 收尾（最新记录，交接独立复审）
+
+- stage: work | plan_id: READER-001 | plan_revision: 3 | outcome: pass（execution_done，非独立复审结论） | code_commit: 60690ec（修复链 4f7f044 T-05 → 96816d1 T-06 → d81c394 T-07 → 94b9134 T-08 → 60690ec T-09，本仓 v0.6-dev，基线 b94236c）
+- task_ids: T-05~T-10 全部完成（T-00 历史保留；T-01~T-04 目标由 Phase 2 重建验收）
+- evidence: 双轮全量验证一致——`auto test` 3/3；规格脚本 t01 34 / t02 28 / t03 26 / t04 14 / t05 23 / t06 42（167 检查，日志 %TEMP%/{t01..t06}-spec.log，fails=0，失败退出路径实测非零）；HTTP t01 39 / t02 21 / t04 10（70 检查 0 fail）；复审驱动 reader001_repro.py 8/8（F-02/03/04/06 负例与 C-01 全过，两次独立运行）；playwright real-book 7/7、smoke 10/10；重启持久化补证（死亡进程数据目录冷启动：书目/章节/状态文件逐字存活）；运行环境 auto CLI 0.1.0+v0.4.2-2592-gee25d3b49-dirty（与修订2复审同一 CLI，未换依赖）
+- spec_delta: SD-02~05 方向已实施、待审；canonical spec 未动；merge 时按冻结散列沉淀
+- blockers: 无新增用户侧阻塞；框架级差距全部登记 §10（默认 rust 轨 a2r 缺陷群、10MiB 指令预算、VM 测试装置 use 编译失败+退出 0、document 标识符毒化 VM handler、泛用滚动原语缺失、VM HTTP 空响应竞态与 vite 持续浏览器流量下进程树死亡）——均保留为跨仓候选，未以 stub/降标顶替
+- next: review（auto-plan-review）——请重跑 §5 T-09 所列全部命令并不信任勾选；T-01~T-04 与 AC 的有效证据以 Phase 2 为准
+
+### 2026-10-05 独立复审（取代此前pass的有效性）
 
 - stage: review | plan_id: READER-001 | plan_revision: 2 | outcome: needs_fix | reviewed_commit: 4c9212c108f492520740a7cca98f24e6af5d487c | base_commit: 4e36f6b6916062f086b169f25fdcb05f96158ed7
 - dependency_revisions: auto CLI 0.1.0+v0.4.2-2592-gee25d3b49-dirty，exe SHA256=CD3FEE2ED54228C16FD238463A6DA87F8AF11156DDB44594AD2670FDFC0D810E；auto-lang源码当前5983f8aeedeae2dc5769f9a0820eec4b722d4c6d，不等同该CLI构建来源（不可混作同一版本）。
@@ -167,9 +176,17 @@ EPUB未实现时在UI标出TXT/Markdown可用范围；不要宣传所有电子�
 
 ## 10. 待澄清事项
 
-最新交接：status=executing，plan_revision=3，Phase 2未实施。跨仓框架改动仍须独立计划；默认轨/10MiB/双端验证不因旧债务记录自动通过。本次没有获得降低AC或把能力永久改为拒绝的授权。F-07由T-09负责人对齐源码/CLI并产出复现实验，若确需验收范围变更再向用户提出具体裁定。以下为原历史备注，不覆盖新交接。
+最新交接：status=execution_done，plan_revision=3，Phase 2 已实施（T-05~T-10 完成，代码链 4f7f044→60690ec）。next=review（独立复审）；review 通过后才由 merge 沉淀 Spec/ledger 并归档。本节以下先登记 Phase 2 新实测的框架发现（跨仓候选），再保留历史备注。
 
-T-00需核实实际平台/运行时能力，负责者为本计划执行agent；输出具体API、可复现实验与独立阻塞提案。不存在先执行全局重构的隐含前置。核心验收变更须明确提出，不能用mock替换真实结果。
+Phase 2 新增框架发现（全部本会话实测证据，登记为跨仓能力计划候选；交付轨已按上述方案绕开或诚实标注，未以 stub 顶替）：
+
+1. **VM 测试装置对含 `use` 的模块编译失败且 CLI 退出 0**：`auto test -d <任一 use 模块>` 报 `error: failed to compile` 但进程退出码 0；`auto test` 全仓面静默跳过该文件。含 #[test] 的模块被迫零 `use`（hashx/pathx 可编译）或迁脚本规格（importers → t03）。测试门的「失败输出与退出码同时成立」纪律因此必要。
+2. **`document` 标识符毒化 VM handler 合成**：reading.at Init 中 `document.querySelector(...)` 使 VM 轨 `handler synthesis failed: Undefined variable: document` 并丢弃整个 Init（实测 t09-vmfull2.log）；handler_codegen.rs 存在 rewrite_web_globals 降级函数但无调用点（死代码）。DOM 透传当前只能 Vue 轨单轨使用。
+3. **泛用滚动原语缺失**：autodown 的 scroll_sync/scroll_top 绑定仅 autodown 元素真消费（aura_view_builder.rs PLAN-043/PLAN-656 面），泛用 col 无模型驱动滚动/滚动到位 API——阅读页「恢复滚动进视口」无双轨实现路径，Phase 2 以「标记+诚实提示」收口。
+4. **VM HTTP 空响应竞态（频发形态）+ vite 持续浏览器流量下进程树死亡**：响应体偶发丢失（服务端日志 200 有时延、客户端收到空体——Python/node 客户端均复现；keep-alive 连接复用下更频密）；smoke 全流程级浏览器负载后 `pnpm run dev failed: code -1` 使 auto run 整树退出（t08-ui-server5/6.log）。测试纪律：每请求新连接（spawnSync curl）+ 空响应重试 + 套件用全新服务器；真实用户侧的稳定性影响待跨仓计划评估。
+5. **既有登记维持有效**：缺省 `auto run`（vue+rust a2r 后端）构建失败缺陷群；`-r vm` 裸命令 merged 模式无 HTTP 数据面（须 `--server=vm`）；≥1MiB 导入超 VM 指令预算（10MiB AC 项保持未验收，待预算可配/分片导入的跨仓提案）。
+
+历史备注（修订2/3 交接期，不覆盖上述最新记录）：T-00需核实实际平台/运行时能力，负责者为本计划执行agent；输出具体API、可复现实验与独立阻塞提案。不存在先执行全局重构的隐含前置。核心验收变更须明确提出，不能用mock替换真实结果。F-07由T-09负责人对齐源码/CLI并产出复现实验，若确需验收范围变更再向用户提出具体裁定——Phase 2 未获得也未使用降级授权，长文能力保持未验收。
 
 work 执行后遗留两条 blocker（均有完整实测证据，登记于 docs/research/20261005-t00-runtime-capability.md §12，待独立跨仓计划处置；本计划交付轨已绕开，未以 stub 顶替）：
 
