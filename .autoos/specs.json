@@ -9,13 +9,13 @@
       "status": "Active",
       "content": "auto-reader v0.6 首批目标（M1 真实书库已交付）",
       "depends_on": [],
-      "last_modified": 1791176252,
-      "last_verified": 1791176252,
+      "last_modified": 1791206973,
+      "last_verified": 1791206973,
       "items": [
         {
           "id": "R001-1",
           "title": "READER-001 真实导入、书库存储与位置恢复（M1）",
-          "content": "真实 TXT/Markdown 导入、受管副本、ph1 内容指纹去重、可恢复移除、ReadingState 持久化（Locator v1：章节+段序+同轨签名）。2026-10-05 交付。两条跨仓 blocker（rust 后端 a2r 缺陷群、VM 10M 指令预算上限）已登记，交付轨=auto run --server=vm。",
+          "content": "auto-reader v0.6 首批目标（M1 真实书库已交付；Phase 2 修复 2026-10-05 复审通过）",
           "status": "Delivered",
           "depends_on": [],
           "related": [
@@ -31,10 +31,11 @@
             "reader"
           ],
           "created_at": 1791176252,
-          "modified_at": 1791176252,
+          "modified_at": 1791206973,
           "completed_at": 1791176252
         }
-      ]
+      ],
+      "modified_at": 1791206973
     },
     {
       "id": "architecture",
@@ -43,13 +44,13 @@
       "status": "Active",
       "content": "auto-reader 模块划分与双轨纪律",
       "depends_on": [],
-      "last_modified": 1791176252,
-      "last_verified": 1791176252,
+      "last_modified": 1791206973,
+      "last_verified": 1791206973,
       "items": [
         {
           "id": "R001-2",
           "title": "书库模块划分与双轨 native 白名单",
-          "content": "back 四模块（pathx/hashx/importers/library）+ api/db thin 端点 + 前端合并书架与按段阅读；共享代码仅用双轨已映射 native（fs.exists/is_dir/file_size/read_text/write_text/create_dir、File.read_text_range、str.uuid、Env.get、json.parse）；VM HTTP 请求体须 ASCII 安全。",
+          "content": "auto-reader 模块划分与双轨纪律；Phase 2 补：ph1 候选索引（去重须逐字核对受管副本）、受管资产主槽+d1..d64 隔离槽、持久化写走已验证的备份/暂存/提交协议（运行时无 rename 原语，尽力保证）。",
           "status": "Stable",
           "depends_on": [],
           "related": [
@@ -65,10 +66,11 @@
             "reader"
           ],
           "created_at": 1791176252,
-          "modified_at": 1791176252,
+          "modified_at": 1791206973,
           "completed_at": 1791176252
         }
-      ]
+      ],
+      "modified_at": 1791206973
     },
     {
       "id": "designs",
@@ -77,13 +79,13 @@
       "status": "Active",
       "content": "实现态规范（canonical）",
       "depends_on": [],
-      "last_modified": 1791176252,
-      "last_verified": 1791176252,
+      "last_modified": 1791206973,
+      "last_verified": 1791206973,
       "items": [
         {
           "id": "R001-3",
-          "title": "真实书库实现态规范：数据布局/导入事务/Locator v1/能力边界",
-          "content": "canonical 实现态规范：数据目录布局（library.json+removed.jsonl+reading/+books/）、导入事务与错误码、索引版本门（v0 拒绝保留原件）、Locator v1（章节+段序+sig1 同轨签名）、已登记能力边界（sha256→ph1、10MiB 预算上限、rust 后端轨阻断、VM HTTP 请求体 ASCII 安全）。",
+          "title": "真实书库实现态规范：数据布局/导入事务/Locator v1 强校验/能力边界",
+          "content": "canonical 实现态规范（Phase 2 版）：数据目录布局（含 .tmp 暂存物与 dN 隔离槽）、导入事务（ph1 仅候选+逐字核对+读回校验）、索引加载语义（缺文件才初始化；空/畸形/版本错 refuse-to-load 保留原件）、Locator v1 写侧强校验（真实解析/严格 id/整数回环/章段范围/锚点签名双口径/枚举/键重复）与恢复语义（路由章节优先+在场+锚点一致才标记）、持久化写协议（已验证的备份/暂存/提交，非断电级原子性）、能力边界（ph1 确定性碰撞、10MiB 未验收、rust 轨与 merged 模式不可用、VM HTTP 竞态与 vite 稳定性、use 进测试装置缺陷）。",
           "status": "Stable",
           "depends_on": [],
           "related": [
@@ -99,10 +101,11 @@
             "reader"
           ],
           "created_at": 1791176252,
-          "modified_at": 1791176252,
+          "modified_at": 1791206973,
           "completed_at": 1791176252
         }
-      ]
+      ],
+      "modified_at": 1791206973
     },
     {
       "id": "tests",
@@ -111,13 +114,13 @@
       "status": "Active",
       "content": "READER-001 验证资产",
       "depends_on": [],
-      "last_modified": 1791176252,
-      "last_verified": 1791176252,
+      "last_modified": 1791206973,
+      "last_verified": 1791206973,
       "items": [
         {
           "id": "R001-4",
-          "title": "书库验证资产：单测+脚本规格+HTTP 驱动+浏览器端到端",
-          "content": "单测 8（pathx/hashx 自包含 #[test]）；脚本规格 t01=34/t02=13/t04=14（VM 脚本轨）；HTTP 驱动 t01=39/t02=12/t04=11（VM 后端 17825，全新数据目录顺序全绿）；浏览器端到端（Vue 轨）：导入→书架真实卡→逐字阅读→点段标记→刷新恢复。全部 PASS（2026-10-05 复审重跑）。",
+          "title": "书库验证资产：单测+脚本规格+HTTP 驱动+UI 套件+复审回归",
+          "content": "双轮一致的验证清单：auto test 3（importers 单测迁 t03）；脚本规格 t01 34/t02 28/t03 26/t04 14/t05 23/t06 42=167；HTTP t01 39/t02 21/t04 12=72（10MiB 空响应不算显式错误+对账）；复审 repro 8/8；real-book 7/7+smoke 10/10（每套件全新服务器）；失败输出与退出码同时判。",
           "status": "Verified",
           "depends_on": [],
           "related": [
@@ -133,10 +136,11 @@
             "reader"
           ],
           "created_at": 1791176252,
-          "modified_at": 1791176252,
+          "modified_at": 1791206973,
           "completed_at": 1791176252
         }
-      ]
+      ],
+      "modified_at": 1791206973
     },
     {
       "id": "reviews",
@@ -145,13 +149,13 @@
       "status": "Active",
       "content": "READER-001 复审历史",
       "depends_on": [],
-      "last_modified": 1791176252,
-      "last_verified": 1791176252,
+      "last_modified": 1791206973,
+      "last_verified": 1791206973,
       "items": [
         {
           "id": "R001-5",
-          "title": "READER-001 r2 复审 pass（基线 849b6e5）",
-          "content": "实现会话内复审（无独立会话，裁决由工件重建）：AC-01~AC-05 全 pass；复审重跑单测/脚本规格/HTTP 驱动全绿；findings F-01（note/nonblocking/test-only）：t01/t02 驱动前置干净数据目录，重跑 duplicate 级联为正确产品行为；spec 补版本门一条。",
+          "title": "READER-001 复审链：r2 pass → r2 独立复审 needs_fix → r3 pass",
+          "content": "r2 实现会话复审 pass（基线 849b6e5）被 2026-10-05 独立复审推翻（needs_fix，reviewed_commit 4c9212c，F-02~F-07 复现）；修订3 Phase 2（T-05~T-10，代码链 4f7f044→60690ec）修复后 r3 独立复审 pass（reviewed_commit 39e3e14，复审记录提交 c2be376；独立向量探针 12/12、复审驱动 8/8、双轮全量一致；canonical spec 未动直至 merge）。F-01 沿用 nonblocking；N-1 MSYS 路径注记、N-2 vite 稳定性登记。",
           "status": "Published",
           "depends_on": [],
           "related": [
@@ -167,10 +171,11 @@
             "reader"
           ],
           "created_at": 1791176252,
-          "modified_at": 1791176252,
+          "modified_at": 1791206973,
           "completed_at": 1791176252
         }
-      ]
+      ],
+      "modified_at": 1791206973
     },
     {
       "id": "reports",
@@ -179,13 +184,13 @@
       "status": "Active",
       "content": "READER-001 执行报告",
       "depends_on": [],
-      "last_modified": 1791176252,
-      "last_verified": 1791176252,
+      "last_modified": 1791206973,
+      "last_verified": 1791206973,
       "items": [
         {
           "id": "R001-6",
-          "title": "READER-001 work 报告（T-00~T-04）",
-          "content": "T-00 能力探针（VM/a2r 双轨实测报告 docs/research/20261005-t00-runtime-capability.md）；T-01 导入/存储/章节/去重；T-02 ReadingState+locator+settings；T-03 前端接入；T-04 fixture+边界+干净启动。跨仓 blocker：rust 后端缺陷群、VM 10M 指令预算（≥1MiB 导入超限）。",
+          "title": "READER-001 Phase 2 work 报告（T-05~T-10）",
+          "content": "F-02 候选指纹+资产隔离（4f7f044）；F-03/F-06 索引 refuse-to-load+验证写协议（96816d1）；F-04 状态 schema 强校验（d81c394）；F-05 诚实恢复/保存/显式章节（94b9134）；F-07 测试门/默认入口/全量重建（60690ec）；T-10 计划勾选（39e3e14）。",
           "status": "Published",
           "depends_on": [],
           "related": [
@@ -201,10 +206,11 @@
             "reader"
           ],
           "created_at": 1791176252,
-          "modified_at": 1791176252,
+          "modified_at": 1791206973,
           "completed_at": 1791176252
         }
-      ]
+      ],
+      "modified_at": 1791206973
     }
   ]
 }
