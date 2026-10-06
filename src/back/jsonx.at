@@ -689,6 +689,15 @@ fn valid_record(t str, start int, end int) str {
             return "index record bad value"
         }
         let kind str = value_kind(t, i)
+        // F-15：数值元数据字段必须为整数字面量（1.5/1e2 等拒绝）——
+        // 与 created_at/size/chapter_count/import_version 的整数协议一致
+        var span str = ""
+        if kind == "num" {
+            span = t.substr(i, ve - i)
+            if !span_is_int(span) {
+                return "index record " + key + " must be an integer"
+            }
+        }
         var dup int = 0
         if key == "book_id" {
             dup = seen_id
@@ -852,6 +861,10 @@ fn t_valid_index() {
     expect(valid_index("{\"books\":[]}") != "")
     expect(valid_index("{\"version\":1,\"books\":[{\"book_id\":\"a\",\"source_hash\":\"ph1:1:1\",\"title\":\"t\",\"author\":\"a\",\"format\":\"txt\",\"original_path\":\"p\",\"managed_path\":\"m\",\"size\":3,\"chapter_count\":1,\"import_version\":1,\"created_at\":0}]}") == "")
     expect(valid_index("{\"version\":1,\"books\":[{\"book_id\":5}]}") != "")
+    expect(valid_index("{\"version\":1,\"books\":[{\"book_id\":\"a\",\"source_hash\":\"h\",\"title\":\"t\",\"author\":\"a\",\"format\":\"txt\",\"original_path\":\"o\",\"managed_path\":\"m\",\"size\":1.5,\"chapter_count\":1,\"import_version\":1,\"created_at\":0}]}") != "")
+    expect(valid_index("{\"version\":1,\"books\":[{\"book_id\":\"a\",\"source_hash\":\"h\",\"title\":\"t\",\"author\":\"a\",\"format\":\"txt\",\"original_path\":\"o\",\"managed_path\":\"m\",\"size\":1,\"chapter_count\":1.5,\"import_version\":1,\"created_at\":0}]}") != "")
+    expect(valid_index("{\"version\":1,\"books\":[{\"book_id\":\"a\",\"source_hash\":\"h\",\"title\":\"t\",\"author\":\"a\",\"format\":\"txt\",\"original_path\":\"o\",\"managed_path\":\"m\",\"size\":1,\"chapter_count\":1,\"import_version\":1.5,\"created_at\":0}]}") != "")
+    expect(valid_index("{\"version\":1,\"books\":[{\"book_id\":\"a\",\"source_hash\":\"h\",\"title\":\"t\",\"author\":\"a\",\"format\":\"txt\",\"original_path\":\"o\",\"managed_path\":\"m\",\"size\":1,\"chapter_count\":1,\"import_version\":1,\"created_at\":1.5e2}]}") != "")
     expect(valid_index("{\"version\":1,\"books\":[{\"book_id\":\"a\",\"book_id\":\"b\"}]}") != "")
     expect(valid_index("{\"version\":1,\"books\":[\"x\"]}") != "")
     expect(valid_index("{\"version\":1,\"books\":[],\"extra\":{\"k\":1}}") == "")

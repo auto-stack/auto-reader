@@ -638,9 +638,13 @@ fn reading_path(book_id str) str {
     return join(rd, fname)
 }
 
-/// 读取阅读状态 JSON；无记录返回 ""。读侧容错（F-04）：存在但内容为空
-/// 或解析失败（畸形/截断）→ 返回 ""（前端按无状态处理，绝不把坏文件
-/// 冒充有效状态），损坏文件原样保留供诊断，不被后续写入静默覆盖。
+/// 读取阅读状态 JSON；无记录或**无效状态**返回 ""。读侧入场校验
+/// （F-14 修正，F-04 容错保留）：存在但为空/解析失败/词法结构非法
+/// （jsonx.valid_state：类型/重复键等）/book_id 与请求不符/必需字段缺失
+/// （chapter_number/paragraph_index/font_size/line_height/updated_at——
+/// 缺字段访问 raise）→ 一律返回 ""，不把坏态/错书态冒充有效状态；
+/// 损坏文件原样保留供诊断，不被后续写入静默覆盖。合法旧 sig1 态
+/// （无 para_text）继续返回——兼容语义由前端恢复面处理。
 pub fn get_reading_json(book_id str) str {
     let rp str = reading_path(book_id)
     if !fs.exists(rp) {
@@ -650,13 +654,29 @@ pub fn get_reading_json(book_id str) str {
     if raw == "" {
         return ""
     }
+    let verr str = valid_state(raw)
+    if verr != "" {
+        return ""
+    }
     var ok bool = false
     try {
         let v = json.parse(raw)
-        // 有解析结果即认读（结构由写侧 schema 保证）；再要求为对象形态
         let t str = "" + v.book_id
-        if t != "" {
-            ok = true
+        if t == book_id {
+            let c int = v.chapter_number
+            let pp int = v.paragraph_index
+            let f str = "" + v.font_size
+            let l str = "" + v.line_height
+            let u int = v.updated_at
+            if c >= 1 {
+                if pp >= -1 {
+                    if f == "small" || f == "medium" || f == "large" {
+                        if l == "compact" || l == "comfy" {
+                            ok = true
+                        }
+                    }
+                }
+            }
         }
     } catch {
         ok = false

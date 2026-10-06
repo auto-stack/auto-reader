@@ -304,6 +304,18 @@ widget reading {
                 // 标记「已恢复」；缺锚点（旧 sig1 态）/失配/越界分别诚实
                 // 提示，绝不假恢复
                 if pr != null {
+                    // F-14 前端身份守卫：存储态 book_id 必须与路由一致
+                    var pr_bid str = ""
+                    try {
+                        pr_bid = "" + pr.book_id
+                    } catch {
+                        pr_bid = ""
+                    }
+                    if pr_bid != .route_id {
+                        pr = null
+                    }
+                }
+                if pr != null {
                     let pc2 int = pr.chapter_number
                     if pc2 == .chapter_num {
                         let pi int = pr.paragraph_index
@@ -314,15 +326,18 @@ widget reading {
                                 let p = .paragraphs[i]
                                 if p.idx == pi {
                                     matched = true
+                                    // F-13 修正：缺失字段与合法正文必须区分。
+                                    // `!= nil` 编译为宽松 `!= null`（Vue 覆盖
+                                    // undefined；VM 缺字段 raise→catch）——缺失
+                                    // →空串，合法正文（含字面量 "undefined"）
+                                    // 原样保留参与逐字核对。
                                     var saved_text str = ""
                                     try {
-                                        saved_text = "" + pr.para_text
+                                        let v = pr.para_text
+                                        if v != nil {
+                                            saved_text = "" + v
+                                        }
                                     } catch {
-                                        saved_text = ""
-                                    }
-                                    // Vue 轨缺失字段拼接得 "undefined" 字符串
-                                    // （VM 轨 raise→空串）——双轨归一为无锚点
-                                    if saved_text == "undefined" {
                                         saved_text = ""
                                     }
                                     if saved_text == "" {

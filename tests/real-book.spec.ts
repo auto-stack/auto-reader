@@ -72,6 +72,25 @@ function makeEmojiBook(dir: string): { path: string; run: string } {
   return { path: p, run }
 }
 
+/** F-13 正例书：合法 undefined/null 正文段落。 */
+function makeLiteralBook(dir: string): string {
+  const run = Date.now().toString(36)
+  const p = path.join(dir, `ui-literal-${run}.txt`)
+  const lines = [`第一章 字面量 ${run}`, 'undefined', 'null', `结尾${run}`]
+  fs.writeFileSync(p, lines.join('\n') + '\n', 'utf-8')
+  return p
+}
+
+/** F-12 登记书：4000字长段+100短段（r4 复审同构）。 */
+function makeMixedBook(dir: string): string {
+  const run = Date.now().toString(36)
+  const p = path.join(dir, `ui-mixed-${run}.txt`)
+  const lines = [`第一章 混排 ${run}`, '长'.repeat(4000)]
+  for (let i = 1; i <= 100; i++) lines.push(`短段${i} ${run}`)
+  fs.writeFileSync(p, lines.join('\n') + '\n', 'utf-8')
+  return p
+}
+
 async function waitForShelf(page: import('@playwright/test').Page) {
   await page.goto('/')
   await page.locator('h1:has-text("Library")').waitFor({ timeout: 15000 })
@@ -90,8 +109,10 @@ test.describe('READER-001 真实书 UI', () => {
   let longPath = ''
   let emojiId = ''
   let emojiPath = ''
-
   let emojiRun = ''
+  let undefId = ''
+  let mixedId = ''
+
   test.beforeAll(() => {
     expect(DATA).toBeTruthy()
     longPath = makeLongBook(os.tmpdir())
@@ -112,6 +133,22 @@ test.describe('READER-001 真实书 UI', () => {
     const mine3 = (listing3.books as any[]).find((b) => b.title === path.basename(emojiPath, '.txt'))
     expect(mine3).toBeTruthy()
     emojiId = mine3.book_id
+    // F-13 正例书：合法 undefined/null 正文
+    const undef = makeLiteralBook(os.tmpdir())
+    const o4 = http('POST', 'http://127.0.0.1:17825/api/library/import', { path: undef, author: 'ui', force: false })
+    expect(['ok', 'duplicate']).toContain(o4.code)
+    const listing4 = http('GET', 'http://127.0.0.1:17825/api/library/books')
+    const mine4 = (listing4.books as any[]).find((b) => b.title === path.basename(undef, '.txt'))
+    expect(mine4).toBeTruthy()
+    undefId = mine4.book_id
+    // F-12 未验收登记书：4000字长段+100短段（r4 复审同构）
+    const mixed = makeMixedBook(os.tmpdir())
+    const o5 = http('POST', 'http://127.0.0.1:17825/api/library/import', { path: mixed, author: 'ui', force: false })
+    expect(['ok', 'duplicate']).toContain(o5.code)
+    const listing5 = http('GET', 'http://127.0.0.1:17825/api/library/books')
+    const mine5 = (listing5.books as any[]).find((b) => b.title === path.basename(mixed, '.txt'))
+    expect(mine5).toBeTruthy()
+    mixedId = mine5.book_id
   })
 
   test('T-R1: 书架展示真实书并带真实徽标', async ({ page }) => {
@@ -256,5 +293,56 @@ test.describe('READER-001 真实书 UI', () => {
     await expect(marked).toContainText('A😀B')
     const st = http('GET', `http://127.0.0.1:17825/api/library/progress?book_id=${emojiId}`)
     expect(st.para_text).toBe('A😀B' + emojiRun)
+  })
+
+  test('T-R9: 合法 undefined/null 正文真实点击保存→恢复回环（F-13）', async ({ page }) => {
+    await page.goto(`/#/book/${undefId}/chapter/1`)
+    const undefPara = page.locator('text=undefined').first()
+    await undefPara.waitFor({ timeout: 10000 })
+    await undefPara.click()
+    await page.waitForTimeout(800)
+    await expect(page.locator('text=已记录位置：第 0 段')).toBeVisible()
+    await page.reload()
+    const marked = page.locator('.para-marked')
+    await marked.waitFor({ timeout: 10000 })
+    await expect(page.locator('text=已恢复上次位置（点任意段落可更新）')).toBeVisible()
+    await expect(marked).toContainText('undefined')
+    // null 正文同机制（第二段）
+    const nullPara = page.locator('text=null').first()
+    await nullPara.click()
+    await page.waitForTimeout(800)
+    await expect(page.locator('text=已记录位置：第 1 段')).toBeVisible()
+    const st = http('GET', `http://127.0.0.1:17825/api/library/progress?book_id=${undefId}`)
+    expect(st.para_text).toBe('null')
+  })
+
+  // F-12 未验收登记（计划 Phase 4 T-20）：混排内容下占比估算定位偏离
+  // （r4 复审实测 ¶50 于 pane 外）；恢复标记与提示仍正确。框架前置提案
+  // （child-anchor scroll intent）落计划 §10——本用例以 fixme 显式跳过，
+  // 不以「标记已出现」冒充视口恢复，也不让已知未验收项染红整门。
+  test.fixme('T-R10: 混排内容（4000字长段+100短段）恢复目标段进入阅读 pane（F-12 未验收）', async ({ page }) => {
+    // 保存 ¶50（body 行 50 = 短段49；框架前置落地后本用例转正）
+    const chm = http('GET', `http://127.0.0.1:17825/api/library/chapter?book_id=${mixedId}&number=1`)
+    const ml: string[] = chm.body.split('\n')
+    const mpi = 50
+    const saveM = http('POST', 'http://127.0.0.1:17825/api/library/progress', {
+      book_id: mixedId,
+      payload: JSON.stringify({ book_id: mixedId, chapter_number: 1, paragraph_index: mpi, para_hash: 'sig1:1:1', font_size: 'medium', line_height: 'comfy', updated_at: 0 }),
+      para_text: ml[mpi].trim(),
+    })
+    expect(saveM.ok).toBe(true)
+    await page.goto(`/#/book/${mixedId}/chapter/1`)
+    const target = page.locator('.para-marked')
+    await target.waitFor({ timeout: 10000 })
+    await expect
+      .poll(
+        async () => {
+          const box = await target.boundingBox()
+          const vh = page.viewportSize()!.height
+          return !!box && box.y + box.height > 0 && box.y < vh
+        },
+        { timeout: 15000 },
+      )
+      .toBe(true)
   })
 })

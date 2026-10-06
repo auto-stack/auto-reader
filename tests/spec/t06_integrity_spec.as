@@ -102,7 +102,24 @@ fn main() {
     fs.write_text(libfile, "{\"version\":1,\"books\":[{\"book_id\":5}]}")
     let o_f11f = json.parse(import_book_json(src1, "", false))
     check(o_f11f.code == "io_error", "record wrong field type rejected")
-    // 合法空表仍可导入（孤儿语义保持）
+    // S4c F-15：数值元数据字段小数/指数 → 拒绝且原件逐字保留
+    fs.write_text(libfile, "{\"version\":1,\"books\":[{\"book_id\":\"a\",\"source_hash\":\"h\",\"title\":\"t\",\"author\":\"a\",\"format\":\"txt\",\"original_path\":\"o\",\"managed_path\":\"m\",\"size\":1.5,\"chapter_count\":1,\"import_version\":1,\"created_at\":0}]}")
+    let o_f15a = json.parse(import_book_json(src1, "", false))
+    check(o_f15a.code == "io_error", "record size 1.5 rejected")
+    check(fs.read_text(libfile).find("1.5") >= 0, "size-1.5 index preserved")
+    fs.write_text(libfile, "{\"version\":1,\"books\":[{\"book_id\":\"a\",\"source_hash\":\"h\",\"title\":\"t\",\"author\":\"a\",\"format\":\"txt\",\"original_path\":\"o\",\"managed_path\":\"m\",\"size\":1,\"chapter_count\":1,\"import_version\":1.5,\"created_at\":0}]}")
+    let o_f15b = json.parse(import_book_json(src1, "", false))
+    check(o_f15b.code == "io_error", "record import_version 1.5 rejected")
+    fs.write_text(libfile, "{\"version\":1,\"books\":[{\"book_id\":\"a\",\"source_hash\":\"h\",\"title\":\"t\",\"author\":\"a\",\"format\":\"txt\",\"original_path\":\"o\",\"managed_path\":\"m\",\"size\":1,\"chapter_count\":1,\"import_version\":1,\"created_at\":1.5e2}]}")
+    let o_f15c = json.parse(import_book_json(src1, "", false))
+    check(o_f15c.code == "io_error", "record created_at exponent rejected")
+    // 合法整数记录仍可导入
+    fs.write_text(libfile, "{\"version\":1,\"books\":[{\"book_id\":\"a\",\"source_hash\":\"h\",\"title\":\"t\",\"author\":\"a\",\"format\":\"txt\",\"original_path\":\"o\",\"managed_path\":\"m\",\"size\":3,\"chapter_count\":1,\"import_version\":1,\"created_at\":0}]}")
+    let o_f15d = json.parse(import_book_json(src1, "", false))
+    check(o_f15d.code == "duplicate" || o_f15d.code == "ok", "valid integer record importable", o_f15d)
+    fs.write_text(libfile, idx_after)
+
+    // 恢复有效索引，继续用本库演练备份失败与损坏副本
     fs.write_text(libfile, "{\"version\":1,\"books\":[]}")
     let o_f11g = json.parse(import_book_json(src1, "", false))
     check(o_f11g.code == "ok", "valid empty array still importable")
