@@ -1,11 +1,11 @@
 ---
 plan_id: READER-001
 title: "真实导入、书库存储与位置恢复"
-status: execution_done
+status: reviewed
 feature_name: "真实导入、书库存储与位置恢复"
 author: [Codex]
 created_at: 2026-10-04T00:00:00Z
-updated_at: 2026-10-06T12:00:00Z
+updated_at: 2026-10-06T15:00:00Z
 plan_revision: 4
 current_step: 8
 total_steps: 17
@@ -175,6 +175,26 @@ EPUB未实现时在UI标出TXT/Markdown可用范围；不要宣传所有电子�
 新需求不得在执行中无限追加；发现必要遗漏先更新计划并讨论，不直接删验收项。知识系统/安装服务/AI等未交付依赖必须写明接口级与真实集成的差别。
 
 ## 9. 复审记录
+
+### 2026-10-06 Phase 3 独立复审（最新裁决）
+
+- stage: review | plan_id: READER-001 | plan_revision: 4 | outcome: pass | reviewed_commit: ae9015f98d5586c45746dfd49a03f24d99c3a114（实现提交 05dd320） | base_commit: 85f1571（修订4 再激活）
+- dependency_revisions: **auto CLI 0.1.0+v0.4.2-2697-g6baed9bba-dirty，exe SHA256=18E6EB585CA0C901D4095944888A6DACD3532519EC2E1AF03E55D5EEEE830098**——与 r3 复审（2592/CD3FEE2E…）不同，CLI 在两轮间被更新；按「假设变更即重跑」原则，本次全部验证在新 CLI 上重新执行（未复用任何旧运行结论）。
+- spec_inputs: docs/specs/reader/real-library.md SHA256=4563A852C7770A382CE534CD94667371E6972721FA01905D9F0B5BC46656ACC4（= r3 合并 8efc8ce 版本，Phase 3 未触碰 canonical/.autoos——diff 实证）；delta 候选 SD-06~10 为计划内方向级文本，已与实现对读（见 findings）
+- independence_limitation: 复审在实现会话内完成（无独立会话）；裁决由工件重建——新 CLI 上全量重跑、行为探针使用全新攻击向量（中文等长替换/错位锚点/转义+明文重复键/嵌套值/前导零/组合字符/记录内转义重复键），并**逐例审查了实现方对 r3 复审驱动的演进**（原语义全保留；F-10 由「长度签名必须成功」重述为「内容锚点保存成功」——原形态正是 F-08/F-10 的缺陷本体，重述有计划 T-11 授权与驱动头注说明；新增 4 个加强负例；put() 的 HTTPError 容错限定于框架 400 缺参形态）
+- acceptance_results: AC-01=pass（r3 通过证据沿用 + 本轮 t01 39/t03 26 重跑） | AC-02=pass（Phase 3 重建：内容锚点协议独立探针 12/12 有效向量、r3 驱动 F-08/F-10、UI T-R2/R3/R5/R5b/R6/R8、冷启动持久化、t02 38+26） | AC-03=pass（沿用 + t05 23/t06 51 重跑） | AC-04=pass（Phase 3 重建：F-11 索引形态族 5/5 + t06 51 + F-09 词法族 + 独立探针 V3/V4/V5/V8；沿用 Phase 2 保护重跑） | AC-05=pass（沿用 + t01/t06 重跑；**10MiB 成功导入维持未验收**，t04 为错误保护通过）
+- 验证清单（reviewed_commit 上本次实际执行，新 CLI）: auto test 5/5；规格脚本 t01 34/t02 38/t03 26/t04 14/t05 23/t06 51 = 186 检查 fails=0；HTTP t01 39/t02 26/t04 12 = 77 检查 0 fail；复审驱动 r2 8/8、r3 演进版 12/0；real-book 9/9（视口直测无测试侧滚动）、smoke 10/10；VM 全轨编译/启动零毒化；冷启动持久化（canonical 态与注入态均逐字存活）
+- findings:
+  - N-1（nonblocking/环境）: CLI 依赖版本变更（2592→2697）——全部验证已在新 CLI 重跑，pass 绑定新构建；旧 CLI 结论不再引用
+  - N-2（nonblocking/框架，已登记）: VM HTTP 空响应竞态与长跑劣化在本次复审期间复现（套件服务器偶发死亡）——按每套件全新服务器纪律隔离，跨仓候选维持
+  - N-3（nonblocking/工具）: 复审初版探针两例向量设计错误（替换后同文破坏错位语义、pi 未扣标题行）——修正后产品行为均正确；记录以修正版为准
+  - N-4（nonblocking/工具，已修）: Node 测试驱动经 Windows 命令行传 curl 中文参数被活动代码页转码（want 侧乱码的根因）——已改 -d @file + ASCII 转义；与 ② VM HTTP 直连解码缺陷叠加时须注意归因分离
+  - 范围核查: 85f1571..ae9015f 共 13 文件全部位于 Phase 3 授权路径；canonical Spec/ledger 零触碰
+  - delta 对读: SD-06↔T-11（para_text 全文锚点、保存/恢复双侧逐字核对、旧 sig1 兼容读出不可作内容证明——相符）；SD-07↔T-11（不再声称任何长度口径跨轨可用，字符串相等为锚点机制——相符；canonical 化时须删除 r3 文本的「双口径跨轨」表述）；SD-08↔T-12/13（词法校验/类型精确/重复键/空白兼容/books 数组约束——相符）；SD-09↔T-14（恢复滚动已实现为占比估算定位 v1 且直测入视口；元素级定位为框架前置——canonical 化时须含估算精度边界）；SD-10↔T-15（冻结证据/逐轨记录/10MiB 未验收门——相符）
+- evidence: 命令清单见 §5 T-15（可重跑）；本次会话日志 %TEMP%/r4-*.log（临时）；独立探针脚本一次性未落仓（向量已录于本记录）
+- next: merge（auto-plan-merge）——注意 Phase 3 提交（05dd320/ae9015f）在 detached HEAD 上，落地为 v0.6-dev 的 ff-only 快进；canonical 化 SD-06~10 时按 findings 落实 SD-07/SD-09 的边界措辞
+
+### 2026-10-06 Phase 3 work 收尾（实现侧记录）
 
 ### 2026-10-06 Phase 3 work 收尾（最新记录，交接独立复审）
 
