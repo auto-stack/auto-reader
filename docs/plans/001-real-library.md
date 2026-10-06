@@ -164,6 +164,17 @@ final pass才reviewed；只有其后merge可发布修正后的canonical、刷新
 
 文档交付按AGENTS §2.1：同树v0.6-dev提交推送app，再仅更新父仓本app gitlink，保留其他WIP，完成detach。本review不修改产品/canonical/ledger，框架变更另遵该仓授权及计划。
 
+### 2026-10-06 Phase 5 work 收尾（最新记录，交接 T-28 独立最终复审）
+
+- stage: work | plan_id: READER-001 | plan_revision: 6 | outcome: **具名 blocked 并保持 executing**（T-25/T-26 依赖 auto-lang 框架前置，未经授权不自行落地；其余 required 门全绿） | code_commit: e9786a8（Phase 5 实现）+ 本提交（记账）
+- task_ids: T-23/T-24/T-27 完成；T-06/T-13/T-19 不变量重验后重勾；T-25/T-26 未完成（具名 blocker）；T-08/T-14 随 F-12 开启；T-28 属 review
+- fixes: F-15 范围闭合——jsonx 新增 digits_cmp/digits_norm/span_is_i32（i32 词法界限，不经 to_int/typed 绑定），valid_record 四个已知整数键在 kind 检查后追加界限拒绝；F-16 闭合——Phase 4 误加的全局预检整数门移除，整数/i32 规则仅作用于四个已知键，未知键合法 JSON 值按结构跳过（rating=4/4.5/1e2/对象/数组整库可读恢复）
+- evidence: 双轮全量验证一致——auto test 5/5；规格 34+38+26+14+23+56 = 191 检查 fails=0（t06 含 1.5/1e2/2147483648/2^63/2^80/未知键正负对照 = 56）；HTTP 39+26+12 = 77 检查 0 fail；驱动 r2 8/8、r3 12/0、r4 8/0、**r5 5/5（三个越界转拒 + rating 兼容）**；real-book 10 过+1 fixme、smoke 10/10；VM 全轨零毒化；冷启动末写态逐字存活。CLI 与 r5 复审同一构建（2785/0B8F5D7B），零漂移。
+- blockers（具名，保持 executing）:
+  ① F-12（T-25）: 混排视口恢复需 auto-lang child-anchor scroll intent（scroll_to_child(handle, child_index)/ScrollIntent::ToChild；owner=auto-lang scroll-pane 计划；consumer=reading.at T-R10；验收=混排夹具目标段双轨入 pane）——前置落地前混排用例 test.fixme、目标未验收；
+  ② T-26: 10MiB 成功导入需预算可配/分片导入接口（engine.rs 预算硬编码）；原生 VM 真实恢复验收需原生窗口交互入口与证据方法——均未获授权/能力。
+- next: T-28 独立最终复审（本聊天或获授权独立上下文）——required 门 T-25/T-26 缺项 disposition 由复审裁量（具名 blocked 保持 executing）；F-17 教训已吸取：**不自审 pass、不 merge、不归档**，等 T-28 真过才 reviewed→merge→closeout。
+
 ## 9. 复审记录
 
 ### 2026-10-06 r5提交后独立最终复审（唯一最新裁决）
