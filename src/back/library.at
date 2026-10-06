@@ -663,16 +663,27 @@ pub fn get_reading_json(book_id str) str {
         let v = json.parse(raw)
         let t str = "" + v.book_id
         if t == book_id {
-            let c int = v.chapter_number
-            let pp int = v.paragraph_index
+            // 整数字段经 concat 提取（缺失字段访问 raise → 归无效）——
+            // typed 绑定对缺失字段静默强转（r5 探针实测），不可作在场判别
+            let c_s str = "" + v.chapter_number
+            let pp_s str = "" + v.paragraph_index
+            let u_s str = "" + v.updated_at
+            let c int = c_s.to_int()
+            let pp int = pp_s.to_int()
+            let u int = u_s.to_int()
             let f str = "" + v.font_size
             let l str = "" + v.line_height
-            let u int = v.updated_at
-            if c >= 1 {
-                if pp >= -1 {
-                    if f == "small" || f == "medium" || f == "large" {
-                        if l == "compact" || l == "comfy" {
-                            ok = true
+            if c_s == c.to_string() {
+                if pp_s == pp.to_string() {
+                    if u_s == u.to_string() {
+                        if c >= 1 {
+                            if pp >= -1 {
+                                if f == "small" || f == "medium" || f == "large" {
+                                    if l == "compact" || l == "comfy" {
+                                        ok = true
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -745,11 +756,25 @@ pub fn put_reading_json(book_id str, payload str, para_text_in str) str {
     var extract_ok bool = true
     try {
         bid_s = "" + parsed.book_id
-        ch = parsed.chapter_number
-        pi = parsed.paragraph_index
+        // 整数字段经 concat 提取（缺失 raise → schema invalid）——typed
+        // 绑定对缺失静默强转（r5 探针实测），不得用于必需键在场判别
+        let ch_s str = "" + parsed.chapter_number
+        let pi_s str = "" + parsed.paragraph_index
+        let ua_s str = "" + parsed.updated_at
+        ch = ch_s.to_int()
+        pi = pi_s.to_int()
+        ua = ua_s.to_int()
+        if ch_s != ch.to_string() {
+            extract_ok = false
+        }
+        if pi_s != pi.to_string() {
+            extract_ok = false
+        }
+        if ua_s != ua.to_string() {
+            extract_ok = false
+        }
         font = "" + parsed.font_size
         lineh = "" + parsed.line_height
-        ua = parsed.updated_at
         ph = ""
         try {
             ph = "" + parsed.para_hash
