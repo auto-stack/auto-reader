@@ -9,13 +9,13 @@
       "status": "Active",
       "content": "auto-reader v0.6 首批目标（M1 真实书库已交付）",
       "depends_on": [],
-      "last_modified": 1791255981,
-      "last_verified": 1791255981,
+      "last_modified": 1791296190,
+      "last_verified": 1791296190,
       "items": [
         {
           "id": "R001-1",
           "title": "READER-001 真实导入、书库存储与位置恢复（M1）",
-          "content": "auto-reader v0.6 首批目标（M1 真实书库已交付；Phase 3 修复 2026-10-06 复审通过）",
+          "content": "auto-reader v0.6 首批目标（M1 真实书库已交付；Phase 4 修复 2026-10-06 终审通过，F-12 视口恢复与 10MiB 显式未验收待框架前置）",
           "status": "Delivered",
           "depends_on": [],
           "related": [
@@ -31,11 +31,11 @@
             "reader"
           ],
           "created_at": 1791176252,
-          "modified_at": 1791255981,
+          "modified_at": 1791296190,
           "completed_at": 1791176252
         }
       ],
-      "modified_at": 1791255981
+      "modified_at": 1791296190
     },
     {
       "id": "architecture",
@@ -44,13 +44,13 @@
       "status": "Active",
       "content": "auto-reader 模块划分与双轨纪律",
       "depends_on": [],
-      "last_modified": 1791255981,
-      "last_verified": 1791255981,
+      "last_modified": 1791296190,
+      "last_verified": 1791296190,
       "items": [
         {
           "id": "R001-2",
           "title": "书库模块划分与双轨 native 白名单",
-          "content": "auto-reader 模块划分与双轨纪律；Phase 3 补：para_text 内容锚点（字符串相等跨轨安全，长度签名不作内容证明）、jsonx 词法级 JSON 校验器（状态 payload + 索引结构）、scroll-pane 程序化滚动（PLAN-656 控制器族双轨）与占比估算恢复定位 v1。",
+          "content": "auto-reader 模块划分与双轨纪律；Phase 4 补：para_text 内容锚点缺失判别用属性存在性（nil 宽松 null 编译），禁字符串哨兵归一；get_reading_json 读侧入场门（词法/身份/必需字段/枚举）；索引数值元数据严格整数；恢复滚动占比估算 v1（混排偏差实测，元素级定位为 auto-lang 前置提案）。",
           "status": "Stable",
           "depends_on": [],
           "related": [
@@ -66,11 +66,11 @@
             "reader"
           ],
           "created_at": 1791176252,
-          "modified_at": 1791255981,
+          "modified_at": 1791296190,
           "completed_at": 1791176252
         }
       ],
-      "modified_at": 1791255981
+      "modified_at": 1791296190
     },
     {
       "id": "designs",
@@ -79,13 +79,13 @@
       "status": "Active",
       "content": "实现态规范（canonical）",
       "depends_on": [],
-      "last_modified": 1791255981,
-      "last_verified": 1791255981,
+      "last_modified": 1791296190,
+      "last_verified": 1791296190,
       "items": [
         {
           "id": "R001-3",
           "title": "真实书库实现态规范：数据布局/导入事务/Locator v1 内容锚点/能力边界",
-          "content": "canonical 实现态规范（Phase 3 版）：数据目录布局（含 .tmp 暂存与 dN 隔离槽）、导入事务（ph1 仅候选+逐字核对+读回校验）、索引词法门（jsonx.valid_index：version 整数字面量/books 数组/记录 11 字段类型精确，错误形态写入前拒绝）、Locator v1（para_text 全文内容锚点双侧逐字核对、sig1 仅格式兼容、词法门类型/重复键/空白兼容）、恢复滚动占比估算定位 v1（元素级定位为框架前置）、能力边界（ph1 确定性碰撞、10MiB 未验收、rust 轨与 merged 模式不可用、VM HTTP 空响应竞态与多字节直连解码、MSYS env 转换进程差异、Vue undefined 拼接）。",
+          "content": "canonical 实现态规范（Phase 4 版）：数据目录布局（含 .tmp 暂存与 dN 隔离槽）、导入事务（ph1 仅候选+逐字核对+读回校验）、索引词法门（jsonx.valid_index：version 整数字面量/books 数组/记录 11 字段类型精确含数值元数据整数化）、Locator v1（para_text 全文内容锚点双侧逐字核对；缺失判别用属性存在性；get 读侧入场门：词法/身份/必需字段/枚举）、恢复滚动占比估算定位 v1（混排偏差实测未验收，child-anchor 框架前置提案）、能力边界（ph1 确定性碰撞、10MiB 未验收、rust 轨与 merged 模式不可用、VM HTTP 空响应竞态与多字节直连解码、MSYS env 转换进程差异、Vue undefined 拼接、typed 绑定缺字段静默强转已修）。",
           "status": "Stable",
           "depends_on": [],
           "related": [
@@ -101,11 +101,11 @@
             "reader"
           ],
           "created_at": 1791176252,
-          "modified_at": 1791255981,
+          "modified_at": 1791296190,
           "completed_at": 1791176252
         }
       ],
-      "modified_at": 1791255981
+      "modified_at": 1791296190
     },
     {
       "id": "tests",
@@ -114,13 +114,13 @@
       "status": "Active",
       "content": "READER-001 验证资产",
       "depends_on": [],
-      "last_modified": 1791255981,
-      "last_verified": 1791255981,
+      "last_modified": 1791296190,
+      "last_verified": 1791296190,
       "items": [
         {
           "id": "R001-4",
           "title": "书库验证资产：单测+脚本规格+HTTP 驱动+UI 套件+复审回归",
-          "content": "双轮一致的验证清单：auto test 5（jsonx 2 新增）；脚本规格 t01 34/t02 38/t03 26/t04 14/t05 23/t06 51=186；HTTP t01 39/t02 26/t04 12=77（直连 ASCII 转义纪律）；复审驱动 r2 8/8 + r3 演进版 12/0（内容锚点契约）；real-book 9/9（产品自滚视口直测、emoji 点击回环）+ smoke 10/10；VM 全轨零毒化；冷启动持久化。",
+          "content": "双轮一致的验证清单：auto test 5（jsonx 2）；脚本规格 t01 34/t02 38/t03 26/t04 14/t05 23/t06 56=191；HTTP t01 39/t02 26/t04 12=77（直连 ASCII 转义纪律）；复审驱动 r2 8/8 + r3 12/0 + r4 8/0（F-13/14/15 契约）；real-book 10 过+1 fixme（混排视口未验收）+ smoke 10/10；VM 全轨零毒化；冷启动持久化。",
           "status": "Verified",
           "depends_on": [],
           "related": [
@@ -136,11 +136,11 @@
             "reader"
           ],
           "created_at": 1791176252,
-          "modified_at": 1791255981,
+          "modified_at": 1791296190,
           "completed_at": 1791176252
         }
       ],
-      "modified_at": 1791255981
+      "modified_at": 1791296190
     },
     {
       "id": "reviews",
@@ -149,13 +149,13 @@
       "status": "Active",
       "content": "READER-001 复审历史",
       "depends_on": [],
-      "last_modified": 1791255981,
-      "last_verified": 1791255981,
+      "last_modified": 1791296190,
+      "last_verified": 1791296190,
       "items": [
         {
           "id": "R001-5",
-          "title": "READER-001 复审链：r2 pass → r2 独立 needs_fix → r3 pass → r3 独立 needs_fix → r4 pass",
-          "content": "r2 会话内 pass（849b6e5）被独立复审推翻（4c9212c，F-02~07）；Phase 2（05dd320 前身链）后 r3 会话内 pass（b3d93b7）又被独立复审推翻（F-08~12，报告 reader-001-r3-20261006.md）；Phase 3（05dd320）后 r4 复审 pass（ae9015f/记录 f750bb7，CLI 构建变更为 2697/18E6EB58 并全量重跑绑定；独立探针 12/12 有效向量；驱动演进逐例核定保真）。",
+          "title": "READER-001 复审链：r2/r3/r4 三轮 pass 后独立复审各推翻一次，r5 终审 pass（两项显式未验收）",
+          "content": "r2 会话内 pass（849b6e5）被独立复审推翻（4c9212c，F-02~07）；Phase 2 后 r3 会话内 pass（b3d93b7）被独立复审推翻（F-08~12）；Phase 3 后 r4 会话内 pass（374e358 前身）被独立复审推翻（F-13~15 + F-12 混排实测，报告 reader-001-r4-20261006.md）；Phase 4（a446804）后 T-22 终审 pass（4b97bf8/记录 374e358，复审期间新发现 typed 绑定缺字段静默强转并已修 N-5/4b97bf8；复审者身份=实现会话内复审，局限性已记录）。两项显式未验收：10MiB 成功导入、F-12 混排视口恢复（child-anchor 前置提案）。",
           "status": "Published",
           "depends_on": [],
           "related": [
@@ -171,11 +171,11 @@
             "reader"
           ],
           "created_at": 1791176252,
-          "modified_at": 1791255981,
+          "modified_at": 1791296190,
           "completed_at": 1791176252
         }
       ],
-      "modified_at": 1791255981
+      "modified_at": 1791296190
     },
     {
       "id": "reports",
@@ -184,13 +184,13 @@
       "status": "Active",
       "content": "READER-001 执行报告",
       "depends_on": [],
-      "last_modified": 1791255981,
-      "last_verified": 1791255981,
+      "last_modified": 1791296190,
+      "last_verified": 1791296190,
       "items": [
         {
           "id": "R001-6",
-          "title": "READER-001 Phase 3 work 报告（T-11~T-16）",
-          "content": "F-08/F-10 para_text 内容锚点契约（05dd320）；F-09 jsonx 词法门；F-11 索引结构门；F-12 scroll-pane 两段式恢复滚动；T-15 双轮全量（186+77+8+12+9+10，VM 零毒化，冷启动持久化）；T-16 计划勾选（ae9015f）。",
+          "title": "READER-001 Phase 4 work 报告（T-17~T-21）",
+          "content": "F-13 nil 存在性区分（合法 undefined/null 正文回环 T-R9）；F-14 get 读侧入场门+前端身份守卫；F-15 记录整数元数据严格化（t06 56 检查）；F-12 前置提案+fixme 登记；T-21 双轮全量（191+77+8+12+8+10+1fixme+10，VM 零毒化，冷启动持久化）。终审期间 N-5 缺字段静默强转发现并修复（4b97bf8）。",
           "status": "Published",
           "depends_on": [],
           "related": [
@@ -206,11 +206,11 @@
             "reader"
           ],
           "created_at": 1791176252,
-          "modified_at": 1791255981,
+          "modified_at": 1791296190,
           "completed_at": 1791176252
         }
       ],
-      "modified_at": 1791255981
+      "modified_at": 1791296190
     }
   ]
 }

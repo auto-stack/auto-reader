@@ -2,7 +2,9 @@
 
 状态：implemented（READER-001 T-00~T-04 交付；Phase 2 修复 T-05~T-10
 2026-10-05 交付（SD-02~05）；Phase 3 修复 T-11~T-16 2026-10-06 交付
-（SD-06~10，本版））；权威来源为本文件 + 代码与测试证据。变更须经计划复审。
+（SD-06~10）；Phase 4 修复 T-17~T-21 2026-10-06 交付（SD-11~15，本版；
+T-22 终审 pass，F-12 混排视口恢复与 10MiB 成功导入两项显式未验收））；
+权威来源为本文件 + 代码与测试证据。变更须经计划复审。
 
 ## 1. 模块与职责
 
@@ -32,6 +34,10 @@ books/<hash 目录>/d<N>/original.<ext> 隔离槽位（d1..d64，碰撞/损坏�
 BookRecord（library.json 内）：`book_id(uuid) source_hash(ph1) title author
 format(txt|md) original_path managed_path size chapter_count import_version(=1)
 created_at(=0，见 §6)`。字段以 record_json 实际输出为准。
+**整数元数据协议（F-15 修正，SD-13）**：size/chapter_count/import_version/
+created_at 必须为整数字面量（小数/指数如 1.5/1e2 拒绝）——jsonx.valid_index
+在备份、资产与索引任何改写前统一校验（所有读改入口共享），错误形态拒绝时
+索引与已有资产逐字保留；合法整数记录与空数组正常导入。
 
 写协议（所有持久化写共用，F-06 落地）：运行时**无 rename/delete 原语**
 （T-00 映射集），协议为「已验证的暂存-提交-恢复」尽力保证，**不冒充断电级
@@ -121,17 +127,30 @@ T-02 实测）。**直连客户端请求体必须 ASCII 安全（\u 转义）**�
   协议（§2）落盘。
 - **读侧容错**：状态文件存在但为空/解析失败 → 读回 ""（不冒充有效状态），
   损坏文件原样保留供诊断。
+- **读侧入场门**（get_reading_json，F-14 修正，SD-12）：读状态即校验——
+  jsonx.valid_state 词法（类型/重复键/结构）→ book_id 与请求 book_id
+  **严格相等** → 必需字段（chapter_number/paragraph_index/font_size/
+  line_height/updated_at）在位且枚举合法 → 否则返回 "" 且原件逐字保留
+  （错书态/缺字段态/数字串态不冒充有效状态）。前端恢复另守身份（存储态
+  book_id ≠ 路由即弃用）。**缺失判别用属性存在性**（`x != nil` 编译为
+  宽松 `!= null`，覆盖 Vue undefined；F-13 修正，SD-11）——禁止把字符串
+  "undefined"/"null" 归一为哨兵：合法正文含这些字面量时保存与恢复逐字
+  成立（旧 sig1 缺锚点态仍诚实提示）。
 - **恢复语义**（reading.at，F-05/F-08 修正）：章节号一律以路由为准（显式
   /chapter/N 入口不被旧状态覆盖）；恢复须「保存章节 == 打开章节 + 段在场
   + 存储态 para_text 与当前段落逐字相等」齐备才标记「已恢复」；**缺内容
   锚点（旧 sig1 态）/内容失配/段失位**分别给诚实提示，不标记、不假恢复。
   保存须响应含 `"ok":true` 才显示成功，失败给可重试提示。
-- **恢复滚动（F-12 修正，SD-09）**：正文列为 scroll-pane（PLAN-656 双轨
+- **恢复滚动（F-12，SD-09/SD-14）**：正文列为 scroll-pane（PLAN-656 双轨
   controller）；恢复采用**两段式占比估算定位 v1**——渲染后溢出 scroll_to
   触发测量与 onscroll，再按「累计字符占比 × 可滚动跨度」精化。**精度
-  边界（如实）**：均匀段落精确（直测入视口通过），极端混排有偏差；
-  元素级定位原语缺失（无 child-anchor intent），登记为 auto-lang 框架
-  前置提案——估算定位不是元素级精确恢复的替代承诺。
+  边界（如实，r4 复审混排实测）**：均匀段落精确（T-R3 直测入视口通过），
+  混排内容（如 4000 字长段+100 短段）占比不等于排版高度、目标可落于
+  pane 外（复现登记，UI 用例 test.fixme）——**本项恢复目标保持未验收**；
+  元素级定位原语缺失（无 child-anchor intent），框架前置提案已具体化：
+  auto-lang child-anchor scroll intent（scroll_to_child(handle,
+  child_index) / ScrollIntent::ToChild，owner=scroll-pane 计划，验收=
+  混排夹具目标段双轨入 pane）——落地后 T-R10 转正为视口断言。
 - 设计文档（design/01-product-design.md §3）的 Locator v1 exact_quote/
   text_offset 字段由 para_text + paragraph_index 承接，升级不改变存储
   键名（import_version 可扩展）。
@@ -195,28 +214,34 @@ T-02 实测）。**直连客户端请求体必须 ASCII 安全（\u 转义）**�
 - /api/library/* 响应双层编码：Http.get_json 后需再 json.parse。
 - 路由为 hash 模式（`#/book/<uuid>/chapter/<n>`）；UI 测试导航须带 `#`。
 
-## 8. 验证资产（Phase 3 重建，双轮一致；CLI 构建绑定见复审记录）
+## 8. 验证资产（Phase 4 重建，双轮一致；CLI 构建绑定见复审记录）
 
 - 模块单测（#[test]，自包含零 use）：`auto test` → 5 通过
   （hashx 1 + pathx 2 + jsonx 2；importers 单测因「use 进测试装置编译
   失败」缺陷迁脚本规格 t03——CLI 对该失败退出 0 的缺陷已登记）。
 - 脚本规格（VM 脚本轨；**失败输出与退出码同时判**，日志 %TEMP%/tNN-spec.log）：
   t01_library_spec（34）/ t02_reading_spec（38）/ t03_importers_spec（26）/
-  t04_library_spec（14）/ t05_collision_spec（23）/ t06_integrity_spec（51）
-  = 186 检查，全 PASS fails=0。
+  t04_library_spec（14）/ t05_collision_spec（23）/ t06_integrity_spec（56，
+  含 F-15 整数元数据负例）= 191 检查，全 PASS fails=0。
 - 应用级 HTTP（全新隔离目录 + `auto run --server=vm`；直连请求体 ASCII
-  转义）：t01（39）/ t02（26，词法/锚点/跨轨组）/ t04（12，10MiB 项
-  空响应不算显式错误 + 落盘对账）= 77 检查。
-- 复审驱动（数据目录名须 reader001-review-*）：
-  `tests/review/reader001_repro.py` → 8/8（F-02/03/04/06）；
-  `tests/review/reader001_r3_repro.py` → 12/0（F-08/09/10/11 Phase 3
-  契约形态；原 r3 反例语义保留、F-10 按 content-anchor 契约重述——
-  演进保真经 r4 复审逐例核定）。
+  转义）：t01（39）/ t02（26）/ t04（12，10MiB 项空响应不算显式错误 +
+  落盘对账）= 77 检查。
+- 复审驱动（数据目录名须 reader001-review-*；三份各配全新服务器）：
+  `tests/review/reader001_repro.py` → 8/8（F-02/03/06）；
+  `tests/review/reader001_r3_repro.py` → 12/0（F-08/09/10/11）；
+  `tests/review/reader001_r4_repro.py` → 8/0（F-13 合法 undefined 持久化、
+  F-14 读态三负例、F-15 三整数反例、混排夹具）。旧 r2 驱动 F-04 两例经
+  框架缺参 400 通过的口径已改记——语义校验证据以 r4 驱动与 t02 完整契约
+  为准（T-21 要求）。
 - UI（Playwright，每套件全新服务器；PW_CHROMIUM 可覆盖浏览器可执行）：
-  tests/real-book.spec.ts（9——含产品自滚视口直测与 emoji 真实点击
-  回环）+ tests/smoke.spec.ts（10）。
-- 独立复审（2026-10-06 r4）：双轮全量一致 + 全新向量行为探针 12/12
-  有效 + 冷启动持久化 + VM 全轨零毒化——见计划 §9 复审记录。
+  tests/real-book.spec.ts → 10 passed + 1 skipped（T-R10 混排视口恢复
+  **显式未验收**，test.fixme 登记）+ smoke.spec.ts → 10 passed。
+- 独立复审（2026-10-06 r5/T-22）：双轮全量一致 + 全新向量行为探针
+  （引号/反斜杠锚点、para_text 数值型、缺字段、chapter=0、坏枚举、记录
+  2.5/1e2/2.0）+ 冷启动持久化 + VM 全轨零毒化——见计划 §9 复审记录。
+  复审期间新发现并修复：typed 动态绑定对缺失字段静默强转（N-5，
+  commit 4b97bf8 concat+roundtrip 修复）。
 - 干净数据目录启动：`bash tests/spec/run_fresh_server.sh`。
-- **10MiB 成功导入保持未验收**（§6）；错误保护（显式失败 + 落盘对账
-  库不变）为通过项单列。
+- **两项显式未验收（不因本清单其他项通过而关闭）**：
+  ① 10MiB 成功导入（§6 预算上限，错误保护已单列通过）；
+  ② F-12 混排内容恢复目标段入 pane（§5 占比估算 v1 + 元素级框架前置）。
