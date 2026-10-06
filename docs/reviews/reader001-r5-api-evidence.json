@@ -1,0 +1,206 @@
+{
+  "r4": {
+    "results": [
+      {
+        "case": "literal undefined content saves",
+        "result": "pass",
+        "evidence": {
+          "ok": true,
+          "message": ""
+        }
+      },
+      {
+        "case": "literal undefined content persists",
+        "result": "pass",
+        "evidence": {
+          "book_id": "18dbf7b8-d87f-4b31-8a1b-9daa96630614",
+          "chapter_number": 1,
+          "paragraph_index": 0,
+          "para_hash": "sig1:1:1",
+          "para_text": "undefined",
+          "font_size": "medium",
+          "line_height": "comfy",
+          "updated_at": 0
+        }
+      },
+      {
+        "case": "invalid saved state must not read as valid: {\"book_id\": \"18dbf7b9-ab07-4bf9-acfb-e9d4b7f227f6\", \"chapter_number\": \"1\", \"paragraph_index\": \"0\", \"para_hash\": \"sig1:1:1\", \"font_size\": \"medium\", \"line_height\": \"comfy\", \"updated_at\": 0, \"para_text\": \"normal\"}",
+        "result": "pass",
+        "evidence": ""
+      },
+      {
+        "case": "invalid saved state must not read as valid: {\"book_id\": \"another-book\", \"chapter_number\": 1, \"paragraph_index\": 0, \"para_hash\": \"sig1:1:1\", \"font_size\": \"medium\", \"line_height\": \"comfy\", \"updated_at\": 0, \"para_text\": \"normal\"}",
+        "result": "pass",
+        "evidence": ""
+      },
+      {
+        "case": "invalid saved state must not read as valid: {\"book_id\": \"18dbf7b9-ab07-4bf9-acfb-e9d4b7f227f6\"}",
+        "result": "pass",
+        "evidence": ""
+      },
+      {
+        "case": "fractional chapter_count must reject before index mutation",
+        "result": "pass",
+        "evidence": {
+          "outcome": {
+            "code": "io_error",
+            "message": "书库索引版本不受支持：已保留原文件，需人工迁移",
+            "book_id": "",
+            "existing_id": ""
+          },
+          "index_changed": false,
+          "before": 1.5,
+          "after": 1.5
+        }
+      },
+      {
+        "case": "fractional size must reject before index mutation",
+        "result": "pass",
+        "evidence": {
+          "outcome": {
+            "code": "io_error",
+            "message": "书库索引版本不受支持：已保留原文件，需人工迁移",
+            "book_id": "",
+            "existing_id": ""
+          },
+          "index_changed": false,
+          "before": 1.5,
+          "after": 1.5
+        }
+      },
+      {
+        "case": "fractional import_version must reject before index mutation",
+        "result": "pass",
+        "evidence": {
+          "outcome": {
+            "code": "io_error",
+            "message": "书库索引版本不受支持：已保留原文件，需人工迁移",
+            "book_id": "",
+            "existing_id": ""
+          },
+          "index_changed": false,
+          "before": 1.5,
+          "after": 1.5
+        }
+      }
+    ],
+    "undefined_book_id": "18dbf7b8-d87f-4b31-8a1b-9daa96630614",
+    "corrupt_state_book_id": "18dbf7b9-ab07-4bf9-acfb-e9d4b7f227f6",
+    "mixed_book_id": "18dbf7bb-065c-4443-901f-5ddd4886d466",
+    "work": "C:\\Users\\zhaop\\AppData\\Local\\Temp\\reader001-review-r4-q4fxs3ou"
+  },
+  "r5": {
+    "results": [
+      {
+        "case": "unknown integer control",
+        "result": "pass",
+        "evidence": {
+          "books_readable": true,
+          "index_changed": false
+        }
+      },
+      {
+        "case": "unknown fraction compatibility",
+        "result": "fail",
+        "evidence": {
+          "books_readable": false,
+          "index_changed": false
+        }
+      },
+      {
+        "case": "i32 boundary",
+        "result": "fail",
+        "evidence": {
+          "outcome": {
+            "code": "ok",
+            "message": "导入成功",
+            "book_id": "18dbf7e9-7126-4042-824f-c1fd6084384d",
+            "existing_id": ""
+          },
+          "index_changed": true,
+          "expected_value": 2147483648,
+          "after_target": [
+            {
+              "book_id": "18dbf7e8-4d56-4161-a837-db0002c2c93b",
+              "source_hash": "ph1:50:-460245676",
+              "title": "r5-integer-control",
+              "author": "review-r4",
+              "format": "txt",
+              "original_path": "C:/Users/zhaop/AppData/Local/Temp/reader001-review-r4-zc2887t5/r5-integer-control.txt",
+              "managed_path": "C:/Users/zhaop/AppData/Local/Temp/reader001-review-r5-20261006-independent/books/ph1-50--460245676/original.txt",
+              "size": -2147483648,
+              "chapter_count": 1,
+              "import_version": 1,
+              "created_at": 0
+            }
+          ],
+          "value_preserved": false,
+          "after_readable": true
+        }
+      },
+      {
+        "case": "i64 boundary",
+        "result": "fail",
+        "evidence": {
+          "outcome": {
+            "code": "ok",
+            "message": "导入成功",
+            "book_id": "18dbf7ea-420a-4fba-842f-fea05f74f202",
+            "existing_id": ""
+          },
+          "index_changed": true,
+          "expected_value": 9223372036854775808,
+          "after_target": [
+            {
+              "book_id": "18dbf7e8-4d56-4161-a837-db0002c2c93b",
+              "source_hash": "ph1:50:-460245676",
+              "title": "r5-integer-control",
+              "author": "review-r4",
+              "format": "txt",
+              "original_path": "C:/Users/zhaop/AppData/Local/Temp/reader001-review-r4-zc2887t5/r5-integer-control.txt",
+              "managed_path": "C:/Users/zhaop/AppData/Local/Temp/reader001-review-r5-20261006-independent/books/ph1-50--460245676/original.txt",
+              "size": 9223372036854776000,
+              "chapter_count": 1,
+              "import_version": 1,
+              "created_at": 0
+            }
+          ],
+          "value_preserved": false,
+          "after_readable": true
+        }
+      },
+      {
+        "case": "unrepresentable integer",
+        "result": "fail",
+        "evidence": {
+          "outcome": {
+            "code": "ok",
+            "message": "导入成功",
+            "book_id": "18dbf7eb-1384-4244-a903-8cfa6488c679",
+            "existing_id": ""
+          },
+          "index_changed": true,
+          "expected_value": 1208925819614629174706176,
+          "after_target": [
+            {
+              "book_id": "18dbf7e8-4d56-4161-a837-db0002c2c93b",
+              "source_hash": "ph1:50:-460245676",
+              "title": "r5-integer-control",
+              "author": "review-r4",
+              "format": "txt",
+              "original_path": "C:/Users/zhaop/AppData/Local/Temp/reader001-review-r4-zc2887t5/r5-integer-control.txt",
+              "managed_path": "C:/Users/zhaop/AppData/Local/Temp/reader001-review-r5-20261006-independent/books/ph1-50--460245676/original.txt",
+              "size": 1208925819614629200000000,
+              "chapter_count": 1,
+              "import_version": 1,
+              "created_at": 0
+            }
+          ],
+          "value_preserved": false,
+          "after_readable": true
+        }
+      }
+    ],
+    "work": "C:\\Users\\zhaop\\AppData\\Local\\Temp\\reader001-review-r4-zc2887t5"
+  }
+}
