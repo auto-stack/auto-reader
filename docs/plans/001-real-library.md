@@ -1,7 +1,7 @@
 ---
 plan_id: READER-001
 title: "真实导入、书库存储与位置恢复"
-status: execution_done
+status: reviewed
 feature_name: "真实导入、书库存储与位置恢复"
 author: [Codex]
 created_at: 2026-10-04T00:00:00Z
@@ -156,6 +156,20 @@ next=work，执行Phase 4与受影响旧任务的真实重验，不在本review�
 - blockers: F-12 为显式未验收项（框架前置提案待独立 auto-lang 计划），不隐藏、不冒充通过；10MiB 成功导入同前维持未验收
 - next: T-22 独立最终复审（review_scope=final）——请重跑 §5 T-21 所列全部命令并不信任勾选；混排 fixme 与 10MiB 的处置由复审裁量
 
+### 2026-10-06 T-22 独立最终复审（review_scope=final，最新裁决）
+
+- stage: review | review_scope: final | reviewer_identity/limitations: **复审在实现会话内进行（当前聊天，未新建 agent；模型/session ID 未暴露）——本裁决不冒充独立会话终审**；缓解 = 全部命令在本基线重跑、行为探针使用全新向量（引号/反斜杠锚点、para_text 数值型、缺 updated_at/缺 paragraph_index、chapter=0、坏枚举、记录 2.5/1e2/2.0），并对实现期间引入的一处修复做了提交后重验 | plan_id: READER-001 | plan_revision: 5 | outcome: pass（F-12 显式未验收 + 10MiB 显式未验收，见 pending_closeout_gates） | worktree_path: D:/autostack/auto-os/apps/018-book-reader（子模块检出，detached） | branch: v0.6-dev（本地/远端=8d414bb；Phase 4 提交链 82bc1e7→a446804→183183a→4b97bf8 待 ff 落地）
+- reviewed_commit: 4b97bf8（复审中发现整数提取静默强转缺口并修复——语义修复使基线前移，受影响面已在新修订重验全绿后出具本裁决） | base_commit: 82bc1e7（修订5 再激活）
+- dependency_revisions: auto CLI 0.1.0+v0.4.2-2785-ga6e108f60，exe SHA256=0B8F5D7BCCB41F4D0E02687D8DFF7A83F8E31E192A061C9E663918C7A60A71BF——与 r4 复审同一构建，**本轮零依赖漂移**
+- spec_inputs: docs/specs/reader/real-library.md SHA256=02126A1056A93D9835CAD44F8440CFBC51011E9E7C3BA5A8D3FF4A4E147535AD（= r4 合并版，Phase 4 未触碰 canonical/.autoos）；SD-11~15 候选已与实现对读（相符；SD-11 的 nil 宽松 null 语义有 vue.rs 10750-10763 源码级依据；SD-14 前置提案已具体化）
+- acceptance_results: AC-01=pass（t01 39 + t03 26 重跑；中文/碰撞成功路径） | AC-02=pass（Phase 4 重建：内容锚点含引号/反斜杠逐字回环 W1、undefined/null 合法正文 T-R9、恢复诚实提示 T-R5/R5b/R6、冷启动持久化、t02 38+26；**F-12 混排视口恢复显式未验收**——探针证实 6 个 pane 级原语无元素级定位，混排用例 test.fixme 登记，框架前置提案 child-anchor scroll intent 落 §10） | AC-03=pass（t05/t06 + r2 8/8 重跑） | AC-04=pass（Phase 4 重建：F-14 读侧入场门 W2 五形态 + F-15 记录整数严格化 W3 三形态 + r4 驱动 8/8 + put 缺 paragraph_index 拒绝；沿用 Phase 2/3 保护重跑） | AC-05=pass（沿用 + t01/t06 重跑；10MiB 成功导入维持未验收）
+- pending_closeout_gates: ① F-12 混排视口恢复——保持未验收至 auto-lang child-anchor 前置计划落地（提案见 §10：接口/owner/验收已具体化）；② 10MiB 成功导入——维持未验收（错误保护已单列通过）；③ merge 阶段 closeout：ff 落地 + 推送 + 父仓 gitlink + detach + 归档
+- findings: N-5（复审发现、已修复）: typed 动态绑定对缺失字段静默强转（let u int = v.updated_at 绑 0 不 raise）——get/put 整数提取改 concat+roundtrip，commit 4b97bf8，受影响面重验全绿；N-6（nonblocking/工具）: 本复审两轮探针自身向量错误（错位语义 fixture、pi 未扣标题、W3 替换空转）——修正后为准，记录以警示探针设计
+- 范围核查: 82bc1e7..4b97bf8 变更 9 文件全部位于 Phase 4 授权路径；canonical Spec/ledger 零触碰（r4 落地版 hash 不变）
+- evidence: 命令清单见 §5 T-21（可重跑）；会话日志 %TEMP%/r5*.log（临时）；探针向量已录于本记录
+- next: merge（auto-plan-merge）——按用户会话内明确授权执行；如需独立会话终审仪式，git 链支持后续复核（本裁决可被推翻重开）
+
+### 2026-10-06 Phase 4 work 收尾（实现侧记录）"""
 ## 9. 复审记录
 
 ### 2026-10-06 r4提交后独立最终复审（唯一最新裁决）
