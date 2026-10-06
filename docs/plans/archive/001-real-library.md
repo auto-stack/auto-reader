@@ -1,11 +1,11 @@
 ---
 plan_id: READER-001
 title: "真实导入、书库存储与位置恢复"
-status: reviewed
+status: archived
 feature_name: "真实导入、书库存储与位置恢复"
 author: [Codex]
 created_at: 2026-10-04T00:00:00Z
-updated_at: 2026-10-06T15:00:00Z
+updated_at: 2026-10-06T16:00:00Z
 plan_revision: 4
 current_step: 8
 total_steps: 17
@@ -285,6 +285,13 @@ EPUB未实现时在UI标出TXT/Markdown可用范围；不要宣传所有电子�
 - archived: docs/plans/archive/001-real-library.md，status=archived，completion_kind=delivered
 - cleaned: 不适用（无 .wt worktree/独立分支需清除；检出按 AGENTS §2.1 detach 收尾）
 - final: 交付线最终 tip=897c534（539ea37 归档改名 + 897c534 归档内容补全；8efc8ce→539ea37→897c534 纯文档链，实现/依赖零变更）；父仓 auto-os gitlink=b02e67c→935ffb3（v0.6-dev 已推）
+
+合并回执 READER-001:r4（2026-10-06）：
+- prepared: reviewed 基线 ae9015f（复审记录提交 f750bb7；CLI 构建变更为 2697-g6baed9bba/SHA256 18E6EB58…，复审已在新 CLI 全量重跑绑定）；canonical Spec=docs/specs/reader/real-library.md（SD-06~10 落地；SD-07 删除双口径跨轨表述、SD-09 含占比估算精度边界、SD-10 长文未验收门保留）；交付轨=v0.6-dev
+- landed: 交付提交=本次归档链 tip（85f1571→05dd320→ae9015f→f750bb7→bfc9edb→归档提交，线性无 merge commit；Phase 3 提交原在 detached HEAD，以 ff-only 快进落 v0.6-dev）；本仓按 AGENTS §2.1 以 apps 子检出为工作位，无独立 worktree/独立 dev 分支
+- ledger_refreshed: .autoos/specs.json 六节（project=auto-reader）：R001-2/3/4 更新至 Phase 3 语义；R001-5 复审链补全（r2 pass→needs_fix→r3 pass→needs_fix→r4 pass）；R001-6 报告更新；读回校验通过；canonical Spec 新 SHA256=02126A1056A93D9835CAD44F8440CFBC51011E9E7C3BA5A8D3FF4A4E147535AD
+- archived: docs/plans/archive/001-real-library.md，status=archived，completion_kind=delivered
+- cleaned: 不适用（无 .wt worktree/独立分支需清除；检出按 AGENTS §2.1 detach 收尾）
 
 [整体roadmap](../roadmap-v0.6.md) · [agent执行说明](../README.md)
 
