@@ -271,6 +271,75 @@ fn scan_value_end(s str, i int, depth int) int {
     return -1
 }
 
+/// 数字字面量是否为纯整数形态（无小数/指数）。span 已由 scan_number_end 保证合法。
+fn span_is_int(span str) bool {
+    if span.find(".") >= 0 {
+        return false
+    }
+    if span.find("e") >= 0 {
+        return false
+    }
+    if span.find("E") >= 0 {
+        return false
+    }
+    return true
+}
+
+/// 十进制数字串无符号词法比较：a < b 返回 -1，a == b 返回 0，a > b 返回 1。
+/// 双侧须为纯数字串（调用方保证）。
+fn digits_cmp(a str, b str) int {
+    if a.len() < b.len() {
+        return -1
+    }
+    if a.len() > b.len() {
+        return 1
+    }
+    var i int = 0
+    while i < a.len() {
+        if a.substr(i, 1) < b.substr(i, 1) {
+            return -1
+        }
+        if a.substr(i, 1) > b.substr(i, 1) {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+/// 去符号与前导零（保留个位）。输入须为合法整数字面量 span。
+fn digits_norm(span str) str {
+    var t str = span
+    if t.substr(0, 1) == "-" {
+        t = t.substr(1, t.len() - 1)
+    }
+    while t.len() > 1 {
+        if t.substr(0, 1) == "0" {
+            t = t.substr(1, t.len() - 1)
+        } else {
+            break
+        }
+    }
+    return t
+}
+
+/// F-15/T-23：整数字面量是否落在 i32 可无损表示范围
+/// [-2147483648, 2147483647]（词法比较，不经过 to_int/typed 绑定——
+/// 两者对 2^31 起 wrap、2^63 起归零/舍入，t11/p5 探针实测）。
+fn span_is_i32(span str) bool {
+    if !span_is_int(span) {
+        return false
+    }
+    let norm str = digits_norm(span)
+    if norm == "0" {
+        return true
+    }
+    if span.substr(0, 1) == "-" {
+        return digits_cmp(norm, "2147483648") <= 0
+    }
+    return digits_cmp(norm, "2147483647") <= 0
+}
+
 /// 值形态判别（按首非空白字符）：返回 "str"|"num"|"bool"|"null"|"obj"|"arr"|"bad"。
 pub fn value_kind(s str, i int) str {
     let j int = skip_ws(s, i)
@@ -689,14 +758,9 @@ fn valid_record(t str, start int, end int) str {
             return "index record bad value"
         }
         let kind str = value_kind(t, i)
-        // F-15：数值元数据字段必须为整数字面量（1.5/1e2 等拒绝）——
-        // 与 created_at/size/chapter_count/import_version 的整数协议一致
         var span str = ""
         if kind == "num" {
             span = t.substr(i, ve - i)
-            if !span_is_int(span) {
-                return "index record " + key + " must be an integer"
-            }
         }
         var dup int = 0
         if key == "book_id" {
@@ -754,12 +818,18 @@ fn valid_record(t str, start int, end int) str {
                                         if kind != "num" {
                                             return "index record size must be a number"
                                         }
+                                        if !span_is_i32(span) {
+                                            return "index record size out of i32 range"
+                                        }
                                     } else {
                                         if key == "chapter_count" {
                                             dup = seen_cc
                                             seen_cc = 1
                                             if kind != "num" {
                                                 return "index record chapter_count must be a number"
+                                            }
+                                            if !span_is_i32(span) {
+                                                return "index record chapter_count out of i32 range"
                                             }
                                         } else {
                                             if key == "import_version" {
@@ -768,12 +838,18 @@ fn valid_record(t str, start int, end int) str {
                                                 if kind != "num" {
                                                     return "index record import_version must be a number"
                                                 }
+                                                if !span_is_i32(span) {
+                                                    return "index record import_version out of i32 range"
+                                                }
                                             } else {
                                                 if key == "created_at" {
                                                     dup = seen_ca
                                                     seen_ca = 1
                                                     if kind != "num" {
                                                         return "index record created_at must be a number"
+                                                    }
+                                                    if !span_is_i32(span) {
+                                                        return "index record created_at out of i32 range"
                                                     }
                                                 }
                                             }
