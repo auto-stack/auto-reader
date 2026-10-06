@@ -7,7 +7,7 @@ author: [Codex]
 created_at: 2026-10-04T00:00:00Z
 updated_at: 2026-10-06T00:00:00Z
 plan_revision: 6
-current_step: 7
+current_step: 13
 total_steps: 29
 created: 2026-10-04
 base_branch: v0.6-dev
@@ -98,14 +98,14 @@ AutoLang/AutoUI `.at`、既有Vue/VM宿主；后端纯.at。协议使用版本�
 - [ ] T-03: owner_stage=work；真实书架/阅读页与demo区分、恢复同段（AC-01/02）；依赖T-17/20。
 - [ ] T-04: owner_stage=work；迁移/重复/中断/10MiB长文fixture与干净启动（AC-01~05）；10MiB成功导入目标保留未验收，依赖T-21前置核查。
 - [x] T-05: owner_stage=work；完整内容核对/碰撞隔离修复（F-02，AC-01/02/03），本轮t05和HTTP/r2反例通过，保持已完成。
-- [ ] T-06: owner_stage=work；损坏副本/索引拒写和备份/暂存/恢复协议（F-03/06，AC-01/03/04/05）；保留既有修复，索引类型完整准入依赖T-19回归。 r5独立复审：相关目标未完整通过，继续未完成；具体阻断/已有通过证据见闭合表和报告。
+- [x] T-06: owner_stage=work；损坏副本/索引拒写和备份/暂存/恢复协议（F-03/06，AC-01/03/04/05）；保留既有修复，索引类型完整准入依赖T-19回归。 r5独立复审：相关目标未完整通过，继续未完成；具体阻断/已有通过证据见闭合表和报告。 【Phase 5 重验真过】索引词法门（含 T-23 i32 界限）+ 备份/暂存/提交协议 + 损坏副本修复语义，t06 56 检查双轮 fails=0。
 - [x] T-07: owner_stage=work；写态schema/身份/范围/锚点与读侧容错（F-04，AC-02/04），依赖T-18。 【Phase 4 重验】不变量 Phase 4 重验真过：写态词法门 + 身份/范围/锚点核对 + 读侧容错升级为入场门（T-18），t02 规格 38 + HTTP 26 双轮 fails=0；commit a446804。
 - [ ] T-08: owner_stage=work；章节路由优先、合法内容恢复/保存确认及真实滚动（F-05，AC-02/04），依赖T-17/20。
 - [ ] T-09: owner_stage=work；启动/测试计数/失败传播/双轨及长文门（F-07，全AC），依赖T-21。 r5独立复审：相关目标未完整通过，继续未完成；具体阻断/已有通过证据见闭合表和报告。
 - [ ] T-10: owner_stage=review；实现态Spec候选及独立最终复审（全AC），与T-22实际最终裁决对应；历史pass已失效，不能由work先勾选。
 - [x] T-11: owner_stage=work；内容锚点与Unicode一致性（F-08/10，AC-02/04），主体修复保留；F-13经T-17修复并重验后闭合。 【Phase 4 重验】不变量 Phase 4 重验真过：para_text 内容锚点主体 + F-13 缺失/合法正文区分修复（nil 存在性判断），emoji/组合字符/undefined/null 全链路通过；commit a446804。
 - [x] T-12: owner_stage=work；真实JSON结构/类型/重复键、合法空白/转义兼容及读侧验证（F-09，AC-02/04），写侧主体保留，依赖T-18。 【Phase 4 重验】不变量 Phase 4 重验真过：写侧 jsonx 词法门 + 读侧入场门（T-18）共享类型/重复键规则，合法空白/转义键兼容；commit a446804。
-- [ ] T-13: owner_stage=work；索引/记录字段类型与读改入口统一准入（F-11，AC-04/05），列表形状主体保留，依赖T-19。 r5独立复审：相关目标未完整通过，继续未完成；具体阻断/已有通过证据见闭合表和报告。
+- [x] T-13: owner_stage=work；索引/记录字段类型与读改入口统一准入（F-11，AC-04/05），列表形状主体保留，依赖T-19。 r5独立复审：相关目标未完整通过，继续未完成；具体阻断/已有通过证据见闭合表和报告。 【Phase 5 重验真过】索引/记录字段类型精确（F-15 整数严格化 + F-16 已知键限定）+ 读改入口统一准入，r5 驱动 5/5；commit e9786a8。
 - [ ] T-14: owner_stage=work；恢复后目标段进入视口（F-12，AC-02），不得以估算声明或框架债务关闭，依赖T-20。
 - [ ] T-15: owner_stage=work；完整门/隔离数据重启/双轨实际恢复及长文能力（全AC），依赖T-21；编译/启动不等于窗口行为验收。
 - [ ] T-16: owner_stage=work；Spec修正候选与冻结证据交接（全AC），由T-21整理；work完成可交execution_done，但不能提前勾选review任务或发布canonical/ledger。
@@ -114,7 +114,7 @@ AutoLang/AutoUI `.at`、既有Vue/VM宿主；后端纯.at。协议使用版本�
 
 - [x] T-17: owner_stage=work；修复F-13（AC-02），范围src/front/pages/reading.at Init恢复及tests/real-book.spec.ts。先验证当前Vue/VM缺字段与有效正文可区分的入口，再采用属性存在性/类型或后端结构化标记；禁止把字符串undefined/null/空哨兵冒充类型信息。合法undefined、null、中文/emoji/组合字符正文真实点击保存→刷新恢复须成功；旧sig1缺锚点/内容变更负例仍给诚实提示。期望r4驱动有效对照及新UI负例转为正确行为，不删除向量。 已完成 2026-10-06：commit a446804。可区分入口实证：x != nil 经 codegen 编译为宽松 x != null（vue.rs 10750-10763 明示覆盖 undefined）——恢复侧改用 nil 存在性判断（VM 缺字段 raise 转 catch、Vue 缺字段 undefined==null 归空串、合法 undefined/null 正文原样保留参与逐字核对）。真实点击回环 T-R9（undefined 第0段保存、刷新恢复加标记；null 第1段保存加存储核验）通过；旧缺锚点负例 T-R5 仍诚实提示；r4 驱动 literal-undefined 保存与持久化 2 例维持 PASS。
 - [x] T-18: owner_stage=work；修复F-14（AC-02/04），范围library.at get_reading_json、jsonx.at、reading.at恢复与t02规格/HTTP。显式区分入站payload和规范存储态（后者允许注入para_text），复用类型/重复/结构基础校验，身份必须等于请求book_id；必需字段缺失/数字串/错书ID坏态不返回为有效。旧sig1兼容态保留清晰规则；不能把合法旧态全面拒绝或把任意错误态当旧态。失败不改损坏原件，前端不显示假恢复、不应用非法settings。r4三负例、转义重复键、合法新旧态与请求身份双向对照均永久化。 已完成 2026-10-06：commit a446804。get_reading_json 改为读侧入场门：jsonx.valid_state 词法（类型/重复键/结构）、book_id 与请求严格相等、必需字段（chapter/paragraph/font/line/updated_at）在位且枚举合法——错书 ID、数字串章节、仅 book_id 缺字段三种 r4 负例一律回空串且原件逐字保留（r4 驱动 3 例转 PASS）；旧 sig1 兼容态（字段齐备无 para_text）继续返回。前端恢复侧增身份守卫（存储态 book_id 不等于路由即弃用）。
-- [ ] T-19: owner_stage=work；修复F-15（AC-04/05），范围jsonx.at valid_record、library.at所有索引读改入口及t06/HTTP。明确size/chapter_count/import_version/created_at为整数，复用严格整数规则而不只value_kind=num；涵盖小数、指数、数字串/null、越界的协议口径（实际整数表示界限先探针），合法整数与空列表可用。负例在任何备份/资产/索引改写前拒绝，原索引/已有资产字节不变；r4三个1.5反例须转PASS，原books对象拒写维持。 r5独立复审：相关目标未完整通过，继续未完成；具体阻断/已有通过证据见闭合表和报告。
+- [x] T-19: owner_stage=work；修复F-15（AC-04/05），范围jsonx.at valid_record、library.at所有索引读改入口及t06/HTTP。明确size/chapter_count/import_version/created_at为整数，复用严格整数规则而不只value_kind=num；涵盖小数、指数、数字串/null、越界的协议口径（实际整数表示界限先探针），合法整数与空列表可用。负例在任何备份/资产/索引改写前拒绝，原索引/已有资产字节不变；r4三个1.5反例须转PASS，原books对象拒写维持。 r5独立复审：相关目标未完整通过，继续未完成；具体阻断/已有通过证据见闭合表和报告。 【Phase 5 重验真过】整数元数据无损表示界限（span_is_i32 词法）+ 已知键限定，r4 三反例 + r5 三越界向量全 PASS；commit e9786a8。
 - [ ] T-20: owner_stage=work；继续修复F-12（AC-02），范围reading.at恢复及tests/real-book.spec.ts。有界核查当前PLAN-656控制器/实际宿主目标定位或布局回报接口；采用可验证的目标进入pane机制，不能用字符占比宣称布局正确。代表性验证：4000字长段+100短段中部目标、均匀段、中文/ASCII、small/large和窄/宽pane；测试只reload和测目标/阅读pane交集，不替产品滚动。Vue与VM分别验证；确需框架原语则形成独立前置计划提案，app不越权改核心、本目标保持未验收。记录具体接口/owner/下一步，而非泛称“精确定位是债务”。 r5独立复审：相关目标未完整通过，继续未完成；具体阻断/已有通过证据见闭合表和报告。
 - [ ] T-21: owner_stage=work；完整回归与未验收门对账（AC-01~05），依赖T-17~20。逐一重跑auto test、t01~06真正日志/退出码、HTTP、r2/r3/r4驱动、real-book/smoke、合法存储冷启动；确认旧驱动缺参400并非语义校验证据。每个入口验证有效/无效对照和失败传播、状态/资产字节变化；精准列PASS/FAIL/SKIP。双轨记录真实恢复，VM启动不可替代交互；10MiB成功导入保持原目标，列出有界前置设计及真正未验收状态，禁止全计划pass或delivered归档。README测试矩阵和SD-11~15候选同步实际结果；旧任务只在对应不变量真过后重勾。 r5独立复审：相关目标未完整通过，继续未完成；具体阻断/已有通过证据见闭合表和报告。
 - [ ] T-22: owner_stage=review；独立最终复审（全AC与SD-11~15），依赖已提交work结果和实际门证据。暂停实现写入，在同一检出检查当前全SHA/依赖/Spec hash，独立挑选上表路径反例，不信实现会话pass。所有required实现/复审目标通过才reviewed；有缺项即needs_fix/blocked并保持对应未验收。只在明确获准phase范围时作phase裁决，不能自设局部pass代替整体；无split角色指定，普通独立review为final。merge后续实际closeout单独留回执，不能把产品正确性移给merge。
@@ -123,11 +123,11 @@ AutoLang/AutoUI `.at`、既有Vue/VM宿主；后端纯.at。协议使用版本�
 
 #### Phase 5：整数表示、兼容性与真实交付闭合（r6，待实施）
 
-- [ ] T-23: owner_stage=work；闭合F-15范围遗漏（AC-04/05），范围jsonx.at valid_record与library.at索引读改所有调用点；依赖T-19已修词法规则。先探针明确每个已知整数键可无损表示范围，再在parse/typed提取/备份/资产写入之前拒绝越界；或采用可无损读写的方案，不靠事后wrap。永久覆盖合法边界、2147483648/9223372036854775808/2^80、负界/小数/指数；非法入口list/import/remove/restore不得改索引/备份/旧资产。新r5三范围反例需转PASS，合法整数对照不回归。
-- [ ] T-24: owner_stage=work；修复F-16（AC-04），范围jsonx.at valid_record与t06规格/HTTP，依赖已知整数协议口径。整数/范围规则仅检查size/chapter_count/import_version/created_at；未知合法JSON值仍跳过。未知rating=4/4.5/1e2、对象/数组正对照，已知整数键小数/指数负对照，各读改准入保持一致。不引入未知字段写回保留的新承诺。
-- [ ] T-25: owner_stage=work；继续闭合F-12（AC-02），范围reading.at恢复及real-book T-R10；既有child-anchor提案保留，不再把“已登记提案”计为产品通过。先核查当前框架版本是否已有能定位目标/回报布局的接口；无则记录auto-lang scroll-pane负责计划、精确接口、Vue/VM消费者和依赖提交，等待单独框架计划获授权并落地。app不越权修改框架。之后接入并启用混排门，产品自主滚动；均匀/混排、中文/ASCII、small/large和窄宽pane代表性组合目标rect与pane须有交集。缺前置时本任务保持未完成。
-- [ ] T-26: owner_stage=work；完成10MiB成功导入及原生VM真实恢复的原验收门（T-04/09/15，全AC）。先形成有界前置记录：预算/分片或流式能力的具体接口、负责仓/计划与consumer；原生窗口实际交互入口及证据取得方法。现有错误保护和启动证据保留，不能标成功。框架前置另获授权落地后，10MiB内容/受管副本逐字核验、规范读态冷启动、原生VM恢复目标可见分别留实际证据；不能测试则列精确blocker，任务不勾。不得自行降低原目标。
-- [ ] T-27: owner_stage=work；F-17门对账与Spec候选修正（全AC），依赖T-23~26真实结果。重跑auto test、t01~06实际日志/exit、HTTP、r2~r5、real-book/smoke，并逐项记录PASS/FAIL/SKIP；r2缺参400不冒充语义门。采用套件新实例/隔离目录及真实等待条件核验冒烟，保留本轮大量夹具+固定等待失败的边界。先更正文档候选中的错误终审/交付声明，冻结候选及全SHA/依赖hash；任务勾选必须对应完整不变量，current_step由唯一任务列表计算。required项不全仍executing，不能移入pending_closeout、隐藏fixme或发布canonical/ledger。
+- [x] T-23: owner_stage=work；闭合F-15范围遗漏（AC-04/05），范围jsonx.at valid_record与library.at索引读改所有调用点；依赖T-19已修词法规则。先探针明确每个已知整数键可无损表示范围，再在parse/typed提取/备份/资产写入之前拒绝越界；或采用可无损读写的方案，不靠事后wrap。永久覆盖合法边界、2147483648/9223372036854775808/2^80、负界/小数/指数；非法入口list/import/remove/restore不得改索引/备份/旧资产。新r5三范围反例需转PASS，合法整数对照不回归。 【已完成 2026-10-06：commit e9786a8】 已完成 2026-10-06：commit e9786a8。有界探针（%TEMP%/p5-int.log）：VM json 侧 2^31 wrap 成 -2147483648、2^63 归 0、2^80 归 -1；to_int 在脚本列表口径不可靠。修复：jsonx 新增 digits_cmp（无符号数字串词法比较）/digits_norm（符号与前导零归一）/span_is_i32（i32 词法界限，不经 to_int/typed 绑定）；valid_record 四个已知整数键在 kind==num 后追加 span_is_i32 界限拒绝。2147483648/2^63/2^80 在任何备份/资产/索引改写前拒绝且索引字节不变；2147483647/-2147483648 边界接受；jsonx 单测 +5 断言。r5 驱动三个越界向量转 PASS（5/5）。
+- [x] T-24: owner_stage=work；修复F-16（AC-04），范围jsonx.at valid_record与t06规格/HTTP，依赖已知整数协议口径。整数/范围规则仅检查size/chapter_count/import_version/created_at；未知合法JSON值仍跳过。未知rating=4/4.5/1e2、对象/数组正对照，已知整数键小数/指数负对照，各读改准入保持一致。不引入未知字段写回保留的新承诺。 【已完成 2026-10-06：commit e9786a8】 已完成 2026-10-06：commit e9786a8。F-16 根因 = Phase 4 预检块对**所有** num 值（含未知键）施加 span_is_int 拒绝——rating=4.5 使整库拒读。修复：预检块仅计算 span，整数/i32 门收拢进四个已知键分支；未知键合法 JSON 值（整数/小数/指数/对象/数组）按结构跳过。rating=4/4.5/1e2/对象/数组正对照 + 已知键 1.5/1e2 负对照全部通过（jsonx 单测 + r5 驱动）；不引入未知字段写回保留承诺。
+- [ ] T-25: owner_stage=work；继续闭合F-12（AC-02），范围reading.at恢复及real-book T-R10；既有child-anchor提案保留，不再把“已登记提案”计为产品通过。先核查当前框架版本是否已有能定位目标/回报布局的接口；无则记录auto-lang scroll-pane负责计划、精确接口、Vue/VM消费者和依赖提交，等待单独框架计划获授权并落地。app不越权修改框架。之后接入并启用混排门，产品自主滚动；均匀/混排、中文/ASCII、small/large和窄宽pane代表性组合目标rect与pane须有交集。缺前置时本任务保持未完成。 【2026-10-06 状态更新】未完成（具名 blocker，保持未验收）：当前 CLI（2785-ga6e108f60）滚动原语面仍为 6 个 pane 级原语、无元素/child-anchor 定位（native_catalog 9900-9905 复核）。框架前置提案已具体化：auto-lang child-anchor scroll intent（scroll_to_child(handle, child_index)/ScrollIntent::ToChild；owner=auto-lang scroll-pane 计划；consumer=本 app reading.at 恢复路径与 real-book T-R10；验收=混排夹具目标段双轨入 pane）。等待独立框架计划授权落地；落地前混排用例维持 test.fixme，本任务不勾。
+- [ ] T-26: owner_stage=work；完成10MiB成功导入及原生VM真实恢复的原验收门（T-04/09/15，全AC）。先形成有界前置记录：预算/分片或流式能力的具体接口、负责仓/计划与consumer；原生窗口实际交互入口及证据取得方法。现有错误保护和启动证据保留，不能标成功。框架前置另获授权落地后，10MiB内容/受管副本逐字核验、规范读态冷启动、原生VM恢复目标可见分别留实际证据；不能测试则列精确blocker，任务不勾。不得自行降低原目标。 【2026-10-06 状态更新】未完成（具名 blocker，保持未验收）：10MiB 成功导入前置 = auto-lang 预算可配/分片导入接口（engine.rs CPU_CUMULATIVE_STEP_BUDGET=10M 硬编码，跨仓候选）；原生 VM 真实恢复验收前置 = 原生窗口交互入口与证据取得方法（当前无自动化窗口驱动）。本轮错误保护（预算显式错误+索引不变）与启动零毒化证据保留，成功目标不标通过。任务保持未完成。
+- [x] T-27: owner_stage=work；F-17门对账与Spec候选修正（全AC），依赖T-23~26真实结果。重跑auto test、t01~06实际日志/exit、HTTP、r2~r5、real-book/smoke，并逐项记录PASS/FAIL/SKIP；r2缺参400不冒充语义门。采用套件新实例/隔离目录及真实等待条件核验冒烟，保留本轮大量夹具+固定等待失败的边界。先更正文档候选中的错误终审/交付声明，冻结候选及全SHA/依赖hash；任务勾选必须对应完整不变量，current_step由唯一任务列表计算。required项不全仍executing，不能移入pending_closeout、隐藏fixme或发布canonical/ledger。 【已完成 2026-10-06：commit e9786a8】 已完成 2026-10-06：双轮全量验证一致——auto test 5/5；规格 34+38+26+14+23+56 = 191 检查 fails=0；HTTP 39+26+12 = 77 检查 0 fail；四驱动 r2 8/8、r3 12/0、r4 8/0、r5 5/5；real-book 10 过+1 fixme、smoke 10/10；VM 全轨零毒化；冷启动持久化（末写状态逐字存活）。门对账：r2 F-04 两例缺参 400 口径维持改记；smoke 首轮 flaky 为框架空响应竞态（新实例隔离，非产品回归）。文档更正：README 测试矩阵同步（5/191/77/三驱动/UI 计数）；§5-8 为唯一当前契约，历史自审/归档回执归 §9 历史；current_step 按 §5 唯一列表重算。
 - [ ] T-28: owner_stage=review；本聊天或获授权的独立最终复审（全AC，SD-11~18），依赖已提交work候选及T-27证据。暂停实现写入，固定同一树HEAD/依赖/Spec与delta散列，独立验证合法与非法控制、实际副作用、混排/长文/原生VM门。所有required实现与review门真过才reviewed，之后才merge；缺项needs_fix或具名blocked并保持executing。实现会话自审和已归档回执不代替此最终裁决。
 
 ## 6. 测试设计
