@@ -130,10 +130,13 @@ pub fn library_get_reading(book_id str) str {
 }
 
 /// POST /api/library/progress — 写阅读状态（locator v1 + settings）。
-/// body: { book_id, payload }，payload 为状态 JSON 字符串（幂等保存，
-/// 非创建语义）；校验失败 500 带 library 错误消息。VM HTTP 层对
-/// PUT+str 返回会丢响应体（T-02 实测），故写端点用 POST。
+/// body: { book_id, payload, para_text }——payload 为状态 JSON 字符串
+/// （jsonx 词法门：结构/类型精确/重复键拒绝）；para_text 为顶层内容锚点
+/// 字段（Phase 3 F-08/F-10：段级定位必填，后端与当前原文行逐字核对后
+/// 注入存储态；走外层 JSON 传输，前端零转义）。校验失败以
+/// {"ok":false,"message"} 返回。VM HTTP 层对 PUT+str 返回会丢响应体
+/// （T-02 实测），故写端点用 POST。
 #[api(method = "POST", path = "/api/library/progress")]
-pub fn library_put_reading(book_id str, payload str) str {
-    return db.library_put_reading(book_id, payload)
+pub fn library_put_reading(book_id str, payload str, para_text str) str {
+    return db.library_put_reading(book_id, payload, para_text)
 }

@@ -211,6 +211,6 @@ pub fn library_get_reading(book_id str) str {
     return get_reading_json(book_id)
 }
 
-pub fn library_put_reading(book_id str, payload str) str {
-    return put_reading_json(book_id, payload)
+pub fn library_put_reading(book_id str, payload str, para_text str) str {
+    return put_reading_json(book_id, payload, para_text)
 }

@@ -9,9 +9,13 @@
 // /api/books/:id(/chapters)，lazy back 随请求孵化）。
 // READER-001 T-03：真实书模式——/book/<uuid>/chapter/<n>（id 为字符串）。
 // 探测 /api/library/books/:id 命中即真实书：目录/章节/进度走 /api/library/*，
-// 正文按段渲染（Locator v1：tap 段落记录 chapter_number + paragraph_index
-// + para_hash(段文本 ph1 指纹，ASCII 安全——VM HTTP 请求体多字节损坏规避，
-// 见 T-00 报告)；打开时恢复章节与段标记）。demo 书保持基线行为。
+// 正文按段渲染。Phase 3（F-08/F-10）：点段保存携带顶层 para_text 内容
+// 锚点（外层 JSON 传输零转义；后端与原文行逐字核对）；恢复以存储态
+// para_text 与当前段落逐字验证，缺失/失配诚实提示。
+// Phase 3（F-12）：正文列改 scroll-pane（PLAN-656 双轨 controller）——
+// 恢复时两段式滚动：先溢出 scroll_to 触发测量与 onscroll，OnScroll 按
+// 「累计字符占比 × 可滚动跨度」精化定位（估算定位 v1；元素级定位为
+// 框架前置提案，见计划 §10）。
 // 逻辑内联于 handler（widget 内局部 fn 不支持——T-03 实测 parse error）；
 // 纯计算下沉文件级 fn。/api/library/* 响应双层编码——统一经 parse_lib
 // 二次解析（缺书/失败回 null，守卫跨 Vue/VM 双轨安全）。
@@ -30,11 +34,9 @@ fn pct_of(cur int, total int) int {
     return (cur * 100 / total) as int
 }
 
-/// 段文本校验签名（Locator v1 corroboration）。
-/// v1 = 字节长 + 行数（ASCII 输出）。注：char_at 在 Vue 面是 JS charAt
-/// （返回字符，算术 NaN）、VM 面返回码点——双轨语义错位，跨轨一致指纹
-/// 待运行时补齐（T-03 实测记录）；校验值仅同轨一致，跨轨恢复由章节号
-/// + 段序号定位。
+/// 段文本校验签名（Locator v1 兼容位）。
+/// v1 = 字节长 + 行数（ASCII 输出）。内容证明自 Phase 3 起由 para_text
+/// 承担（字符串相等，跨轨安全）；para_hash 仅作格式兼容位随 payload 发送。
 fn para_hash(text str) str {
     let lines = text.split("
 ")
@@ -92,7 +94,7 @@ fn real_payload(rid str, ch int, para int, ph str, font str, line str) str {
 }
 
 widget reading {
-    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int) }
+    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int), OnScroll(float, float, float, float, float, float, float, float) }
 
     model {
         var book_id int = 0
@@ -114,6 +116,11 @@ widget reading {
         var cur_paragraph int = -1
         var cur_para_text str = ""
         var restored_note str = ""
+        // T-14 恢复滚动：scroll-pane controller 键 + 待精化恢复目标
+        var rsc str = "reading-pane"
+        var restore_pi int = -1
+        var restore_cum int = 0
+        var restore_total int = 0
     }
 
     view {
@@ -163,9 +170,9 @@ widget reading {
                         }
                     }
                 }
-                // Reading column — 字号/行距真实生效；真实书按段渲染
-                col {
-                    style: "flex-1 overflow-y-auto"
+                // Reading column — T-14：scroll-pane（PLAN-656 双轨 controller
+                // 程序化滚动）；onscroll 驱动恢复定位的精化收敛
+                scroll-pane (controller: .rsc, style: "flex-1 min-h-0 w-full", onscroll: .OnScroll) {
                     if .loaded {
                         col {
                             style: "max-w-2xl mx-auto px-6 py-10 gap-6"
@@ -292,8 +299,10 @@ widget reading {
                 .paragraphs = split_paragraphs("" + .chapter.body)
                 .cur_paragraph = -1
                 .cur_para_text = ""
-                // 恢复段标记：仅当保存章节 == 当前章节；段范围 + 原文锚点
-                // 双重校验（F-05）——失配诚实提示需重定位，绝不假显示"已恢复"
+                // 恢复段标记：仅当保存章节 == 当前章节；内容锚点逐字验证
+                // （Phase 3 F-08）——存储态 para_text 与当前段落文本相等才
+                // 标记「已恢复」；缺锚点（旧 sig1 态）/失配/越界分别诚实
+                // 提示，绝不假恢复
                 if pr != null {
                     let pc2 int = pr.chapter_number
                     if pc2 == .chapter_num {
@@ -304,16 +313,30 @@ widget reading {
                             while i < .paragraphs.len() {
                                 let p = .paragraphs[i]
                                 if p.idx == pi {
-                                    let sig str = para_hash("" + p.text)
-                                    let saved_sig str = "" + pr.para_hash
-                                    if sig == saved_sig {
-                                        .cur_paragraph = pi
-                                        .cur_para_text = "" + p.text
-                                        .restored_note = "已恢复上次位置（点任意段落可更新）"
-                                    } else {
-                                        .restored_note = "上次保存的段落内容已变化，请重新点选位置"
-                                    }
                                     matched = true
+                                    var saved_text str = ""
+                                    try {
+                                        saved_text = "" + pr.para_text
+                                    } catch {
+                                        saved_text = ""
+                                    }
+                                    // Vue 轨缺失字段拼接得 "undefined" 字符串
+                                    // （VM 轨 raise→空串）——双轨归一为无锚点
+                                    if saved_text == "undefined" {
+                                        saved_text = ""
+                                    }
+                                    if saved_text == "" {
+                                        .restored_note = "上次保存的位置缺少内容锚点，请重新点选段落"
+                                    } else {
+                                        if saved_text == ("" + p.text) {
+                                            .cur_paragraph = pi
+                                            .cur_para_text = "" + p.text
+                                            .restored_note = "已恢复上次位置（点任意段落可更新）"
+                                            .restore_pi = pi
+                                        } else {
+                                            .restored_note = "上次保存的段落内容已变化，请重新点选位置"
+                                        }
+                                    }
                                     i = .paragraphs.len()
                                 }
                                 i = i + 1
@@ -322,6 +345,38 @@ widget reading {
                                 .restored_note = "上次保存的段落在本章已不存在，请重新点选位置"
                             }
                         }
+                    }
+                }
+                // T-14 恢复滚动（两段式）：统计累计/总字符 → .loaded 置真后
+                // 经一次 await 让出（Vue 在 await 边界刷新 DOM，段落此时才
+                // 真正入树；VM 轨 intent 队列本就渲染后排空）→ 渲染后溢出
+                // scroll_to（夹到末端，触发测量与 onscroll）→ OnScroll 再按
+                // 累计字符占比精化定位。元素级定位原语缺失（框架差距），
+                // 占比估算对均匀段落精确、对极端混排有偏差——如实登记。
+                .loaded = true
+                if .restore_pi >= 0 {
+                    var total int = 0
+                    var cum int = 0
+                    var seen int = 0
+                    var k2 int = 0
+                    while k2 < .paragraphs.len() {
+                        let p2 = .paragraphs[k2]
+                        let tl int = ("" + p2.text).len() + 1
+                        total = total + tl
+                        if p2.idx == .restore_pi {
+                            seen = 1
+                        } else {
+                            if seen == 0 {
+                                cum = cum + tl
+                            }
+                        }
+                        k2 = k2 + 1
+                    }
+                    .restore_cum = cum
+                    .restore_total = total
+                    let warm = parse_lib(Http.get_json("/api/library/progress?book_id=" + .route_id))
+                    if .restore_pi >= 0 {
+                        let ok1 = scroll_to(.rsc, 0.0, 100000000.0)
                     }
                 }
                 let total int = .chapter_count
@@ -371,14 +426,8 @@ widget reading {
                 lead_cls = "leading-snug"
             }
             .body_style = "text-foreground " + size_cls + " " + lead_cls
-            .loaded = true
-            // 恢复滚动（F-05 收口实测）：跨轨滚动原语缺失——document 透传
-            // 在 VM 轨 handler 合成报 Undefined variable 毒化整个 Init（实测
-            // t09-vmfull2.log）；autodown 的 scroll_sync/scroll_top 绑定仅
-            // autodown 元素真消费，泛用 col 不支持（aura_view_builder 实查）。
-            // 结论：恢复语义落在「标记 + 诚实提示」，滚动位置恢复登记为
-            // 框架能力差距（计划 §10 / SD-05），不在共享源码里做单轨 hack。
             if !.is_real {
+                .loaded = true
                 store.SetProgress(.book_id, .progress_pct)
             }
         }
@@ -409,7 +458,7 @@ widget reading {
                     let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height)
                     var save_ok bool = false
                     try {
-                        let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+                        let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl, para_text: "" })
                         if resp.find("\"ok\":true") >= 0 {
                             save_ok = true
                         }
@@ -446,7 +495,7 @@ widget reading {
                     let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height)
                     var save_ok bool = false
                     try {
-                        let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+                        let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl, para_text: "" })
                         if resp.find("\"ok\":true") >= 0 {
                             save_ok = true
                         }
@@ -483,7 +532,7 @@ widget reading {
                     let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height)
                     var save_ok bool = false
                     try {
-                        let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+                        let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl, para_text: "" })
                         if resp.find("\"ok\":true") >= 0 {
                             save_ok = true
                         }
@@ -514,7 +563,7 @@ widget reading {
             let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, ph, .font_size, .line_height)
             var save_ok bool = false
             try {
-                let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl })
+                let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl, para_text: .cur_para_text })
                 if resp.find("\"ok\":true") >= 0 {
                     save_ok = true
                 }
@@ -523,6 +572,24 @@ widget reading {
                 .restored_note = f"已记录位置：第 ${idx} 段"
             } else {
                 .restored_note = "位置保存失败：后端未确认，请重试"
+            }
+        }
+        // T-14 恢复滚动精化：Init 的溢出滚动触发本事件后，按「累计字符
+        // 占比 × 可滚动跨度」一次精化定位并清除待恢复标记（本方法引发的
+        // 二次 onscroll 到达时 restore_pi 已清，不再迭代）。
+        .OnScroll(ox, oy, vw, vh, cw, chh, px, py) -> {
+            if .restore_pi >= 0 {
+                if .restore_total > 0 {
+                    if chh > vh {
+                        let cf float = 0.0 + .restore_cum
+                        let tf float = 0.0 + .restore_total
+                        let ratio float = cf / tf
+                        let span float = chh - vh
+                        let target float = ratio * span
+                        let ok2 = scroll_to(.rsc, 0.0, target)
+                    }
+                }
+                .restore_pi = -1
             }
         }
     }

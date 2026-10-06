@@ -110,7 +110,7 @@ def main():
     ui.write_text("第一章 开始\n第一段。\n第二段。\n第二章 后续\n第三段。\n", encoding="utf-8")
     ui_id = imp(ui)["book_id"]
     state = {"book_id": ui_id, "chapter_number": 1, "paragraph_index": 999, "para_hash": "sig1:999:1", "font_size": "medium", "line_height": "comfy", "updated_at": 0}
-    req("POST", "/api/library/progress", {"book_id": ui_id, "payload": json.dumps(state)})
+    req("POST", "/api/library/progress", {"book_id": ui_id, "payload": json.dumps(state), "para_text": "任意"})
     print(json.dumps({"results": RESULTS, "ui_id": ui_id, "work": str(WORK)}, ensure_ascii=True, indent=2))
     return int(any(r["result"] == "fail" for r in RESULTS))
 

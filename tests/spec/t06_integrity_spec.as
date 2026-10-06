@@ -80,6 +80,34 @@ fn main() {
     check(oe.code == "io_error", "schema-missing-books index rejected")
     check(fs.read_text(libfile) == "{\"version\":1}", "schema-violating index preserved")
 
+    // S4b F-11：错误 books 形态（对象/null/字符串/数字）→ 一律拒绝且
+    // 原件逐字保留——绝不把损坏形态当空库覆盖
+    fs.write_text(libfile, "{\"version\":1,\"books\":{}}")
+    let o_f11a = json.parse(import_book_json(src1, "", false))
+    check(o_f11a.code == "io_error", "books-as-object rejected")
+    check(fs.read_text(libfile) == "{\"version\":1,\"books\":{}}", "books-object preserved")
+    fs.write_text(libfile, "{\"version\":1,\"books\":null}")
+    let o_f11b = json.parse(import_book_json(src1, "", false))
+    check(o_f11b.code == "io_error", "books-null rejected")
+    check(fs.read_text(libfile) == "{\"version\":1,\"books\":null}", "books-null preserved")
+    fs.write_text(libfile, "{\"version\":1,\"books\":\"x\"}")
+    let o_f11c = json.parse(import_book_json(src1, "", false))
+    check(o_f11c.code == "io_error", "books-string rejected")
+    fs.write_text(libfile, "{\"version\":1,\"books\":5}")
+    let o_f11d = json.parse(import_book_json(src1, "", false))
+    check(o_f11d.code == "io_error", "books-number rejected")
+    fs.write_text(libfile, "{\"version\":\"1\",\"books\":[]}")
+    let o_f11e = json.parse(import_book_json(src1, "", false))
+    check(o_f11e.code == "io_error", "string version rejected")
+    fs.write_text(libfile, "{\"version\":1,\"books\":[{\"book_id\":5}]}")
+    let o_f11f = json.parse(import_book_json(src1, "", false))
+    check(o_f11f.code == "io_error", "record wrong field type rejected")
+    // 合法空表仍可导入（孤儿语义保持）
+    fs.write_text(libfile, "{\"version\":1,\"books\":[]}")
+    let o_f11g = json.parse(import_book_json(src1, "", false))
+    check(o_f11g.code == "ok", "valid empty array still importable")
+    fs.write_text(libfile, idx_after)
+
     // 恢复有效索引，继续用本库演练备份失败与损坏副本
     fs.write_text(libfile, idx_after)
     check(books_json().find("book_id") > 0, "index restored readable")
