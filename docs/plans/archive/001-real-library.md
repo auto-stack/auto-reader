@@ -1,7 +1,7 @@
 ---
 plan_id: READER-001
 title: "真实导入、书库存储与位置恢复"
-status: reviewed
+status: archived
 feature_name: "真实导入、书库存储与位置恢复"
 author: [Codex]
 created_at: 2026-10-04T00:00:00Z
@@ -303,6 +303,13 @@ next=work，执行Phase 4与受影响旧任务的真实重验，不在本review�
 - landed: 交付提交=本次归档链 tip（85f1571→05dd320→ae9015f→f750bb7→bfc9edb→归档提交，线性无 merge commit；Phase 3 提交原在 detached HEAD，以 ff-only 快进落 v0.6-dev）；本仓按 AGENTS §2.1 以 apps 子检出为工作位，无独立 worktree/独立 dev 分支
 - ledger_refreshed: .autoos/specs.json 六节（project=auto-reader）：R001-2/3/4 更新至 Phase 3 语义；R001-5 复审链补全（r2 pass→needs_fix→r3 pass→needs_fix→r4 pass）；R001-6 报告更新；读回校验通过；canonical Spec 新 SHA256=02126A1056A93D9835CAD44F8440CFBC51011E9E7C3BA5A8D3FF4A4E147535AD
 - archived: docs/plans/archive/001-real-library.md，status=archived，completion_kind=delivered
+- cleaned: 不适用（无 .wt worktree/独立分支需清除；检出按 AGENTS §2.1 detach 收尾）
+
+合并回执 READER-001:r5（2026-10-06）：
+- prepared: reviewed 基线 ae9015f 链（终审记录 374e358，reviewed_commit 4b97bf8 = 终审期间 N-5 修复提交）；canonical Spec=docs/specs/reader/real-library.md（SD-11~15 落地；SD-07 双口径废止与 SD-09 估算边界自 r4 版延续并补 F-12 混排实测与 fixme 登记）；交付轨=v0.6-dev
+- landed: 交付提交=本次归档链 tip（82bc1e7→a446804→183183a→374e358→bfc…→979feba→归档提交，线性无 merge commit；Phase 4 提交原在 detached HEAD，以 ff-only 快进落 v0.6-dev）；本仓按 AGENTS §2.1 以 apps 子检出为工作位，无独立 worktree/独立 dev 分支
+- ledger_refreshed: .autoos/specs.json 六节（project=auto-reader）：R001-2/3/4 更新至 Phase 4 语义；R001-5 复审链补全至 r5 终审 pass（含三轮独立推翻历史与复审者局限记录）；R001-6 报告更新；读回校验通过；canonical Spec 新 SHA256=1056BB63BDEA66B56874B982EC1693C87F3AE84DE1CEB793B28ED2B9BD426C13
+- archived: docs/plans/archive/001-real-library.md，status=archived，completion_kind=delivered（**两项显式未验收随档登记**：①10MiB 成功导入；②F-12 混排内容恢复目标段入 pane——均待 auto-lang 框架前置计划，非本仓可闭合）
 - cleaned: 不适用（无 .wt worktree/独立分支需清除；检出按 AGENTS §2.1 detach 收尾）
 
 [整体roadmap](../roadmap-v0.6.md) · [agent执行说明](../README.md)
