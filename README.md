@@ -40,16 +40,16 @@ auto run -r vm --server=vm
 | 模块单测 | `auto test` | hashx 1 + jsonx 2 + pathx 2 = 5（importers 另由脚本 t03 与 HTTP 覆盖） |
 | 后端规格（脚本） | `auto tests/spec/t01_library_spec.as`（34）/ `t02_reading_spec.as`（38）/ `t03_importers_spec.as`（26）/ `t04_library_spec.as`（14）/ `t05_collision_spec.as`（23）/ `t06_integrity_spec.as`（56） | 191 检查；读取 `%TEMP%/tNN-spec.log` 的 PASS/FAIL 与进程退出码 |
 | HTTP 驱动 | `python tests/spec/t01_http_verify.py`（39）/ `t02_http_verify.py`（26，额外 emoji 用例可能 SKIP）/ `t04_http_verify.py`（12） | 套件使用新实例及隔离目录，驱动与服务器共享 `AUTO_READER_DATA`；10MiB 项仅证明错误保护 |
-| 复审回归 | `python tests/review/reader001_repro.py` / `reader001_r3_repro.py` / `reader001_r4_repro.py` / `reader001_r5_repro.py`（同目录） | 8/12/8/5 检查；r5当前1 PASS/4 FAIL。目录名须以 `reader001-review-` 开头；旧r2缺参400不代表语义校验 |
+| 复审回归 | `python tests/review/reader001_repro.py` / `reader001_r3_repro.py` / `reader001_r4_repro.py` / `reader001_r5_repro.py`（同目录） | 8/12/8/5 检查；r5当前5 PASS；新增r6驱动24项为22 PASS/2 FAIL（恢复入口）。目录名须以 `reader001-review-` 开头；旧r2缺参400不代表语义校验 |
 | UI（Playwright） | `cd tests && npx playwright test` | smoke 10；real-book 10已过+1混排fixme未验收。需同一隔离 `AUTO_READER_DATA` 与 `BOOK_URL=http://localhost:17824` |
 
 测试纪律：夹具只进隔离目录；失败检查「输出与退出码」同时成立（`auto test`
 对单文件编译失败曾退出 0——CLI 缺陷已登记，脚本规格以日志 `fails=0` 与
 退出码双重判据）。
 
-2026-10-06 独立最终复审为 needs_fix：整数表示边界、未知字段兼容与混排
+2026-10-06 独立最终复审为 needs_fix：主索引整数边界/未知字段兼容已修；移除记录恢复准入及混排
 恢复仍失败，10MiB 成功导入及原生 VM 恢复未验收。完整事实与首轮冒烟
-等待失败的边界见[复审报告](docs/reviews/reader-001-r5-20261006.md)，不能将上表
+等待失败的边界见[复审报告](docs/reviews/reader-001-r6-20261007.md)，不能将上表
 已过回归等同于全计划通过。
 
 ## 来源与组合
@@ -63,4 +63,4 @@ AutoOS 通过 [`apps/018-book-reader`](https://github.com/auto-stack/auto-os/tre
 [需求与设计、首版 roadmap、业界调研及前三个实施计划](docs/README.md)。
 
 实现与验收状态以各计划证据为准；[READER-001](docs/plans/001-real-library.md)
-已重新激活 executing/r6，Phase 5 问题与修复方案见 §5/§9。
+已重新激活 executing/r7，Phase 6 问题与修复方案见 §5/§9。

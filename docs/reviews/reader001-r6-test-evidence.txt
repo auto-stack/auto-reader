@@ -1,0 +1,388 @@
+t01-spec.log
+SPEC t01 start
+PASS import ok
+PASS book_id assigned
+PASS record found
+PASS title from stem
+PASS author param
+PASS chapter count 2
+PASS hash algo prefix
+PASS managed copy exists
+PASS managed under books/
+PASS ch1 title
+PASS ch1 body verbatim
+PASS ch2 body verbatim
+PASS duplicate detected
+PASS existing id
+PASS force import ok
+PASS force distinct id
+PASS missing file
+PASS directory path
+PASS empty file
+PASS md import ok
+PASS md format
+PASS md title from stem
+PASS md ch2 body
+PASS library.json versioned
+PASS record title persisted
+PASS record id persisted
+PASS remove ok
+PASS record gone
+PASS managed dir check skip
+PASS managed kept
+PASS original untouched
+PASS removed log exists
+PASS restore ok
+PASS restored chapter verbatim
+SPEC t01 done fails=0
+
+
+t02-spec.log
+SPEC t02 start
+PASS import ok
+PASS put reading ok (para_text anchor)
+PASS stored locator paragraph
+PASS stored injected para_text verbatim
+PASS stored settings font_size
+PASS stored quote_prefix
+PASS parsed locator paragraph
+PASS parsed settings font_size
+PASS parsed content anchor
+PASS put chapter bookmark ok (no anchor)
+PASS updated state
+PASS bak exists
+PASS unknown book rejected
+PASS non-object rejected
+PASS id mismatch rejected
+PASS mismatched id hidden in note rejected
+PASS empty id rejected
+PASS truncated JSON rejected
+PASS missing book_id rejected
+PASS numeric-string chapter rejected
+PASS duplicate id key rejected
+PASS float chapter rejected
+PASS null paragraph rejected
+PASS bool chapter rejected
+PASS whitespace form accepted
+PASS escaped book_id key accepted
+PASS bookmark re-established
+PASS chapter out of range rejected
+PASS paragraph 999 out of range rejected
+PASS paragraph on blank line rejected
+PASS anchor mismatch rejected
+PASS missing para_text rejected
+PASS para_text inside payload rejected
+PASS invalid font_size rejected
+PASS invalid line_height rejected
+PASS failed writes leave last valid state
+PASS corrupt state reads as empty (tolerant)
+PASS corrupt state file preserved
+SPEC t02 done fails=0
+
+
+t03-spec.log
+SPEC t03 start
+PASS txt two chapters
+PASS txt ch1 title
+PASS txt ch1 body verbatim
+PASS txt ch2 number
+PASS txt ch2 title
+PASS jie variant two chapters
+PASS chapter variant two chapters
+PASS chapter ch2 title
+PASS prologue variant two chapters
+PASS prologue ch1 title
+PASS prelude two chapters
+PASS prelude chapter titled 开篇
+PASS prelude body verbatim
+PASS no-heading single chapter
+PASS fallback title
+PASS no-heading body intact
+PASS md three chapters
+PASS md ch1 title
+PASS md ch2 title
+PASS md ch3 title
+PASS md deep heading stays in body
+PASS md ### body verbatim
+PASS format md
+PASS format MD case-insensitive
+PASS format txt
+PASS format default txt
+SPEC t03 done fails=0
+
+
+t04-spec.log
+SPEC t04 start
+PASS v0 index rejected as io_error
+PASS migration message explicit
+PASS legacy file preserved
+PASS legacy content intact
+PASS first import ok
+PASS same-content different-name duplicate
+PASS orphan reuse import ok
+PASS managed copy reused (no rewrite)
+PASS managed file still single
+PASS missing managed content flagged
+PASS no fabricated body
+PASS same-title both import
+PASS same-title distinct ids
+PASS same-title no duplicate flag
+SPEC t04 done fails=0
+
+
+t05-spec.log
+SPEC t05 start
+PASS collision pair: first import ok
+PASS same-ph1 different-content NOT deduplicated
+PASS collision pair distinct ids
+PASS book A body verbatim (no swap)
+PASS book B body verbatim (no swap)
+PASS force re-import of B ok
+PASS force creates distinct archive id
+PASS forced archive body verbatim B
+PASS true duplicate still detected
+PASS duplicate existing_id points to A
+PASS colliding books isolated asset paths
+PASS asset A content intact
+PASS asset B content intact
+PASS index readable before legacy drill
+PASS corrode-then-reimport A not deduplicated
+PASS repaired A gets new record id
+PASS repaired A isolated from corroded asset
+PASS repaired A asset verbatim
+PASS legacy record untouched
+PASS corroded legacy asset untouched by repair
+PASS legacy A readable again after restore
+PASS md twin import ok
+PASS identical content across extensions deduplicated
+SPEC t05 done fails=0
+
+
+t06-spec.log
+SPEC t06 start
+PASS baseline first import
+PASS baseline second import
+PASS baseline force import
+PASS bak holds pre-write index verbatim
+PASS empty existing index rejected
+PASS empty index rejection explicit
+PASS empty index file preserved byte-identical
+PASS corrupt index rejected
+PASS corrupt index preserved
+PASS schema-missing-books index rejected
+PASS schema-violating index preserved
+PASS books-as-object rejected
+PASS books-object preserved
+PASS books-null rejected
+PASS books-null preserved
+PASS books-string rejected
+PASS books-number rejected
+PASS string version rejected
+PASS record wrong field type rejected
+PASS record size 1.5 rejected
+PASS size-1.5 index preserved
+PASS record import_version 1.5 rejected
+PASS record created_at exponent rejected
+PASS 4000091
+PASS valid empty array still importable
+PASS index restored readable
+PASS bak-drill setup import ok
+PASS backup failure aborts import
+PASS backup abort surfaces index error
+PASS index untouched on backup failure
+PASS existing book intact on aborted import
+PASS directory-occupied index rejected
+PASS corroded copy: plain reimport not falsely deduplicated
+PASS corroded copy: force import proceeds
+PASS repair goes to isolated asset
+PASS repaired asset verbatim source
+PASS corroded asset not silently rewritten
+PASS new record size matches verified copy
+PASS corroded record reads as missing (honest)
+PASS corroded record readable after manual asset restore
+PASS remove-drill setup import ok
+PASS remove aborted on log-write failure
+PASS index untouched when remove aborted
+PASS book still listed after aborted remove
+PASS remove ok for restore drill
+PASS removed log exists
+PASS restore ok
+PASS log line removed after restore
+PASS second restore explicit error
+PASS restored book chapters verbatim
+PASS orphan drill first import
+PASS orphan reimport completes
+PASS orphan asset reused (no new copy)
+PASS orphan asset verbatim
+PASS occupied data dir fails early
+PASS staged tmp matches committed index
+SPEC t06 done fails=0
+
+
+r6-t01_http_verify.log
+PASS import txt ok
+PASS book_id returned
+PASS one book listed
+PASS title from stem
+PASS txt chapters=3
+PASS hash prefix ph1
+PASS author recorded
+PASS format txt
+PASS ch1 title verbatim
+PASS ch1 body verbatim
+PASS ch3 body verbatim
+PASS toc 3 entries
+PASS import md ok
+PASS md format
+PASS md chapters=3
+PASS md ch2 title
+PASS managed copy exists
+PASS managed copy byte-identical
+PASS original untouched after import
+PASS duplicate detected
+PASS duplicate existing_id
+PASS force distinct archive
+PASS missing file
+PASS directory rejected
+PASS empty file
+PASS gbk rejected (real bytes)
+PASS same-name different-content imports
+PASS distinct book_id for distinct file
+PASS two same-title books distinct bodies
+PASS plain import ok
+PASS plain single chapter titled by stem
+PASS remove ok
+PASS removed from shelf
+PASS managed copy kept after remove
+PASS original file kept after remove
+PASS removed.jsonl exists
+PASS restore ok
+PASS restored record readable
+PASS restored chapter verbatim
+--- summary: 0 fails ---
+
+
+
+r6-t02_http_verify.log
+PASS at least one book
+PASS chapter 1 readable
+PASS chapter 1 has a non-empty paragraph
+PASS put progress ok (content anchor)
+PASS locator chapter
+PASS locator paragraph
+PASS content anchor verbatim (\u decode)
+PASS settings persisted
+PASS F-09 whitespace before colon accepted
+PASS F-09 numeric strings rejected
+PASS F-09 duplicate key rejected
+PASS F-08 stale equal-length anchor rejected
+PASS F-08 re-anchor with live content accepted
+SKIP F-10 emoji case (fixture has no emoji paragraph)
+PASS put chapter bookmark ok
+PASS latest state wins
+PASS unknown book rejected
+PASS non-object rejected
+PASS id mismatch rejected
+PASS truncated JSON rejected
+PASS hidden-id mismatch rejected
+PASS chapter out of range rejected
+PASS paragraph 999 out of range rejected
+PASS anchor mismatch rejected
+PASS failed write leaves no record
+PASS bookmark re-established
+PASS last valid state verbatim after failures
+--- summary: 0 fails ---
+
+
+
+r6-t04_http_verify.log
+PASS 10MiB fixture generated
+PASS 64KB multi-chapter import ok
+PASS 64KB chapters=7 (开篇+6)
+PASS 64KB ch2 title
+PASS 512KB import completes (response may time out)
+PASS v0 index rejected at runtime
+PASS v1 index restored (duplicate)
+PASS copy fixture import
+PASS same-content copy → duplicate
+PASS same-title different-content → distinct
+PASS 10MiB import explicit error (VM budget ceiling, cross-repo)
+PASS 10MiB attempt leaves library unchanged (no false success)
+--- summary: 0 fails ---
+
+
+
+r6-reader001_r5_repro.log
+{
+  "results": [
+    {
+      "case": "unknown integer control",
+      "result": "pass",
+      "evidence": {
+        "books_readable": true,
+        "index_changed": false
+      }
+    },
+    {
+      "case": "unknown fraction compatibility",
+      "result": "pass",
+      "evidence": {
+        "books_readable": true,
+        "index_changed": false
+      }
+    },
+    {
+      "case": "i32 boundary",
+      "result": "pass",
+      "evidence": {
+        "outcome": {
+          "code": "io_error",
+          "message": "\u4e66\u5e93\u7d22\u5f15\u7248\u672c\u4e0d\u53d7\u652f\u6301\uff1a\u5df2\u4fdd\u7559\u539f\u6587\u4ef6\uff0c\u9700\u4eba\u5de5\u8fc1\u79fb",
+          "book_id": "",
+          "existing_id": ""
+        },
+        "index_changed": false,
+        "expected_value": 2147483648,
+        "after_target": [],
+        "value_preserved": false,
+        "after_readable": false
+      }
+    },
+    {
+      "case": "i64 boundary",
+      "result": "pass",
+      "evidence": {
+        "outcome": {
+          "code": "io_error",
+          "message": "\u4e66\u5e93\u7d22\u5f15\u7248\u672c\u4e0d\u53d7\u652f\u6301\uff1a\u5df2\u4fdd\u7559\u539f\u6587\u4ef6\uff0c\u9700\u4eba\u5de5\u8fc1\u79fb",
+          "book_id": "",
+          "existing_id": ""
+        },
+        "index_changed": false,
+        "expected_value": 9223372036854775808,
+        "after_target": [],
+        "value_preserved": false,
+        "after_readable": false
+      }
+    },
+    {
+      "case": "unrepresentable integer",
+      "result": "pass",
+      "evidence": {
+        "outcome": {
+          "code": "io_error",
+          "message": "\u4e66\u5e93\u7d22\u5f15\u7248\u672c\u4e0d\u53d7\u652f\u6301\uff1a\u5df2\u4fdd\u7559\u539f\u6587\u4ef6\uff0c\u9700\u4eba\u5de5\u8fc1\u79fb",
+          "book_id": "",
+          "existing_id": ""
+        },
+        "index_changed": false,
+        "expected_value": 1208925819614629174706176,
+        "after_target": [],
+        "value_preserved": false,
+        "after_readable": false
+      }
+    }
+  ],
+  "work": "C:\\Users\\zhaop\\AppData\\Local\\Temp\\reader001-review-r4-u1t4vm83"
+}
+

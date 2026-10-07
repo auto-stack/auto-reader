@@ -1,0 +1,205 @@
+{
+  "results": [
+    {
+      "case": "index size=2147483647",
+      "result": "pass",
+      "evidence": {
+        "readable": true,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "index size=-2147483648",
+      "result": "pass",
+      "evidence": {
+        "readable": true,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "index size=2147483648",
+      "result": "pass",
+      "evidence": {
+        "readable": false,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "index size=-2147483649",
+      "result": "pass",
+      "evidence": {
+        "readable": false,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "index chapter_count=2147483647",
+      "result": "pass",
+      "evidence": {
+        "readable": true,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "index chapter_count=-2147483648",
+      "result": "pass",
+      "evidence": {
+        "readable": true,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "index chapter_count=2147483648",
+      "result": "pass",
+      "evidence": {
+        "readable": false,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "index chapter_count=-2147483649",
+      "result": "pass",
+      "evidence": {
+        "readable": false,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "index import_version=2147483647",
+      "result": "pass",
+      "evidence": {
+        "readable": true,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "index import_version=-2147483648",
+      "result": "pass",
+      "evidence": {
+        "readable": true,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "index import_version=2147483648",
+      "result": "pass",
+      "evidence": {
+        "readable": false,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "index import_version=-2147483649",
+      "result": "pass",
+      "evidence": {
+        "readable": false,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "index created_at=2147483647",
+      "result": "pass",
+      "evidence": {
+        "readable": true,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "index created_at=-2147483648",
+      "result": "pass",
+      "evidence": {
+        "readable": true,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "index created_at=2147483648",
+      "result": "pass",
+      "evidence": {
+        "readable": false,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "index created_at=-2147483649",
+      "result": "pass",
+      "evidence": {
+        "readable": false,
+        "unchanged": true
+      }
+    },
+    {
+      "case": "unknown record value 4.5",
+      "result": "pass"
+    },
+    {
+      "case": "unknown record value 1e2",
+      "result": "pass"
+    },
+    {
+      "case": "unknown record value {\"extra\": 1}",
+      "result": "pass"
+    },
+    {
+      "case": "unknown record value [1, 2]",
+      "result": "pass"
+    },
+    {
+      "case": "valid removed record",
+      "result": "pass",
+      "evidence": {
+        "outcome": {
+          "ok": true,
+          "message": ""
+        },
+        "files_unchanged": false,
+        "before_size": 58,
+        "after_size": 58,
+        "library_readable": true
+      }
+    },
+    {
+      "case": "removed record i32 maximum",
+      "result": "pass",
+      "evidence": {
+        "outcome": {
+          "ok": true,
+          "message": ""
+        },
+        "files_unchanged": false,
+        "before_size": 2147483647,
+        "after_size": 2147483647,
+        "library_readable": true
+      }
+    },
+    {
+      "case": "removed record overflow",
+      "result": "fail",
+      "evidence": {
+        "outcome": {
+          "ok": true,
+          "message": ""
+        },
+        "files_unchanged": false,
+        "before_size": 2147483648,
+        "after_size": -2147483648,
+        "library_readable": true
+      }
+    },
+    {
+      "case": "removed record fraction",
+      "result": "fail",
+      "evidence": {
+        "outcome": {
+          "ok": true,
+          "message": ""
+        },
+        "files_unchanged": false,
+        "before_size": 1.5,
+        "after_size": 1.5,
+        "library_readable": false
+      }
+    }
+  ],
+  "book_id": "18dc4aec-249b-4c3a-80cb-a28e38757334"
+}
