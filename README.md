@@ -47,13 +47,14 @@ auto run -r vm --server=vm
 对单文件编译失败曾退出 0——CLI 缺陷已登记，脚本规格以日志 `fails=0` 与
 退出码双重判据）。
 
-2026-10-08 Phase 6 修复恢复消费者准入（F-18）：移除日志行在解析/改写前过
-`jsonx.valid_removed_entry` 准入、身份核对与发布前 `valid_index` 候选验证；
-r6 驱动 24 项转全 PASS，越界/小数恢复在改写前拒绝且全部既有字节不变。
-混排视口恢复（F-12/T-25，等待 auto-lang child-anchor 前置）、10MiB 成功导入
-与原生 VM 恢复（T-26 前置）仍为具名未验收。完整事实见
-[复审报告](docs/reviews/reader-001-r6-20261007.md)与计划 §9，不能将上表
-已过回归等同于全计划通过。
+2026-10-08 Phase 6 修复恢复消费者准入（F-18）并通过 T-31 独立终审确认（14 项独立
+新向量 + r6 驱动 24 项全 PASS）：移除日志行在解析/改写前过
+`jsonx.valid_removed_entry` 准入、身份核对与发布前 `valid_index` 候选验证。
+计划终审裁决=blocked（保持 executing）：混排视口恢复（F-12/T-25，等待
+auto-lang child-anchor 前置）、10MiB 成功导入与原生 VM 恢复（T-26 前置）
+仍为具名跨仓框架前置，等待用户授权/移交决策。完整事实见
+[复审报告](docs/reviews/reader-001-r6-20261007.md)、[r7 终审报告](docs/reviews/reader-001-r7-20261008.md)
+与计划 §9，不能将上表已过回归等同于全计划通过。
 
 ## 来源与组合
 

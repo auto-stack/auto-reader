@@ -7,7 +7,7 @@ author: [Codex]
 created_at: 2026-10-04T00:00:00Z
 updated_at: 2026-10-08T00:00:00Z
 plan_revision: 7
-current_step: 15
+current_step: 16
 total_steps: 32
 created: 2026-10-04
 base_branch: v0.6-dev
@@ -21,6 +21,8 @@ touched_goals: ["auto-reader/first-real-release"]
 # READER-001：真实导入、书库存储与位置恢复
 
 ## 0. 变更摘要
+
+r7 T-31 独立最终复审已完成（2026-10-08）：裁决=**blocked（具名框架前置未满足），保持 executing/r7**。F-18 修复经 14 项独立新向量确认闭合（信封/record 准入、fail-closed 多行、i32 边界、未知键），F-17 对账核实与提交源一致，主索引零回归；AC-04/05 经终审勾选。required 缺项=F-12 混排（T-25，auto-lang child-anchor 前置）、10MiB 成功导入（T-26，预算/分片接口前置）、原生 VM 验收（T-26，窗口交互入口前置）——均跨仓框架前置，app 内无可修对象；后续路径（授权框架前置计划落地，或用户显式决定目标移交/降范围）待用户决策。详见 [r7 复审报告](../reviews/reader-001-r7-20261008.md)。
 
 r7 Phase 6 work 已执行（2026-10-08）：F-18 修复落地——restore_book 在首次 json.parse 及任何改写前对 removed.jsonl 每行执行 jsonx.valid_removed_entry 准入（外层结构/必需键/removed_at i32 界限 + record 复用主索引 valid_record 同一规则）、内层身份核对、发布前 valid_index 候选验证；fail-closed（任一行非法整体拒恢复，全部既有字节不变）。jsonx 重复 span_is_int 合并为单一定义。永久覆盖：t06 新增 S13 恢复准入 35 项（负例/边界/未知键/字节保持）、jsonx 新增 t_valid_removed_entry 单测；r6 驱动 24 项转全 PASS（修复前实测 22 过/2 败 exit1 = F-18 复现与失败传播证据）。全量回归 exit0：auto test 6/6、规格 34+38+26+14+23+91=226 检查、HTTP 39+26+12、r2~r6=8/12/8/5/24、UI real-book 10+1fixme、smoke 10/10、冷启动 5 书逐字 + 3 读态 hash 一致。T-25/26 框架前置继续具名未完成，保持 executing 交 T-31 独立终审。
 
@@ -126,7 +128,7 @@ r7 work 基线（2026-10-08）：入口=同树 v0.6-dev @ 1b9030f（r6 记账后
 - [ ] T-21: owner_stage=work；完整回归与未验收门对账（AC-01~05），依赖T-17~20。逐一重跑auto test、t01~06真正日志/退出码、HTTP、r2/r3/r4驱动、real-book/smoke、合法存储冷启动；确认旧驱动缺参400并非语义校验证据。每个入口验证有效/无效对照和失败传播、状态/资产字节变化；精准列PASS/FAIL/SKIP。双轨记录真实恢复，VM启动不可替代交互；10MiB成功导入保持原目标，列出有界前置设计及真正未验收状态，禁止全计划pass或delivered归档。README测试矩阵和SD-11~15候选同步实际结果；旧任务只在对应不变量真过后重勾。 r5独立复审：相关目标未完整通过，继续未完成；具体阻断/已有通过证据见闭合表和报告。
 - [ ] T-22: owner_stage=review；独立最终复审（全AC与SD-11~15），依赖已提交work结果和实际门证据。暂停实现写入，在同一检出检查当前全SHA/依赖/Spec hash，独立挑选上表路径反例，不信实现会话pass。所有required实现/复审目标通过才reviewed；有缺项即needs_fix/blocked并保持对应未验收。只在明确获准phase范围时作phase裁决，不能自设局部pass代替整体；无split角色指定，普通独立review为final。merge后续实际closeout单独留回执，不能把产品正确性移给merge。
 
-执行顺序：Phase 6 T-29→T-30→T-31；T-25/26框架前置具名等待且保持未完成。T-29/T-30已完成（2026-10-08，证据见§9），T-31待独立终审。完成数只由本节唯一复选列表计算，历史进度见冻结材料。
+执行顺序：Phase 6 T-29→T-30→T-31 全部完成（2026-10-08）；T-25/26框架前置具名等待且保持未完成。T-31裁决=blocked保持executing（见§9/§8）。完成数只由本节唯一复选列表计算（16/32），历史进度见冻结材料。
 
 #### Phase 5：保留主索引修复，剩余前置与共享路径继续开启
 
@@ -141,7 +143,7 @@ r7 work 基线（2026-10-08）：入口=同树 v0.6-dev @ 1b9030f（r6 记账后
 
 - [x] T-29: owner_stage=work；修复F-18（AC-04/05），范围src/back/library.at restore_book、jsonx.at共享record校验、tests/review/reader001_r6_repro.py及t06/HTTP。依赖已修主索引准入；先界定removed.jsonl外层/选中record的形状、必需键、身份、类型/整数范围，在第一次json.parse/typed绑定及备份/索引/移除日志写入前执行准入，复用主索引同一规则；最终候选发布前也验证，防消费者遗漏。原始日志记录不能先强转后校验。合法恢复及i32最大/最小边界、未知合法值通过；size=1.5、2147483648、负越界等失败，主库/备份/暂存/移除日志/已有资产逐字不变。永久化本轮两反例，r6驱动24项须全PASS、真实失败控制非零；主索引四键规则不回归。重复span_is_int定义可合并为既有单一函数，不将其冒称已观察编译失败。 已完成 2026-10-08：jsonx.valid_removed_entry（外层book_id str/removed_at 整数i32界限/record 对象 + valid_record 同规则）先行于每行 json.parse；fail-closed 任一行非法整体拒恢复；内层身份核对（record.book_id==请求）；发布前 valid_index 候选验证先于任何写入。jsonx 重复 span_is_int 已合并（2→1 处定义，两处本完全相同）。红相证据：修复前 r6 驱动 22 过/2 败 exit1（overflow→size 变 -2147483648；fraction→1.5 写入主库不可读，均 ok=true 且文件改写），修复后 24/24 exit0。永久覆盖：t06 新增 S13=35 检查（size 1.5/2147483648/-2147483649、chapter_count 2147483648、created_at 1.5、外层缺record/record非对象/book_id数字、内层身份换绑——全部拒绝且主库/备份/暂存/日志/资产字节不变；未知合法键信封层+record层通过并清日志；i32 最小/最大边界无损恢复+读回）；jsonx 新增 t_valid_removed_entry 单测（18 断言，含键序无关/i32 双界/结构非法/未知键容忍）。注意：restore 路径 HTTP 面由 r6 驱动在真实存储输入上验证；候选验证负向不可从外部触发（防御纵深），如实登记。 已完成证据与全量回归见 §9 r7 work 回执。
 - [x] T-30: owner_stage=work；闭合F-17证据与Spec候选（全AC，SD-16~19），依赖T-29以及T-25/26各自实际状态。精确指出每个新病例的已提交来源、入口、次数、oracle、失败传播和副作用；不再声称不存在的单测+5或t06新增范围覆盖。先前13/29和新计数只依唯一列表；work回执留§9，当前闭合表/AC与最新证据一致。顺序在隔离实例回归auto test、规格实际日志/HTTP、r2~r6、UI，写入型探针不与UI并行；规范候选与源/工具/依赖/delta全hash冻结。required门未过保留executing/具名blocker，不能发布canonical/ledger或自审pass。所有required结果到齐才勾完整交接任务。 已完成 2026-10-08：全部回归顺序执行且exit0（次序=红相r6复现→修复→单测/规格→绿相r6→r2~r5→HTTP t01/t02/t04各自全新实例→UI全新实例顺序real-book→smoke→冷启动），计数以唯一列表 15/32；新病例来源=本次提交diff（jsonx.at valid_removed_entry+t_valid_removed_entry、library.at restore_book、t06 S13），无未提交声明；T-25/26真实状态=具名blocked保持未验收；SD-16~19候选与hash冻结见§9；canonical/ledger未动。详见§9 r7 work回执（含作废轮与N-2劣化边界登记）。
-- [ ] T-31: owner_stage=review；独立最终复审（全AC、SD-11~19），依赖T-29/30及仍未完成的T-25/26真实交付。暂停实现写入，在同一树固定全SHA/依赖/Spec候选，独立选择主索引/移除记录/最终发布、合法/非法及失败副作用对照；核实混排/10MiB/原生VM行为门。所有required门真过才reviewed→merge；缺项needs_fix或具名blocked且保持executing，不自动按phase授予全计划pass。
+- [x] T-31: owner_stage=review；独立最终复审（全AC、SD-11~19），依赖T-29/30及仍未完成的T-25/26真实交付。暂停实现写入，在同一树固定全SHA/依赖/Spec候选，独立选择主索引/移除记录/最终发布、合法/非法及失败副作用对照；核实混排/10MiB/原生VM行为门。所有required门真过才reviewed→merge；缺项needs_fix或具名blocked且保持executing，不自动按phase授予全计划pass。 已执行 2026-10-08：终审完成，裁决=**blocked（具名前置未满足）保持executing**——F-18闭合经14项独立新向量确认、F-17对账核实、零回归；required缺项=F-12混排（auto-lang child-anchor前置）、10MiB成功导入（预算/分片接口前置）、原生VM验收（窗口交互入口前置），均跨仓框架前置、app内无可修对象。证据：[r7复审报告](../reviews/reader-001-r7-20261008.md)、tests/review/reader001_r7_repro.py、§9记录。
 
 ## 6. 测试设计
 
@@ -167,18 +169,29 @@ AC的owner_stage=work（实现与证据），T-22负责独立裁决。以下勾�
 - [x] AC-01: 两份中文真实文件可导入且逐字核对，新增书不再生成占位章节。本轮t01/t03/t05与HTTP/原反例代表性成功路径通过。
 - [ ] AC-02: 重启后书与原文件仍在、恢复同段落；同标题不同原文件不互相覆盖。内容锚点/emoji主体与隔离通过，F-13/14本轮已过；F-12混排视口仍具名未验收（T-25框架前置等待），规范态实际冷启动与原生VM目标可见未验收（T-31复核）。
 - [x] AC-03: 同hash重复导入有明确选择；异常中断不留下成功却缺原文件的记录。本轮t01/t05/t06/r2代表性去重/force/副本/中断通过。
-- [ ] AC-04: 无法解码/损坏/不可写给错误且不损坏已有书库。既有编码/备份/列表形状保护通过，F-14和主索引F-15/16已过；恢复消费者F-18已由Phase 6闭合（restore准入先于解析与改写、身份核对、发布前候选验证；r6两反例及负越界/换绑/结构负例转PASS且字节不变）。独立确认待T-31。
-- [ ] AC-05: 书目移除可恢复，默认不删除用户原路径文件；迁移前有备份。正常移除/恢复/备份与旧版本拒绝路径通过；F-18坏移除记录恢复已由Phase 6闭合（拒恢复且全部既有字节不变）。10MiB成功导入与原生窗口门仍不在此AC覆盖内且未验收。独立确认待T-31。
+- [x] AC-04: 无法解码/损坏/不可写给错误且不损坏已有书库。既有编码/备份/列表形状保护通过，F-14和主索引F-15/16已过；恢复消费者F-18已由Phase 6闭合并经r7终审14项独立新向量确认（restore准入先于解析与改写、身份核对、发布前候选验证；越界/小数/指数/null/缺字段/换绑/结构负例拒绝且字节不变）。10MiB 错误保护单列，成功导入门在 AC-01 侧未验收。
+- [x] AC-05: 书目移除可恢复，默认不删除用户原路径文件；迁移前有备份。正常移除/恢复/备份与旧版本拒绝路径通过；F-18坏移除记录恢复已闭合并经终审独立确认（含fail-closed多行策略、i32边界无损、兄弟行逐字保留）。10MiB成功导入与原生窗口门不在此AC覆盖内且未验收。
 
 ## 8. 执行步骤与交接
 
-next=review（T-31）。Phase 6 work 已完成并提交：F-18 恢复消费者准入修复 + 证据对账（T-29/30，见 §9 回执）。T-25/26 框架前置继续具名未完成，因此保持 executing、不设 execution_done；required 缺项的 disposition 由 T-31 裁量。T-10/22/28/31 为同一整体验收历史/现行ID，不得由work先勾。缺少前置时保持executing且说明负责仓/接口/下一步，不用提案完成冒充产品通过。
+r7 终审裁决（T-31，2026-10-08）= **blocked，保持 executing**。Phase 6 work（T-29/30）与终审（T-31）已完成并提交；F-18/F-17 闭合经独立确认。剩余全部为具名跨仓框架前置，app 内无可修对象：F-12 混排（T-25，等待 auto-lang child-anchor scroll intent 计划）、10MiB 成功导入（T-26，等待预算可配/分片接口）、原生 VM 验收（T-26，等待原生窗口交互入口）。next=用户决策：a) 授权 auto-lang 框架前置计划并落地后重开对应任务；b) 显式决定目标移交后续计划/降范围。在用户决策前本计划无 further work。T-10/22/28 为同一整体验收历史ID。
 
 final pass才reviewed；之后merge才能发布候选规范/ledger、归档并做实际closeout。混排、成功10MiB、原生VM仍是实现门。当前没有新归档或知识发布授权的替代通道，不在review修产品。
 
 同树v0.6-dev按AGENTS §2.1提交推送app，再只更新父仓本app gitlink、保留其他WIP，完成detach。框架变更另由其仓授权与计划，不从app越界修改。
 
 ## 9. 复审记录
+
+### 2026-10-08 r7 T-31 独立最终复审（唯一最新裁决）
+
+- stage: review | review_scope: final | reviewer_identity/limitations: 本聊天独立复审上下文（与实现同会话，无另一会话/agent 可用，沿 r3/r5 先例）；独立性以工件重建——独立新向量、固定 hash 核对、关键门在被审基线重跑，不采信实现勾选；模型/session 未暴露；原生 VM 窗口未操作 | plan_id: READER-001 | reviewed_plan_revision: 7 | current_plan_revision: 7 | outcome: **blocked（具名框架前置未满足）**
+- worktree_path: D:/autostack/auto-os/apps/018-book-reader | branch: 复审时 detached @ d991046、工作树干净（记录与工件后续提交至 v0.6-dev） | reviewed_commit: d991046（产品内容=实现 6651740 + 记账 d991046） | base_commit: 1b9030f | dependency_revisions: auto CLI 0.1.0+v0.4.2-2785-ga6e108f60，exe SHA256=0B8F5D7BCCB41F4D0E02687D8DFF7A83F8E31E192A061C9E663918C7A60A71BF（实测复核零漂移）
+- spec_inputs: SD-16~19 候选块 SHA256=71AC2A24F83294705DF3F4AB2D10D072A5E0EC93B150AFE7C0314D237EA2A726；源码 hash 与 work 回执逐一相符（jsonx=A18BE87E…、library=F947BF3E…、reading=F0731F26… 未改、t06=03C97A16…）；canonical docs/specs/reader/real-library.md 零触碰；diff 1b9030f..d991046 恰为申报 5 文件，tests/review/ 零改动。完整基线/向量/更正记录见 [r7 复审报告](../reviews/reader-001-r7-20261008.md)
+- acceptance_results: AC-01 代表性 pass（10MiB required 门未过）；AC-02 fail（F-12 混排具名前置 + 原生 VM 未验收）；AC-03 pass；AC-04 pass（终审勾选）；AC-05 pass（终审勾选；10MiB/原生窗口门不在其覆盖）
+- findings: 无产品缺陷。F-18 闭合确认（14 项独立新向量全过：信封 removed_at 越界/字符串、重复键、尾随内容；record 指数/null/缺字段/数字标题；fail-closed 多行策略；i32 最小 HTTP 无损；未知键双层；重复恢复语义）；F-17 对账确认（声明与提交源逐一对应：jsonx 单测 3/t06 91=56+35/r6 驱动零改动/r7 探针 14 为本报告提交源）；主索引与既有回归零回归。required 缺项=①F-12 混排（T-25，auto-lang child-anchor 前置）②10MiB 成功导入（T-26，预算/分片接口前置）③原生 VM 验收（T-26，窗口交互入口前置）——跨仓框架前置，app 内无可修对象。
+- evidence（被审基线实际重跑）: auto test 6/6 exit0；t06 91 PASS/0 FAIL exit0（f18=35 与申报一致）；r6 驱动 24/24 exit0（真实存储输入 HTTP 面）；r7 独立探针 14/14 exit0（tests/review/reader001_r7_repro.py，空库身份先验证的隔离实例 reader001-review-r7-final-20261008）。auto test/t01~t05/HTTP/UI/冷启动复用 work 轮证据（复用理由=本基线 hash 与 CLI 与 work 轮完全一致、代码/依赖/验证配置零变化）。探针初版 7 项失败全部为探针自身向量构造缺陷（json.dumps 分隔符空转/切片误并），已更正并如实登记（沿 N-3/N-6 先例）；空转轮反证合法行恢复成功路径。
+- pending_closeout_gates: required 缺项不迁移 merge；终审后路径=用户对框架前置授权/目标移交的显式决策，决策前无 further work
+- next: 用户决策（a 授权 auto-lang 框架前置计划落地后重开 T-25/26 及依赖链；b 显式决定 F-12/10MiB/原生VM 目标移交后续计划或降范围）。决策前计划保持 executing/r7、16/32。
 
 ### 2026-10-08 Phase 6 work 收尾（r7，交接 T-31 独立最终复审）
 
@@ -414,3 +427,5 @@ final pass才reviewed；之后merge才能发布候选规范/ledger、归档并�
 4. 已登记运行时/框架边界（a2r默认后端、HTTP/路径/测试装置/时间等）原文见冻结r4及canonical Spec；仅作实际能力知识，不自动取消本计划承诺。未来实现以当次CLI/框架探针更新证据。
 
 当前next=work。详细债务、来源和原回执保留于§9及[冻结r4](../reviews/reader001-r4-plan-frozen.md)，不再保留竞争的“latest/pass/待审”指令。
+
+5. r7 终审后的用户决策点（2026-10-08 登记）：F-12 混排、10MiB 成功导入、原生 VM 验收三项 required 缺项均系跨仓框架前置（owner=auto-lang 对应计划/原生窗口驱动能力），app 内无可修对象。等待用户：a) 授权 auto-lang 框架前置计划（child-anchor scroll intent、预算可配/分片导入、原生窗口交互入口）并落地后重开 T-25/26 及依赖链；或 b) 显式决定将对应目标移交后续计划/调整范围。两项均须用户明确授权，实现/复审不得自行降标。
