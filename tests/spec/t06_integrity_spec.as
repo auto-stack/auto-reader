@@ -34,6 +34,48 @@ fn check(cond bool, name str) {
     }
 }
 
+/// S13 助手：把 record 中 "size":N 的字面量替换为给定文本（首个 "size" 唯一）。
+fn size_replaced(rj str, v str) str {
+    let key str = "\"size\":"
+    let k int = rj.find(key)
+    let head str = rj.substr(0, k + key.len())
+    var e int = k + key.len()
+    while e < rj.len() {
+        if rj.substr(e, 1) == "," {
+            break
+        }
+        e = e + 1
+    }
+    let tail str = rj.substr(e, rj.len() - e)
+    return head + v + tail
+}
+
+/// S13 助手：把 record 中首个 "key":"old" 的值替换为 v（用于内层身份不一致）。
+fn first_str_replaced(rj str, key str, v str) str {
+    let pat str = "\"" + key + "\":\""
+    let k int = rj.find(pat)
+    let head str = rj.substr(0, k + pat.len())
+    var e int = k + pat.len()
+    while e < rj.len() {
+        if rj.substr(e, 1) == "\"" {
+            break
+        }
+        e = e + 1
+    }
+    let tail str = rj.substr(e, rj.len() - e)
+    return head + v + tail
+}
+
+/// S13 助手：构造 remove_book 同构的移除日志行。
+fn removed_envelope(bid str, rj str) str {
+    var out str = "{\"book_id\":\""
+    out = out + bid
+    out = out + "\",\"removed_at\":0,\"record\":"
+    out = out + rj
+    out = out + "}"
+    return out
+}
+
 fn main() {
     let lp0 str = log_path()
     file.write_text(lp0, "SPEC t06 start\n")
@@ -244,6 +286,118 @@ fn main() {
     // ═══ S12 暂存物与提交内容一致（暂存校验证据） ═══
     let tmpfile str = libfile + ".tmp"
     check(fs.read_text(tmpfile) == fs.read_text(libfile), "staged tmp matches committed index")
+
+    // ═══ S13 F-18：恢复消费者准入——移除日志不是可信输入（Phase 6 T-29） ═══
+    // 真实移除生成日志行，改写 record/外层后恢复：非法（小数/越界/结构坏/
+    // 身份换绑）一律拒绝且主库/备份/暂存/移除日志/受管资产逐字不变；
+    // 合法恢复、i32 最大/最小边界与未知合法键保持成功且无损。
+    let dir13 str = fs.join(t, "t06-spec-" + uid + "-f18")
+    Env.set("AUTO_READER_DATA", dir13)
+    mkdirs(dir13)
+    let s13 str = join(dir13, "f18.txt")
+    fs.write_text(s13, "第一章 恢复准入\n准入正文。\n")
+    let o13 = json.parse(import_book_json(s13, "", false))
+    check(o13.code == "ok", "f18 setup import ok")
+    let bid13 str = "" + o13.book_id
+    let rj13 str = book_json(bid13)
+    let rec13 = json.parse(rj13)
+    let mp13 str = "" + rec13.managed_path
+    let asset13 str = fs.read_text(mp13)
+    check(remove_book(bid13) == "", "f18 real remove ok")
+    let rem13 str = join(dir13, "removed.jsonl")
+    let lib13 str = join(dir13, "library.json")
+    let log13 str = fs.read_text(rem13)
+    let lib13b str = fs.read_text(lib13)
+    let bak13b str = fs.read_text(lib13 + ".bak")
+    let tmp13b str = fs.read_text(lib13 + ".tmp")
+    check(log13 == removed_envelope(bid13, rj13) + "\n", "f18 log line is verbatim envelope")
+    // 负例：record.size 小数——拒绝且全部既有字节不变（r6 反例永久化）
+    let bad15 str = removed_envelope(bid13, size_replaced(rj13, "1.5"))
+    fs.write_text(rem13, bad15)
+    check(restore_book(bid13) != "", "f18 size 1.5 restore rejected")
+    check(fs.read_text(lib13) == lib13b, "f18 size 1.5 library unchanged")
+    check(fs.read_text(rem13) == bad15, "f18 size 1.5 log unchanged")
+    check(fs.read_text(lib13 + ".bak") == bak13b, "f18 size 1.5 backup unchanged")
+    check(fs.read_text(lib13 + ".tmp") == tmp13b, "f18 size 1.5 staging unchanged")
+    check(fs.read_text(mp13) == asset13, "f18 size 1.5 asset unchanged")
+    // 负例：record.size 正越界（r6 反例永久化）
+    let badup str = removed_envelope(bid13, size_replaced(rj13, "2147483648"))
+    fs.write_text(rem13, badup)
+    check(restore_book(bid13) != "", "f18 size 2147483648 restore rejected")
+    check(fs.read_text(lib13) == lib13b, "f18 size 2147483648 library unchanged")
+    check(fs.read_text(rem13) == badup, "f18 size 2147483648 log unchanged")
+    // 负例：record.size 负越界
+    let baddn str = removed_envelope(bid13, size_replaced(rj13, "-2147483649"))
+    fs.write_text(rem13, baddn)
+    check(restore_book(bid13) != "", "f18 size -2147483649 restore rejected")
+    check(fs.read_text(lib13) == lib13b && fs.read_text(rem13) == baddn, "f18 size -2147483649 bytes unchanged")
+    // 负例：其他整数键共享同一规则（chapter_count 正越界 / created_at 小数）
+    let ccpos int = rj13.find("\"chapter_count\":")
+    let cchead str = rj13.substr(0, ccpos + 16)
+    var cce int = ccpos + 16
+    while cce < rj13.len() {
+        if rj13.substr(cce, 1) == "," {
+            break
+        }
+        cce = cce + 1
+    }
+    let badcc2 str = removed_envelope(bid13, cchead + "2147483648" + rj13.substr(cce, rj13.len() - cce))
+    fs.write_text(rem13, badcc2)
+    check(restore_book(bid13) != "", "f18 chapter_count 2147483648 restore rejected")
+    check(fs.read_text(lib13) == lib13b && fs.read_text(rem13) == badcc2, "f18 chapter_count overflow bytes unchanged")
+    let capos int = rj13.find("\"created_at\":")
+    let cahead str = rj13.substr(0, capos + 13)
+    var cae int = capos + 13
+    while cae < rj13.len() {
+        if rj13.substr(cae, 1) == "}" {
+            break
+        }
+        cae = cae + 1
+    }
+    let badca2 str = removed_envelope(bid13, cahead + "1.5" + rj13.substr(cae, rj13.len() - cae))
+    fs.write_text(rem13, badca2)
+    check(restore_book(bid13) != "", "f18 created_at 1.5 restore rejected")
+    check(fs.read_text(lib13) == lib13b && fs.read_text(rem13) == badca2, "f18 created_at fraction bytes unchanged")
+    // 负例：外层结构坏（缺 record / record 非对象 / book_id 数字）
+    fs.write_text(rem13, "{\"book_id\":\"" + bid13 + "\",\"removed_at\":0}")
+    check(restore_book(bid13) != "", "f18 envelope missing record rejected")
+    check(fs.read_text(lib13) == lib13b, "f18 envelope missing record library unchanged")
+    fs.write_text(rem13, "{\"book_id\":\"" + bid13 + "\",\"removed_at\":0,\"record\":\"x\"}")
+    check(restore_book(bid13) != "", "f18 envelope record non-object rejected")
+    fs.write_text(rem13, "{\"book_id\":5,\"removed_at\":0,\"record\":" + rj13 + "}")
+    check(restore_book(bid13) != "", "f18 envelope book_id number rejected")
+    // 负例：内层身份换绑（外层对齐请求、record 指向他书）
+    let recx str = first_str_replaced(rj13, "book_id", "t06-f18-other")
+    fs.write_text(rem13, removed_envelope(bid13, recx))
+    check(restore_book(bid13) != "", "f18 inner identity mismatch rejected")
+    check(fs.read_text(lib13) == lib13b && fs.read_text(rem13) == removed_envelope(bid13, recx), "f18 identity mismatch bytes unchanged")
+    // 正例：未知合法键容忍（信封层 + record 层）
+    let rju str = rj13.substr(0, rj13.len() - 1) + ",\"rating\":4.5}"
+    fs.write_text(rem13, "{\"book_id\":\"" + bid13 + "\",\"removed_at\":0,\"note\":{\"k\":[1,2]},\"record\":" + rju + "}")
+    check(restore_book(bid13) == "", "f18 unknown legal keys restore ok")
+    check(book_json(bid13) != "", "f18 unknown legal keys book restored")
+    check(fs.read_text(rem13) == "", "f18 unknown legal keys log cleared")
+    // 正例：i32 最小/最大边界无损恢复
+    check(remove_book(bid13) == "", "f18 re-remove for min boundary")
+    fs.write_text(rem13, removed_envelope(bid13, size_replaced(rj13, "-2147483648")))
+    check(restore_book(bid13) == "", "f18 i32 minimum restore ok")
+    let rmin_raw str = book_json(bid13)
+    let rmin = json.parse(rmin_raw)
+    let nmin int = rmin.size
+    // 注意：源码字面量 -2147483648 受 i32 词法 wrap（2147483648 先 wrap 成
+    // -2147483648 再取负）不能用于比较 i32 最小值——用计算式（探针实测）。
+    let min_ref int = 0 - 2147483647 - 1
+    check(nmin == min_ref, "f18 i32 minimum lossless")
+    check(remove_book(bid13) == "", "f18 re-remove for max boundary")
+    fs.write_text(rem13, removed_envelope(bid13, size_replaced(rj13, "2147483647")))
+    check(restore_book(bid13) == "", "f18 i32 maximum restore ok")
+    let rmax_raw str = book_json(bid13)
+    let rmax = json.parse(rmax_raw)
+    let nmax int = rmax.size
+    check(nmax == 2147483647, "f18 i32 maximum lossless")
+    check(fs.read_text(rem13) == "", "f18 i32 maximum log cleared")
+    let c13 str = json.parse(chapter_json(bid13, 1))
+    check(c13.body == "准入正文。", "f18 restored chapters verbatim")
 
     log("SPEC t06 done fails=" + fails.to_string())
     if fails > 0 {

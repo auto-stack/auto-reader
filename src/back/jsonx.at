@@ -428,20 +428,6 @@ fn state_key_kind(key str) str {
     return "str"
 }
 
-/// 数字字面量是否为纯整数形态（无小数/指数）。span 已由 scan_number_end 保证合法。
-fn span_is_int(span str) bool {
-    if span.find(".") >= 0 {
-        return false
-    }
-    if span.find("e") >= 0 {
-        return false
-    }
-    if span.find("E") >= 0 {
-        return false
-    }
-    return true
-}
-
 /// ReadingState 词法校验（F-09 落地面）。规则：
 ///   顶层必须是对象；已知键不得重复；类型必须精确（int 键必须是整数字面量，
 ///   str 键必须是引号串——数字串冒充整数拒绝）；未知键容忍；结构非法/
@@ -903,6 +889,115 @@ fn valid_record(t str, start int, end int) str {
     return ""
 }
 
+/// removed.jsonl 单行条目词法校验（F-18 落地面）。规则：
+///   顶层必须是对象；已知键 book_id(str)/removed_at(整数)/record(对象)
+///   必需齐备、不得重复；removed_at 走 i32 词法界限（与主索引四键同一
+///   span_is_i32 口径）；record 区间交由 valid_record——与主索引完全
+///   同一记录规则（必需字段/类型精确/i32 界限/已知键重复拒绝）；未知键
+///   容忍；结构非法/尾随内容拒绝。错误返回非空消息；"" = 结构合法。
+/// 调用方（library.restore_book）必须在首次 json.parse 及任何
+/// 备份/索引/移除日志改写之前执行本门——移除日志是外来持久化输入，
+/// 不得先强转后校验。
+pub fn valid_removed_entry(raw str) str {
+    let t str = raw.trim()
+    var i int = skip_ws(t, 0)
+    if i >= t.len() || t.substr(i, 1) != "{" {
+        return "removed entry must be a JSON object"
+    }
+    i = skip_ws(t, i + 1)
+    var seen_id int = 0
+    var seen_at int = 0
+    var seen_rec int = 0
+    var rec_start int = -1
+    var rec_end int = -1
+    var guard int = 0
+    while i < t.len() {
+        if guard > 4096 {
+            return "removed entry object too large"
+        }
+        guard = guard + 1
+        if t.substr(i, 1) == "}" {
+            i = skip_ws(t, i + 1)
+            if i != t.len() {
+                return "removed entry has trailing content"
+            }
+            if seen_id == 0 {
+                return "removed entry missing book_id"
+            }
+            if seen_at == 0 {
+                return "removed entry missing removed_at"
+            }
+            if seen_rec == 0 {
+                return "removed entry missing record"
+            }
+            return valid_record(t, rec_start, rec_end)
+        }
+        if t.substr(i, 1) == "," {
+            i = skip_ws(t, i + 1)
+            if i < t.len() {
+                if t.substr(i, 1) == "}" {
+                    return "removed entry unexpected trailing comma"
+                }
+            }
+            continue
+        }
+        if t.substr(i, 1) != "\"" {
+            return "removed entry expected property name"
+        }
+        let ke int = scan_string_end(t, i)
+        if ke < 0 {
+            return "removed entry bad property name"
+        }
+        let key str = unquote(t.substr(i, ke - i))
+        i = skip_ws(t, ke)
+        if i >= t.len() || t.substr(i, 1) != ":" {
+            return "removed entry expected colon"
+        }
+        i = skip_ws(t, i + 1)
+        let ve int = scan_value_end(t, i, 0)
+        if ve < 0 {
+            return "removed entry bad value"
+        }
+        if key == "book_id" {
+            if seen_id == 1 {
+                return "removed entry duplicate key: book_id"
+            }
+            seen_id = 1
+            if value_kind(t, i) != "str" {
+                return "removed entry book_id must be a string"
+            }
+        } else {
+            if key == "removed_at" {
+                if seen_at == 1 {
+                    return "removed entry duplicate key: removed_at"
+                }
+                seen_at = 1
+                if value_kind(t, i) != "num" {
+                    return "removed entry removed_at must be a number"
+                }
+                let span str = t.substr(i, ve - i)
+                if !span_is_i32(span) {
+                    return "removed entry removed_at out of i32 range"
+                }
+            } else {
+                if key == "record" {
+                    if seen_rec == 1 {
+                        return "removed entry duplicate key: record"
+                    }
+                    seen_rec = 1
+                    if value_kind(t, i) != "obj" {
+                        return "removed entry record must be an object"
+                    }
+                    rec_start = i
+                    rec_end = ve
+                }
+            }
+        }
+        i = skip_ws(t, ve)
+    }
+    return "removed entry object not closed"
+}
+
 // ---- 同模块单测（自包含零 use——测试装置兼容面） ----
 fn expect(cond bool) {
     if cond {
@@ -944,4 +1039,51 @@ fn t_valid_index() {
     expect(valid_index("{\"version\":1,\"books\":[{\"book_id\":\"a\",\"book_id\":\"b\"}]}") != "")
     expect(valid_index("{\"version\":1,\"books\":[\"x\"]}") != "")
     expect(valid_index("{\"version\":1,\"books\":[],\"extra\":{\"k\":1}}") == "")
+}
+
+#[test]
+fn t_valid_removed_entry() {
+    let rec str = "{\"book_id\":\"a\",\"source_hash\":\"ph1:1:1\",\"title\":\"t\",\"author\":\"a\",\"format\":\"txt\",\"original_path\":\"p\",\"managed_path\":\"m\",\"size\":3,\"chapter_count\":1,\"import_version\":1,\"created_at\":0}"
+    // 合法信封（record 在后）
+    expect(valid_removed_entry("{\"book_id\":\"a\",\"removed_at\":0,\"record\":" + rec + "}") == "")
+    // 合法信封（键序无关：record 在前）
+    expect(valid_removed_entry("{\"record\":" + rec + ",\"removed_at\":0,\"book_id\":\"a\"}") == "")
+    // 缺必需键
+    expect(valid_removed_entry("{\"removed_at\":0,\"record\":" + rec + "}") != "")
+    expect(valid_removed_entry("{\"book_id\":\"a\",\"record\":" + rec + "}") != "")
+    expect(valid_removed_entry("{\"book_id\":\"a\",\"removed_at\":0}") != "")
+    // 已知键类型精确
+    expect(valid_removed_entry("{\"book_id\":5,\"removed_at\":0,\"record\":" + rec + "}") != "")
+    expect(valid_removed_entry("{\"book_id\":\"a\",\"removed_at\":1.5,\"record\":" + rec + "}") != "")
+    expect(valid_removed_entry("{\"book_id\":\"a\",\"removed_at\":0,\"record\":\"x\"}") != "")
+    // record 复用主索引同一规则：小数/越界/类型错误/重复键一律拒绝
+    expect(valid_removed_entry("{\"book_id\":\"a\",\"removed_at\":0,\"record\":{\"book_id\":\"a\"}}") != "")
+    expect(valid_removed_entry("{\"book_id\":\"a\",\"removed_at\":0,\"record\":" + size_replaced(rec, "1.5") + "}") != "")
+    expect(valid_removed_entry("{\"book_id\":\"a\",\"removed_at\":0,\"record\":" + size_replaced(rec, "2147483648") + "}") != "")
+    expect(valid_removed_entry("{\"book_id\":\"a\",\"removed_at\":0,\"record\":" + size_replaced(rec, "-2147483649") + "}") != "")
+    // i32 上下边界合法
+    expect(valid_removed_entry("{\"book_id\":\"a\",\"removed_at\":0,\"record\":" + size_replaced(rec, "2147483647") + "}") == "")
+    expect(valid_removed_entry("{\"book_id\":\"a\",\"removed_at\":0,\"record\":" + size_replaced(rec, "-2147483648") + "}") == "")
+    // 结构非法
+    expect(valid_removed_entry("[]") != "")
+    expect(valid_removed_entry("{\"book_id\":\"a\",\"removed_at\":0,\"record\":" + rec + "} tail") != "")
+    expect(valid_removed_entry("{\"book_id\":\"a\",\"book_id\":\"b\",\"removed_at\":0,\"record\":" + rec + "}") != "")
+    // 未知键容忍（信封层与 record 层）
+    expect(valid_removed_entry("{\"book_id\":\"a\",\"removed_at\":0,\"note\":{\"k\":[1,2]},\"record\":" + size_replaced(rec, "3") + ",\"rating\":4.5}") == "")
+}
+
+/// 单测助手：把 record 中 "size":N 的值替换为给定字面量。
+fn size_replaced(rj str, v str) str {
+    let key str = "\"size\":"
+    let k int = rj.find(key)
+    let head str = rj.substr(0, k + key.len())
+    var e int = k + key.len()
+    while e < rj.len() {
+        if rj.substr(e, 1) == "," {
+            break
+        }
+        e = e + 1
+    }
+    let tail str = rj.substr(e, rj.len() - e)
+    return head + v + tail
 }

@@ -33,7 +33,7 @@
 
 use pathx: join, basename, stem_of, mkdirs, json_escape, normalize
 use hashx: ph1
-use jsonx: valid_index, valid_state
+use jsonx: valid_index, valid_state, valid_removed_entry
 use importers: parse_book_json, format_of
 
 fn empty_str() str {
@@ -1031,6 +1031,15 @@ pub fn remove_book(book_id str) str {
 
 /// 恢复指定书目（removed.jsonl 中取该 id 的记录重加入索引），成功后从
 /// removed.jsonl 剔除该行。返回 "" = 成功。
+/// F-18 修正：移除日志是外来持久化输入，不再被信任——每一行在首次
+/// json.parse 及任何备份/索引/移除日志改写之前先过词法准入
+/// （jsonx.valid_removed_entry：外层结构/必需键/类型 + record 与主索引
+/// valid_record 同一规则 + i32 词法界限；原始日志记录不得先强转后校验）。
+/// 任何行非法一律整体拒恢复（fail-closed：日志是恢复的唯一依据，损坏时
+/// 不做部分操作），主库/备份/暂存/移除日志/已有资产全部字节不变。
+/// 选中条目身份必须与请求一致（外层 book_id 已在扫描中对齐，内层
+/// record.book_id 显式核对）；最终索引候选发布前再以 valid_index 验证
+/// （防消费者遗漏）。合法恢复、i32 最大/最小边界与未知合法键保持成功。
 pub fn restore_book(book_id str) str {
     let rp str = removed_path()
     if !fs.exists(rp) {
@@ -1046,6 +1055,11 @@ pub fn restore_book(book_id str) str {
     while i < lines.len() {
         let line str = "" + lines[i]
         if line.trim() != "" {
+            // 准入先于解析：词法非法行在 json.parse 前整体拒绝
+            let verr str = valid_removed_entry(line)
+            if verr != "" {
+                return "removed log entry invalid: " + verr
+            }
             let e = json.parse(line)
             let ebid str = "" + e.book_id
             if ebid == book_id {
@@ -1059,7 +1073,11 @@ pub fn restore_book(book_id str) str {
     }
     let entry = json.parse(rec_json)
     let rec = entry.record
+    // 身份一致：内层 record 必须同指请求书目（防换绑）
     let v1 str = "" + rec.book_id
+    if v1 != book_id {
+        return "removed record identity mismatch"
+    }
     let v2 str = "" + rec.source_hash
     let v3 str = "" + rec.title
     let v4 str = "" + rec.author
@@ -1110,6 +1128,12 @@ pub fn restore_book(book_id str) str {
         payload = payload + rj
     }
     payload = payload + "]}"
+    // 最终候选发布前再验证（主索引同一结构门；typed 提取若有损在此拦截，
+    // 不落盘、不清日志）
+    let perr str = valid_index(payload)
+    if perr != "" {
+        return "restored index candidate invalid: " + perr
+    }
     let src int = write_library_file(payload)
     if src != 0 {
         return "library write failed rc=" + src.to_string()
