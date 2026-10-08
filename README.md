@@ -37,19 +37,22 @@ auto run -r vm --server=vm
 
 | 入口 | 命令 | 覆盖 |
 |---|---|---|
-| 模块单测 | `auto test` | hashx 1 + jsonx 2 + pathx 2 = 5（importers 另由脚本 t03 与 HTTP 覆盖） |
-| 后端规格（脚本） | `auto tests/spec/t01_library_spec.as`（34）/ `t02_reading_spec.as`（38）/ `t03_importers_spec.as`（26）/ `t04_library_spec.as`（14）/ `t05_collision_spec.as`（23）/ `t06_integrity_spec.as`（56） | 191 检查；读取 `%TEMP%/tNN-spec.log` 的 PASS/FAIL 与进程退出码 |
+| 模块单测 | `auto test` | hashx 1 + jsonx 3 + pathx 2 = 6（importers 另由脚本 t03 与 HTTP 覆盖） |
+| 后端规格（脚本） | `auto tests/spec/t01_library_spec.as`（34）/ `t02_reading_spec.as`（38）/ `t03_importers_spec.as`（26）/ `t04_library_spec.as`（14）/ `t05_collision_spec.as`（23）/ `t06_integrity_spec.as`（91） | 226 检查；读取 `%TEMP%/tNN-spec.log` 的 PASS/FAIL 与进程退出码 |
 | HTTP 驱动 | `python tests/spec/t01_http_verify.py`（39）/ `t02_http_verify.py`（26，额外 emoji 用例可能 SKIP）/ `t04_http_verify.py`（12） | 套件使用新实例及隔离目录，驱动与服务器共享 `AUTO_READER_DATA`；10MiB 项仅证明错误保护 |
-| 复审回归 | `python tests/review/reader001_repro.py` / `reader001_r3_repro.py` / `reader001_r4_repro.py` / `reader001_r5_repro.py`（同目录） | 8/12/8/5 检查；r5当前5 PASS；新增r6驱动24项为22 PASS/2 FAIL（恢复入口）。目录名须以 `reader001-review-` 开头；旧r2缺参400不代表语义校验 |
-| UI（Playwright） | `cd tests && npx playwright test` | smoke 10；real-book 10已过+1混排fixme未验收。需同一隔离 `AUTO_READER_DATA` 与 `BOOK_URL=http://localhost:17824` |
+| 复审回归 | `python tests/review/reader001_repro.py` / `reader001_r3_repro.py` / `reader001_r4_repro.py` / `reader001_r5_repro.py` / `reader001_r6_repro.py`（同目录） | 8/12/8/5/24 检查全部 PASS（r6 恢复准入 24 项含 i32 边界/小数/未知键正负对照）；目录名须以 `reader001-review-` 开头；旧r2缺参400不代表语义校验 |
+| UI（Playwright） | `cd tests && npx playwright test` | smoke 10；real-book 10已过+1混排fixme未验收。需同一隔离 `AUTO_READER_DATA`、`BOOK_URL=http://localhost:17824` 与 `PW_CHROMIUM`（指向 ms-playwright 已装全量 chrome——1.62.1 对应 headless_shell-1234 本机缺失且 CDN 不可达，T-09 修订门）；每套件前确认实例为全新启动（长跑实例有在册 N-2 劣化） |
 
 测试纪律：夹具只进隔离目录；失败检查「输出与退出码」同时成立（`auto test`
 对单文件编译失败曾退出 0——CLI 缺陷已登记，脚本规格以日志 `fails=0` 与
 退出码双重判据）。
 
-2026-10-06 独立最终复审为 needs_fix：主索引整数边界/未知字段兼容已修；移除记录恢复准入及混排
-恢复仍失败，10MiB 成功导入及原生 VM 恢复未验收。完整事实与首轮冒烟
-等待失败的边界见[复审报告](docs/reviews/reader-001-r6-20261007.md)，不能将上表
+2026-10-08 Phase 6 修复恢复消费者准入（F-18）：移除日志行在解析/改写前过
+`jsonx.valid_removed_entry` 准入、身份核对与发布前 `valid_index` 候选验证；
+r6 驱动 24 项转全 PASS，越界/小数恢复在改写前拒绝且全部既有字节不变。
+混排视口恢复（F-12/T-25，等待 auto-lang child-anchor 前置）、10MiB 成功导入
+与原生 VM 恢复（T-26 前置）仍为具名未验收。完整事实见
+[复审报告](docs/reviews/reader-001-r6-20261007.md)与计划 §9，不能将上表
 已过回归等同于全计划通过。
 
 ## 来源与组合
