@@ -5,7 +5,7 @@ status: executing
 feature_name: "真实导入、书库存储与位置恢复"
 author: [Codex]
 created_at: 2026-10-04T00:00:00Z
-updated_at: 2026-10-08T00:00:00Z
+updated_at: 2026-10-12T00:00:00Z
 plan_revision: 7
 current_step: 16
 total_steps: 32
@@ -22,7 +22,7 @@ touched_goals: ["auto-reader/first-real-release"]
 
 ## 0. 变更摘要
 
-r7 T-31 独立最终复审已完成（2026-10-08）：裁决=**blocked（具名框架前置未满足），保持 executing/r7**。F-18 修复经 14 项独立新向量确认闭合（信封/record 准入、fail-closed 多行、i32 边界、未知键），F-17 对账核实与提交源一致，主索引零回归；AC-04/05 经终审勾选。required 缺项=F-12 混排（T-25，auto-lang child-anchor 前置）、10MiB 成功导入（T-26，预算/分片接口前置）、原生 VM 验收（T-26，窗口交互入口前置）——均跨仓框架前置，app 内无可修对象；后续路径（授权框架前置计划落地，或用户显式决定目标移交/降范围）待用户决策。详见 [r7 复审报告](../reviews/reader-001-r7-20261008.md)。
+r7 T-31 独立最终复审已完成（2026-10-08）：裁决=**blocked（具名框架前置未满足），保持 executing/r7**。F-18 修复经 14 项独立新向量确认闭合（信封/record 准入、fail-closed 多行、i32 边界、未知键），F-17 对账核实与提交源一致，主索引零回归；AC-04/05 经终审勾选。required 缺项=F-12 混排（T-25，auto-lang child-anchor 前置）、10MiB 成功导入（T-26，预算/分片接口前置）、原生 VM 验收（T-26，窗口交互入口前置）——均跨仓框架前置，app 内无可修对象。用户路由决策已记录（2026-10-12，§10.5）：**原验收目标保留，auto-lang 能力与验收工具前置计划单独推进，落地后回到001复审**；决策时未新建前置计划、未调整范围。详见 [r7 复审报告](../reviews/reader-001-r7-20261008.md)。
 
 r7 Phase 6 work 已执行（2026-10-08）：F-18 修复落地——restore_book 在首次 json.parse 及任何改写前对 removed.jsonl 每行执行 jsonx.valid_removed_entry 准入（外层结构/必需键/removed_at i32 界限 + record 复用主索引 valid_record 同一规则）、内层身份核对、发布前 valid_index 候选验证；fail-closed（任一行非法整体拒恢复，全部既有字节不变）。jsonx 重复 span_is_int 合并为单一定义。永久覆盖：t06 新增 S13 恢复准入 35 项（负例/边界/未知键/字节保持）、jsonx 新增 t_valid_removed_entry 单测；r6 驱动 24 项转全 PASS（修复前实测 22 过/2 败 exit1 = F-18 复现与失败传播证据）。全量回归 exit0：auto test 6/6、规格 34+38+26+14+23+91=226 检查、HTTP 39+26+12、r2~r6=8/12/8/5/24、UI real-book 10+1fixme、smoke 10/10、冷启动 5 书逐字 + 3 读态 hash 一致。T-25/26 框架前置继续具名未完成，保持 executing 交 T-31 独立终审。
 
@@ -174,7 +174,9 @@ AC的owner_stage=work（实现与证据），T-22负责独立裁决。以下勾�
 
 ## 8. 执行步骤与交接
 
-r7 终审裁决（T-31，2026-10-08）= **blocked，保持 executing**。Phase 6 work（T-29/30）与终审（T-31）已完成并提交；F-18/F-17 闭合经独立确认。剩余全部为具名跨仓框架前置，app 内无可修对象：F-12 混排（T-25，等待 auto-lang child-anchor scroll intent 计划）、10MiB 成功导入（T-26，等待预算可配/分片接口）、原生 VM 验收（T-26，等待原生窗口交互入口）。next=用户决策：a) 授权 auto-lang 框架前置计划并落地后重开对应任务；b) 显式决定目标移交后续计划/降范围。在用户决策前本计划无 further work。T-10/22/28 为同一整体验收历史ID。
+r7 终审裁决（T-31，2026-10-08）= **blocked，保持 executing**。Phase 6 work（T-29/30）与终审（T-31）已完成并提交；F-18/F-17 闭合经独立确认。剩余全部为具名跨仓框架前置，app 内无可修对象：F-12 混排（T-25，等待 auto-lang child-anchor scroll intent 计划）、10MiB 成功导入（T-26，等待预算可配/分片接口）、原生 VM 验收（T-26，等待原生窗口交互入口与证据方法）。
+
+用户路由决策已记录（2026-10-12，§10.5）：原验收目标保留（不移交、不降范围）；前置以 auto-lang 仓独立计划推进（能力 + 验收工具），落地后重开 T-25/26 及依赖链，回到001终审复核前置交付与本仓集成。决策时未新建前置计划——届时按 auto-lang 仓规约另行立项并互链。当前 app 侧无 further work：001 保持 executing/r7（16/32），不得在无前置的情况下归档或重开实现写入。T-10/22/28 为同一整体验收历史ID。
 
 final pass才reviewed；之后merge才能发布候选规范/ledger、归档并做实际closeout。混排、成功10MiB、原生VM仍是实现门。当前没有新归档或知识发布授权的替代通道，不在review修产品。
 
@@ -428,4 +430,4 @@ final pass才reviewed；之后merge才能发布候选规范/ledger、归档并�
 
 当前next=work。详细债务、来源和原回执保留于§9及[冻结r4](../reviews/reader001-r4-plan-frozen.md)，不再保留竞争的“latest/pass/待审”指令。
 
-5. r7 终审后的用户决策点（2026-10-08 登记）：F-12 混排、10MiB 成功导入、原生 VM 验收三项 required 缺项均系跨仓框架前置（owner=auto-lang 对应计划/原生窗口驱动能力），app 内无可修对象。等待用户：a) 授权 auto-lang 框架前置计划（child-anchor scroll intent、预算可配/分片导入、原生窗口交互入口）并落地后重开 T-25/26 及依赖链；或 b) 显式决定将对应目标移交后续计划/调整范围。两项均须用户明确授权，实现/复审不得自行降标。
+5. r7 终审后的用户路由决策（2026-10-12 用户确认，取代 10-08 的 a/b 待决状态）：**保留原验收目标**——混排目标段入 pane、10MiB 成功导入、原生 VM 恢复行为验证三项不移交、不降范围。路线=**单独推进 auto-lang 能力与验收工具前置计划**（child-anchor scroll intent；导入预算可配/分片；原生窗口交互入口与证据方法），001 在前置落地后回到终审。决策当时未新建前置计划、未调整范围、未重跑功能测试；前置立项属 auto-lang 仓，须按其仓规约与授权另行进行，app 不越权修改框架。001 保持 executing/r7、16/32，前置落地前不归档。
