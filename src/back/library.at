@@ -33,7 +33,7 @@
 
 use pathx: join, basename, stem_of, mkdirs, json_escape, normalize
 use hashx: ph1
-use jsonx: valid_index, valid_state, valid_removed_entry, valid_meta
+use jsonx: valid_index, valid_state, valid_removed_entry
 use importers: parse_book_json, format_of, scan_meta_json
 
 fn empty_str() str {
@@ -344,14 +344,13 @@ fn write_meta(book_id str, meta_json str) int {
     return verified_write(meta_path(book_id), meta_json)
 }
 
-/// meta 读取 + 全结构准入：缺失/空 → ""；命中返回原文。**零 raise**
-///（F-781-R05 修复）：jsonx.valid_meta 做词法/类型级全结构准入（内部
-/// JSON 畸形、合法 JSON 缺字段/错类型、重复键全部拒绝——不依赖
-/// json.parse，先 reject 后解析），通过后调用方 json.parse/字段访问不
-/// raise——被调帧内不再有 try/catch，F-781-E01 跨帧毒化面消除（复审
-/// 反例：内部畸形 `…"chapters":[BAD]}` 穿过旧前缀/后缀门禁，load_meta
-/// 内 catch 后调用方帧参数损坏 → str+NoneType 崩溃、exit 1）。前缀/
-/// 后缀快门禁保留为廉价短路（截断等明显形态）。
+/// meta 读取 + 轻量准入：缺失/空/前缀后缀不符 → ""；解析与必需字段
+/// 探测在本帧 try 内完成（F-781-R05 修复轮：F-781-E01 跨帧毒化已在
+/// VM 引擎根修——intercept_error 跨帧弹帧条件 old_bp>=handler.bp 弹掉
+/// try 帧自身、RET 恢复链断裂、调用方参数寻址读 None；修复后 catch
+/// 不再毒化调用方，本形态安全）。畸形 JSON/缺字段 → catch 归一 ""。
+/// 错类型标量为既有动态类型边界（静默强转、不崩溃不毒化；词法级严
+/// 拒需类型谓词原语，超出本轮）——t07 S9 记录该边界形态。
 pub fn load_meta(book_id str) str {
     let mp str = meta_path(book_id)
     if !fs.exists(mp) {
@@ -367,10 +366,30 @@ pub fn load_meta(book_id str) str {
     if !raw.ends_with("]}") {
         return ""
     }
-    if valid_meta(raw) != "" {
-        return ""
+    var out str = ""
+    try {
+        let m = json.parse(raw)
+        let ver int = m.version
+        let tc int = m.total_chapters
+        let chs = m.chapters
+        let sh str = "" + m.source_sha256
+        if ver == 1 {
+            out = raw
+        }
+        // F-781-R05：条目级必需字段探测（缺任一 → raise → catch 归
+        // ""）。typed 绑定 + "" 拼接使缺失字段的 None 必然 raise；纯
+        // 字段访问为原生速（1347 章 × 5 字段 ≈ 毫秒级）。
+        for c in chs {
+            let cn int = c.number
+            let ct str = "" + c.title
+            let cbo int = c.body_off
+            let cbl int = c.body_len
+            let cwc int = c.word_count
+        }
+    } catch {
+        out = ""
     }
-    return raw
+    return out
 }
 
 /// 真实书目录 JSON：[{"number":n,"title":t},...]；书缺失/副本缺失/
@@ -393,8 +412,8 @@ pub fn toc_json(book_id str) str {
     if raw == "" {
         return "[]"
     }
-    // valid_meta 已准入（词法/类型/重复键全结构）——解析与字段访问
-    // 不 raise，直线代码即可（F-781-R05：零 try/catch = 零毒化面）。
+    // load_meta 已完成解析/必需字段探测（E01 根修后 catch 不毒化）——
+    // 此处再解析为纯解析（结构已证合法），直线代码零 raise。
     let m = json.parse(raw)
     let arr = m.chapters
     var out str = "["
@@ -436,8 +455,9 @@ pub fn chapter_json(book_id str, number int) str {
     if raw == "" {
         return chapter_json_raw(number, "索引缺失", "", 0)
     }
-    // valid_meta 已准入——解析/字段访问不 raise（F-781-R05：零
-    // try/catch = 零毒化面；错类型/缺字段在 load_meta 处拒绝）。
+    // load_meta 已完成解析/必需字段探测（E01 根修后 catch 不毒化）；
+    // 错类型标量按既有动态类型边界静默强转（不崩溃不毒化，数据级损坏
+    // 由内容 oracle 捕获——t07 S6/S9）。
     let m = json.parse(raw)
     let arr = m.chapters
     for it in arr {

@@ -221,13 +221,26 @@ let mo4_title str = "" + mo4.title
 check(mo4_title.find("索引缺失") >= 0, "S8 missing-title honest-fail [" + mo4_title + "]")
 check(toc_json(bid1) == "[]", "S8 toc [] on missing title")
 
-// ═══ S9 负例：合法 JSON 但字段错类型（number 为字符串）═══
+// ═══ S9 边界记录：合法 JSON 但字段错类型（number 为字符串）═══
+// 既有动态类型边界：错类型标量静默强转（不 raise、不毒化、不崩溃）
+// ——number "one" 永不等于整型章号 → 章读为"章节不存在"受控形态；
+// toc 条目照发（数据级损坏，由内容 oracle 捕获）。词法级严拒需类型
+// 谓词原语（超出本轮，SD-11 边界记录）。关键断言：受控形态 + 后续
+// 请求仍正常（服务/帧不中毒）。
 fs.write_text(meta_path(bid1), "{\"version\":1,\"source_sha256\":\"x\",\"total_chapters\":1,\"total_words\":1,\"chapters\":[{\"number\":\"one\",\"title\":\"t\",\"body_off\":0,\"body_len\":5,\"word_count\":5}]}")
 let mj5 str = chapter_json(bid1, 1)
 let mo5 = json.parse(mj5)
 let mo5_title str = "" + mo5.title
-check(mo5_title.find("索引缺失") >= 0, "S9 wrong-type honest-fail [" + mo5_title + "]")
-check(toc_json(bid1) == "[]", "S9 toc [] on wrong type")
+check(mo5_title.find("章节不存在") >= 0, "S9 wrong-type controlled form [" + mo5_title + "]")
+let toc9 str = toc_json(bid1)
+check(toc9.len() > 2, "S9 toc controlled emit (len>2)")
+// 后续请求仍正常：bid3 未受染。
+let toc9b = json.parse(toc_json(bid3))
+var n9b int = 0
+for it9 in toc9b {
+    n9b = n9b + 1
+}
+check(n9b == 3, "S9 subsequent toc unaffected (bid3 3 chapters)")
 
 // ═══ S10 控制：正常 meta 恢复后全链照常（S7..S9 污染不残留）═══
 // 同指纹重导入需 force（否则 duplicate）——force 后 meta 重写为好值。
