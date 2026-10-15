@@ -7,7 +7,7 @@
 // 运行：auto tests/spec/t07_meta_index_spec.as
 // 结果：%TEMP%/t07-spec.log；任何 FAIL 以 RuntimeError 非零退出。
 
-use src.back.library: import_book_json, chapter_json, toc_json, meta_path, load_meta
+use src.back.library: import_book_json, chapter_json, chapter_json_raw, toc_json, meta_path, load_meta
 use src.back.importers: parse_book_json
 use src.back.pathx: join, mkdirs, json_escape
 
@@ -221,19 +221,17 @@ let mo4_title str = "" + mo4.title
 check(mo4_title.find("索引缺失") >= 0, "S8 missing-title honest-fail [" + mo4_title + "]")
 check(toc_json(bid1) == "[]", "S8 toc [] on missing title")
 
-// ═══ S9 边界记录：合法 JSON 但字段错类型（number 为字符串）═══
-// 既有动态类型边界：错类型标量静默强转（不 raise、不毒化、不崩溃）
-// ——number "one" 永不等于整型章号 → 章读为"章节不存在"受控形态；
-// toc 条目照发（数据级损坏，由内容 oracle 捕获）。词法级严拒需类型
-// 谓词原语（超出本轮，SD-11 边界记录）。关键断言：受控形态 + 后续
-// 请求仍正常（服务/帧不中毒）。
+// ═══ S9 负例（r4 修复轮升级）：合法 JSON 但数字字段错类型（number
+// 为字符串）→ 拒绝。r3 轮此为动态类型边界（静默强转）；r4 探测升级
+// 后数字字段须满足消费前提（`> -1` 判别非负整数，字符串/负数为
+// false 不 raise）——错类型数字字段与缺字段同拒（索引缺失/[]）。
+// 字符串字段（title）仅查存在性，值语义松转换无害（边界收窄至此）。
 fs.write_text(meta_path(bid1), "{\"version\":1,\"source_sha256\":\"x\",\"total_chapters\":1,\"total_words\":1,\"chapters\":[{\"number\":\"one\",\"title\":\"t\",\"body_off\":0,\"body_len\":5,\"word_count\":5}]}")
 let mj5 str = chapter_json(bid1, 1)
 let mo5 = json.parse(mj5)
 let mo5_title str = "" + mo5.title
-check(mo5_title.find("章节不存在") >= 0, "S9 wrong-type controlled form [" + mo5_title + "]")
-let toc9 str = toc_json(bid1)
-check(toc9.len() > 2, "S9 toc controlled emit (len>2)")
+check(mo5_title.find("索引缺失") >= 0, "S9 wrong-type numeric rejected [" + mo5_title + "]")
+check(toc_json(bid1) == "[]", "S9 toc [] on wrong-type numeric")
 // 后续请求仍正常：bid3 未受染。
 let toc9b = json.parse(toc_json(bid3))
 var n9b int = 0
@@ -241,6 +239,66 @@ for it9 in toc9b {
     n9b = n9b + 1
 }
 check(n9b == 3, "S9 subsequent toc unaffected (bid3 3 chapters)")
+
+// ═══ S11 负例矩阵（R05 r4 修复轮）：逐字段删除——五必需字段各自
+// 缺失都必须整体拒绝（索引缺失/[]），不得合成空章节假成功。═══
+// 复审反例形态：仅删除一章的 body_len，其余一字不动。
+// bid2 的 meta 自 S6 起为漂移版——S11 用 force 重导入的新书取干净基线。
+let o11r = json.parse(import_book_json(src2, "", true))
+let bid2r str = "" + o11r.book_id
+let good11 str = load_meta(bid2r)
+fn meta_without_field(meta str, field str, drop_count int) str {
+    // 在第一章 entry 内删除 "field":值, 片段（值形态：数字或带引号串）。
+    let key str = "\"" + field + "\":"
+    let k int = meta.find(key)
+    if k < 0 {
+        return meta
+    }
+    var e int = k + key.len()
+    if meta.substr(e, 1) == "\"" {
+        e = e + 1
+        while e < meta.len() {
+            if meta.substr(e, 1) == "\"" {
+                e = e + 1
+                break
+            }
+            e = e + 1
+        }
+    } else {
+        while e < meta.len() {
+            let ch str = meta.substr(e, 1)
+            if ch == "," || ch == "}" {
+                break
+            }
+            e = e + 1
+        }
+    }
+    // 连同尾随逗号一起删除（首 entry 内字段恒有尾逗号——chapters 非空
+    // 且每 entry 有后续字段）。
+    if meta.substr(e, 1) == "," {
+        e = e + 1
+    }
+    return meta.substr(0, k) + meta.substr(e, meta.len() - e)
+}
+var f_i int = 0
+let f_names = ["number", "title", "body_off", "body_len", "word_count"]
+while f_i < 5 {
+    let fname str = "" + f_names[f_i]
+    let mutated str = meta_without_field(good11, fname, 1)
+    check(mutated != good11, "S11 mutation applied [" + fname + "]")
+    fs.write_text(meta_path(bid2r), mutated)
+    // 注：find(json-标题) 形态在本循环上下文观测到池/槽混叠（标题槽
+    // 读作 check 消息内容）——改全串相等断言（确定性占位符构造）。
+    let mj11 str = chapter_json(bid2r, 1)
+    let expect11 str = chapter_json_raw(1, "索引缺失", "", 0)
+    check(mj11 == expect11, "S11 missing " + fname + " rejected")
+    check(toc_json(bid2r) == "[]", "S11 toc [] on missing " + fname)
+    f_i = f_i + 1
+}
+// 恢复 + 控制：好 meta 归位后全链照常。
+fs.write_text(meta_path(bid2r), good11)
+let p11 str = parity(bid2r, b2, "txt", "nohead")
+check(p11 == "", "S11 restored parity " + p11)
 
 // ═══ S10 控制：正常 meta 恢复后全链照常（S7..S9 污染不残留）═══
 // 同指纹重导入需 force（否则 duplicate）——force 后 meta 重写为好值。

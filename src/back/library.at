@@ -344,13 +344,14 @@ fn write_meta(book_id str, meta_json str) int {
     return verified_write(meta_path(book_id), meta_json)
 }
 
-/// meta 读取 + 轻量准入：缺失/空/前缀后缀不符 → ""；解析与必需字段
-/// 探测在本帧 try 内完成（F-781-R05 修复轮：F-781-E01 跨帧毒化已在
-/// VM 引擎根修——intercept_error 跨帧弹帧条件 old_bp>=handler.bp 弹掉
-/// try 帧自身、RET 恢复链断裂、调用方参数寻址读 None；修复后 catch
-/// 不再毒化调用方，本形态安全）。畸形 JSON/缺字段 → catch 归一 ""。
-/// 错类型标量为既有动态类型边界（静默强转、不崩溃不毒化；词法级严
-/// 拒需类型谓词原语，超出本轮）——t07 S9 记录该边界形态。
+/// meta 读取 + 轻量准入：缺失/空/前缀后缀不符 → ""；解析与**全部必
+/// 需字段存在性探测**（顶层 4 + 条目 5，`"" +` 拼接使 None 必然
+/// TypeError）在本帧 try 内完成（F-781-R05 r4 修复轮：缺数字字段曾
+/// 经 typed 绑定静默流过 → 章节空正文假成功；E01 引擎根修后 catch
+/// 不毒化调用方，本形态安全）。畸形 JSON/任一必需字段缺失 → catch
+/// 归一 ""（索引缺失）。错类型标量为既有动态类型边界（静默强转、
+/// 不崩溃不毒化；词法级严拒需类型谓词原语，超出本轮）——t07 S9 记
+/// 录该边界形态。
 pub fn load_meta(book_id str) str {
     let mp str = meta_path(book_id)
     if !fs.exists(mp) {
@@ -369,23 +370,32 @@ pub fn load_meta(book_id str) str {
     var out str = ""
     try {
         let m = json.parse(raw)
-        let ver int = m.version
-        let tc int = m.total_chapters
-        let chs = m.chapters
-        let sh str = "" + m.source_sha256
-        if ver == 1 {
-            out = raw
+        // F-781-R05（r4 修复轮）：全部必需字段探测——存在性（`"" +`
+        // 拼接使 None 必然 TypeError；动态缺失值在 typed 绑定不 raise，
+        // 复审反例：缺 body_len → 章节空正文假成功）+ 数字字段消费前
+        // 提（`> -1` 对字符串/负数为 false 且不 raise——偏移/长度/计
+        // 数结构上非负；错类型数字字段同拒，非 SD-11 边界）。字符串字
+        // 段（title/source_sha256）仅查存在性（值语义松转换无害）。
+        let p_sh str = "" + m.source_sha256
+        if !(m.version > -1) {
+            return ""
         }
-        // F-781-R05：条目级必需字段探测（缺任一 → raise → catch 归
-        // ""）。typed 绑定 + "" 拼接使缺失字段的 None 必然 raise；纯
-        // 字段访问为原生速（1347 章 × 5 字段 ≈ 毫秒级）。
-        for c in chs {
-            let cn int = c.number
-            let ct str = "" + c.title
-            let cbo int = c.body_off
-            let cbl int = c.body_len
-            let cwc int = c.word_count
+        if ("" + m.version) != "1" {
+            return ""
         }
+        if !(m.total_chapters > -1) {
+            return ""
+        }
+        if !(m.total_words > -1) {
+            return ""
+        }
+        for c in m.chapters {
+            let q2 str = "" + c.title
+            if !((c.number > -1) && (c.body_off > -1) && (c.body_len > -1) && (c.word_count > -1)) {
+                return ""
+            }
+        }
+        out = raw
     } catch {
         out = ""
     }
