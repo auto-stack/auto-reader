@@ -344,16 +344,16 @@ fn write_meta(book_id str, meta_json str) int {
     return verified_write(meta_path(book_id), meta_json)
 }
 
-/// 数字字段消费域探测（F-781-R05 r5）：**非负 VM 整数（含合法 0）**。
-/// `> -1` 拒字符串/None/负值（动态比较为 false 不 raise）；`"" + x` 与
-/// `x.to_string()` 两形一致性拒浮点——concat 对浮点输出位模式整数、
-/// to_string 输出截断整数，浮点两形必不一致（实测：-0.5/0.5/2.0 均
-/// diff，0/19/10485760 均 same）。依赖该 VM 字符串化事实。
+/// 数字字段消费域探测（F-781-R05 r6）：**非负 VM 整数（含合法 0）**。
+/// `type_of(x)`（VM 原生类型谓词，auto#1527）精确区分 int/float/str/
+/// bool/null——浮点 0.0 与 int 0 可靠分离（r5 的字符串形态判别对 0.0
+/// 失真：其位模式恰为 0、两形同为 "0"；且该判别受池/槽混叠波及——
+/// 复审 r6 指令不再依赖"浮点两形必不一致"前提）。`> -1` 拒负值。
 fn num_domain_ok(x) bool {
-    if !(x > -1) {
+    if type_of(x) != "int" {
         return false
     }
-    if ("" + x) != x.to_string() {
+    if !(x > -1) {
         return false
     }
     return true

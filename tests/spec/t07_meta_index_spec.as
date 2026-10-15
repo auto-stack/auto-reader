@@ -338,10 +338,10 @@ check(mut0 != good11, "S12 zero mutation applied")
 fs.write_text(meta_path(bid2r), mut0)
 check(load_meta(bid2r) != "", "S12 body_len=0 (valid) accepted")
 fs.write_text(meta_path(bid2r), good11)
-// body_len 拒绝域矩阵：字符串/负整数/负小数/正小数
-let s12_vals = ["\"19\"", "-3", "-0.5", "1.5"]
+// body_len 拒绝域矩阵：字符串/负整数/负小数/正小数/浮点零（r6）
+let s12_vals = ["\"19\"", "-3", "-0.5", "1.5", "0.0"]
 var s12_i int = 0
-while s12_i < 4 {
+while s12_i < 5 {
     let v12 str = "" + s12_vals[s12_i]
     let mut12 str = meta_set_field(good11, "body_len", v12)
     check(mut12 != good11, "S12 mutation applied [" + v12 + "]")
