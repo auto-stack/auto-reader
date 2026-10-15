@@ -300,6 +300,76 @@ fs.write_text(meta_path(bid2r), good11)
 let p11 str = parity(bid2r, b2, "txt", "nohead")
 check(p11 == "", "S11 restored parity " + p11)
 
+// ═══ S12 负例矩阵（R05 r5 修复轮）：数字字段消费域 = 非负 VM 整数
+//（含合法 0）。代表性矩阵：合法 0、字符串、负整数、负小数、正小数
+// ——全部拒绝（索引缺失/[]）；合法正整数照常通过；恢复控制。═══
+// 复审 r5 反例形态：仅把一章 body_len 改为 -0.5。值动态定位（不硬
+// 编码——不同 fixture 的真实 body_len/body_off 不同）。
+fn meta_set_field(meta str, field str, to_v str) str {
+    let key str = "\"" + field + "\":"
+    let k int = meta.find(key)
+    if k < 0 {
+        return meta
+    }
+    var e int = k + key.len()
+    if meta.substr(e, 1) == "\"" {
+        e = e + 1
+        while e < meta.len() {
+            if meta.substr(e, 1) == "\"" {
+                e = e + 1
+                break
+            }
+            e = e + 1
+        }
+    } else {
+        while e < meta.len() {
+            let ch str = meta.substr(e, 1)
+            if ch == "," || ch == "}" {
+                break
+            }
+            e = e + 1
+        }
+    }
+    return meta.substr(0, k + key.len()) + to_v + meta.substr(e, meta.len() - e)
+}
+// 合法 0（空章长度=产品扫描器对空章的真实产出）必须被接受。
+let mut0 str = meta_set_field(good11, "body_len", "0")
+check(mut0 != good11, "S12 zero mutation applied")
+fs.write_text(meta_path(bid2r), mut0)
+check(load_meta(bid2r) != "", "S12 body_len=0 (valid) accepted")
+fs.write_text(meta_path(bid2r), good11)
+// body_len 拒绝域矩阵：字符串/负整数/负小数/正小数
+let s12_vals = ["\"19\"", "-3", "-0.5", "1.5"]
+var s12_i int = 0
+while s12_i < 4 {
+    let v12 str = "" + s12_vals[s12_i]
+    let mut12 str = meta_set_field(good11, "body_len", v12)
+    check(mut12 != good11, "S12 mutation applied [" + v12 + "]")
+    fs.write_text(meta_path(bid2r), mut12)
+    let mj12 str = chapter_json(bid2r, 1)
+    let expect12 str = chapter_json_raw(1, "索引缺失", "", 0)
+    check(mj12 == expect12, "S12 body_len=" + v12 + " rejected")
+    check(toc_json(bid2r) == "[]", "S12 toc [] on body_len=" + v12)
+    s12_i = s12_i + 1
+}
+// body_off 域代表（偏移类与长度同类探测；负小数/正小数/字符串）
+let s12_off_vals = ["-0.5", "1.5", "\"0\""]
+var s12_j int = 0
+while s12_j < 3 {
+    let v12o str = "" + s12_off_vals[s12_j]
+    let m2 str = meta_set_field(good11, "body_off", v12o)
+    check(m2 != good11, "S12 off mutation applied [" + v12o + "]")
+    fs.write_text(meta_path(bid2r), m2)
+    let mj12o str = chapter_json(bid2r, 1)
+    let expect12o str = chapter_json_raw(1, "索引缺失", "", 0)
+    check(mj12o == expect12o, "S12 body_off=" + v12o + " rejected")
+    s12_j = s12_j + 1
+}
+// 恢复 + 全章 parity 控制
+fs.write_text(meta_path(bid2r), good11)
+let p12 str = parity(bid2r, b2, "txt", "nohead")
+check(p12 == "", "S12 restored parity " + p12)
+
 // ═══ S10 控制：正常 meta 恢复后全链照常（S7..S9 污染不残留）═══
 // 同指纹重导入需 force（否则 duplicate）——force 后 meta 重写为好值。
 let o1b = json.parse(import_book_json(src1, "", true))
