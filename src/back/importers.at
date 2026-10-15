@@ -237,6 +237,102 @@ pub fn parse_book_json(text str, format str, fallback_title str) str {
     return out
 }
 
+/// PLAN-781 阶段 E（T-25）：章 meta 索引扫描——与 parse_book_json 同一
+/// 切分规则（同 is_heading/heading_title/开篇/无章头语义），但一次扫描
+/// 只产出**索引**（不拼整书正文 JSON）：书级统计 + 每章
+/// {number,title,body_off,body_len,word_count}。
+///
+/// 偏移空间 = UTF-8 字节（str.byte_len 累计，nat#1526），与
+/// File.read_text_range（nat#1016，PLAN-687）的窗读游标同空间。
+/// body 窗 = [heading 行的 "\n" 之后 .. 下一章窗起点)——行 split+join
+/// 逐字重建 contiguous span（含章间空行），read 窗文本与 parse 的
+/// cur_body 逐字节相等（trim/word_count 语义由消费端 chapter_json_raw
+/// 保持）。受管副本不可变 + source_hash 钉死 ⇒ 索引永免失效。
+pub fn scan_meta_json(text str, format str, fallback_title str, source_hash str) str {
+    let lines = text.split("\n")
+    let is_md bool = format == "md" || format == "markdown"
+    let total int = text.byte_len()
+    var entries str = ""
+    var n_out int = 0
+    var cur_title str = ""
+    var cur_body str = ""
+    var started bool = false
+    var saw_heading bool = false
+    var body_off int = 0
+    var total_words int = 0
+    var i int = 0
+    var off int = 0
+    while i < lines.len() {
+        let raw str = "" + lines[i]
+        let line_start int = off
+        off = off + raw.byte_len() + 1
+        if is_heading(raw, is_md) {
+            if started {
+                let wc int = cur_body.trim().len()
+                total_words = total_words + wc
+                if n_out > 0 {
+                    entries = entries + ","
+                }
+                entries = entries + meta_entry_json(n_out + 1, cur_title, body_off, line_start - body_off, wc)
+                n_out = n_out + 1
+            }
+            cur_title = heading_title(raw, is_md)
+            cur_body = ""
+            started = true
+            saw_heading = true
+            body_off = line_start + raw.byte_len() + 1
+        } else {
+            if !started {
+                if raw.trim() == "" {
+                    i = i + 1
+                    continue
+                }
+                cur_title = "开篇"
+                started = true
+                body_off = line_start
+            }
+            if cur_body == "" {
+                cur_body = raw
+            } else {
+                cur_body = cur_body + "
+" + raw
+            }
+        }
+        i = i + 1
+    }
+    if !started {
+        // 全空文件：单章空正文（parse 同形）。
+        let mj str = "{\"version\":1,\"source_sha256\":\"" + json_escape(source_hash) + "\",\"total_chapters\":1,\"total_words\":0,\"chapters\":[" + meta_entry_json(1, fallback_title, 0, 0, 0) + "]}"
+        return mj
+    }
+    // 末章 flush（无章头单章 = 同一 flush，题取 fallback_title）。
+    var final_title str = cur_title
+    if n_out == 0 {
+        if !saw_heading {
+            final_title = fallback_title
+        }
+    }
+    let wc2 int = cur_body.trim().len()
+    total_words = total_words + wc2
+    if n_out > 0 {
+        entries = entries + ","
+    }
+    entries = entries + meta_entry_json(n_out + 1, final_title, body_off, total - body_off, wc2)
+    n_out = n_out + 1
+    let mj2 str = "{\"version\":1,\"source_sha256\":\"" + json_escape(source_hash) + "\",\"total_chapters\":" + n_out.to_string() + ",\"total_words\":" + total_words.to_string() + ",\"chapters\":[" + entries + "]}"
+    return mj2
+}
+
+/// meta 单章条目 JSON（标量入参）。
+fn meta_entry_json(n int, title str, off int, len int, wc int) str {
+    var out str = "{\"number\":" + n.to_string()
+    out = out + ",\"title\":\"" + json_escape(title) + "\""
+    out = out + ",\"body_off\":" + off.to_string()
+    out = out + ",\"body_len\":" + len.to_string()
+    out = out + ",\"word_count\":" + wc.to_string() + "}"
+    return out
+}
+
 /// 单章 JSON（标量入参；trimmed 语义与 parse_book 对齐）。
 fn chapter_json_raw(n int, title str, body str) str {
     let t str = body.trim()

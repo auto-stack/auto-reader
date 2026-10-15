@@ -34,7 +34,7 @@
 use pathx: join, basename, stem_of, mkdirs, json_escape, normalize
 use hashx: ph1
 use jsonx: valid_index, valid_state, valid_removed_entry
-use importers: parse_book_json, format_of
+use importers: parse_book_json, format_of, scan_meta_json
 
 fn empty_str() str {
     return ""
@@ -321,22 +321,87 @@ pub fn content_of(book_id str) str {
 // 目录与单章（JSON 字符串面）
 // ═══════════════════════════════════════════════════════════
 
-/// 真实书目录 JSON：[{"number":n,"title":t},...]；书缺失/副本缺失 → []。
+// ═══════════════════════════════════════════════════════════
+// 章 meta 索引（PLAN-781 阶段 E / T-25）
+//
+// 导入时 scan_meta_json 一次扫描产出 <data>/<book_id>.meta.json（书级
+// 统计 + 每章 {number,title,body_off,body_len,word_count}，UTF-8 字节
+// 偏移与 File.read_text_range 窗读同空间）。TOC/单章此后**不再整书重
+// 解析**——旧路径每次 toc/chapter GET 都 parse_book_json 全文（10MiB
+// 书 ~170s 忙段），新路径 = meta 直读 + 章窗 O(章) 读。受管副本不可变
+// + source_hash 钉死 ⇒ 索引永免失效。meta 缺失/损坏 → 诚实失败
+///（title="索引缺失" / toc=[]），不静默重建——重建属显式修复动作。
+// ═══════════════════════════════════════════════════════════
+
+/// meta 边车路径：<data>/<book_id>.meta.json。
+pub fn meta_path(book_id str) str {
+    let dd str = data_dir()
+    return join(dd, book_id + ".meta.json")
+}
+
+/// meta 写入：verified_write（F-03 同款读回校验）；rc=0 成功。
+fn write_meta(book_id str, meta_json str) int {
+    return verified_write(meta_path(book_id), meta_json)
+}
+
+/// meta 读取 + 轻量准入：缺失/空/损坏（解析失败、version≠1、缺字段）
+/// → ""。访问缺字段会 raise——catch 归一为 ""。
+pub fn load_meta(book_id str) str {
+    let mp str = meta_path(book_id)
+    if !fs.exists(mp) {
+        return ""
+    }
+    let raw str = fs.read_text(mp)
+    if raw == "" {
+        return ""
+    }
+    // 形状门禁先行（VM 已知缺陷规避：被调函数内部 raise+catch 会毒化
+    // 调用方帧槽——json.parse 对截断/畸形输入 raise。自产 meta 恒以
+    // {"version":1, 起、]} 止；形状不过即拒绝，不进入会 raise 的解析）。
+    if !raw.starts_with("{\"version\":1,") {
+        return ""
+    }
+    if !raw.ends_with("]}") {
+        return ""
+    }
+    var out str = ""
+    try {
+        let m = json.parse(raw)
+        let ver int = m.version
+        let tc int = m.total_chapters
+        let chs = m.chapters
+        let sh str = "" + m.source_sha256
+        if ver == 1 {
+            out = raw
+        }
+    } catch {
+        out = ""
+    }
+    return out
+}
+
+/// 真实书目录 JSON：[{"number":n,"title":t},...]；书缺失/副本缺失/
+/// meta 缺失 → []（前端按无章处理）。
 pub fn toc_json(book_id str) str {
-    let text str = content_of(book_id)
-    if text == "" {
+    let rj str = book_json(book_id)
+    if rj == empty_str() {
         return "[]"
     }
-    let rj str = book_json(book_id)
     let r = json.parse(rj)
     let mp str = "" + r.managed_path
-    let ttl str = "" + r.title
-    let fmt str = format_of(mp)
-    // 章节数据经 importers 的 JSON 面 + 本帧动态解析（跨模块 struct 的
-    // str 字段直读不可靠，T-01 实测；动态 json 字段访问双轨可靠）
-    let raw str = parse_book_json(text, fmt, ttl)
-    let wrapper = json.parse(raw)
-    let arr = wrapper.chapters
+    if !fs.exists(mp) {
+        return "[]"
+    }
+    // 空副本（导入后被清空的损坏资产，t06 S7 语义）与缺失同判。
+    if fs.size(mp) <= 0 {
+        return "[]"
+    }
+    let raw str = load_meta(book_id)
+    if raw == "" {
+        return "[]"
+    }
+    let m = json.parse(raw)
+    let arr = m.chapters
     var out str = "["
     var i int = 0
     for it in arr {
@@ -353,28 +418,63 @@ pub fn toc_json(book_id str) str {
     return out
 }
 
-/// 真实书单章 JSON；书/副本/章节缺失返回 word_count=0 的占位对象
-/// （title="内容缺失"/"章节不存在"，前端按未找到处理）。
+/// 真实书单章 JSON（meta 路径）：meta 命中 → File.read_text_range 只读
+/// 该章字节窗（标题/词数直读 meta；正文 trim/word_count 语义由
+/// chapter_json_raw 保持）。书/副本/章节缺失沿用占位对象约定
+/// （word_count=0，前端按未找到处理）；meta 缺失/窗读失败为诚实失败
+/// 占位（"索引缺失"/"内容缺失"）。
 pub fn chapter_json(book_id str, number int) str {
-    let text str = content_of(book_id)
-    if text == "" {
+    let rj str = book_json(book_id)
+    if rj == empty_str() {
         return chapter_json_raw(number, "内容缺失", "", 0)
     }
-    let rj str = book_json(book_id)
     let r = json.parse(rj)
     let mp str = "" + r.managed_path
-    let ttl str = "" + r.title
-    let fmt str = format_of(mp)
-    let raw str = parse_book_json(text, fmt, ttl)
-    let wrapper = json.parse(raw)
-    let arr = wrapper.chapters
+    if !fs.exists(mp) {
+        return chapter_json_raw(number, "内容缺失", "", 0)
+    }
+    // 空副本（导入后被清空的损坏资产，t06 S7 语义）与缺失同判。
+    if fs.size(mp) <= 0 {
+        return chapter_json_raw(number, "内容缺失", "", 0)
+    }
+    let raw str = load_meta(book_id)
+    if raw == "" {
+        return chapter_json_raw(number, "索引缺失", "", 0)
+    }
+    let m = json.parse(raw)
+    let arr = m.chapters
     for it in arr {
         if it.number == number {
-            let n int = it.number
             let t str = "" + it.title
-            let b str = "" + it.body
             let w int = it.word_count
-            return chapter_json_raw(n, t, b, w)
+            var b str = ""
+            let bl int = it.body_len
+            if bl > 0 {
+                let bo int = it.body_off
+                let env str = File.read_text_range(mp, bo, bl)
+                var ok bool = false
+                // 同款形状门禁（envelope 自产恒 "{"text":…" 形）。
+                if !env.starts_with("{\"text\":") {
+                    return chapter_json_raw(number, "内容缺失", "", 0)
+                }
+                try {
+                    let e = json.parse(env)
+                    let tt int = e.total
+                    if tt != -1 {
+                        b = "" + e.text
+                        ok = true
+                    }
+                } catch {
+                    ok = false
+                }
+                if !ok {
+                    return chapter_json_raw(number, "内容缺失", "", 0)
+                }
+            }
+            // 窗文本含章间尾随换行——旧路径的 body 经 importers
+            // chapter_json_raw 的 trim 语义产出；此处同口径 trim（word_count
+            // 已在扫描期按同式预计算）。
+            return chapter_json_raw(number, t, b.trim(), w)
         }
     }
     return chapter_json_raw(number, "章节不存在", "", 0)
@@ -537,14 +637,22 @@ pub fn import_book_json(path str, author str, force bool) str {
             return "{\"code\":\"io_error\",\"message\":\"受管副本写入校验失败（读回与源不一致）\",\"book_id\":\"\",\"existing_id\":\"\"}"
         }
     }
-    let chs_raw str = parse_book_json(text, fmt, title)
-    let wrapper = json.parse(chs_raw)
-    let chs = wrapper.chapters
-    var nch int = 0
-    for c in chs {
-        nch = nch + 1
-    }
+    // PLAN-781 阶段 E（T-25）：一次扫描产出章 meta 索引（替代旧
+    // parse_book_json 整书 JSON + 计数——同一份解析成本，现在同时产出
+    // 字节偏移索引；读路径从此不再重解析）。
     let bid str = str.uuid()
+    let meta_json str = scan_meta_json(text, fmt, title, hash)
+    let mw = json.parse(meta_json)
+    let nch int = mw.total_chapters
+    // meta 先写（写失败 = 导入失败，库索引不动）；成功后写库索引。
+    // 库写失败的 meta 孤儿无害（uuid 命名，不复活不误读）。
+    let mrc int = write_meta(bid, meta_json)
+    if mrc != 0 {
+        var mm str = "{\"code\":\"io_error\",\"message\":\"章索引写入失败 rc="
+        mm = mm + mrc.to_string()
+        mm = mm + "\",\"book_id\":\"\",\"existing_id\":\"\"}"
+        return mm
+    }
     // 新记录：created_at v1 恒 0（a2r_std 无 time 模块，框架债见 T-00 报告）
     let nrj str = record_json(bid, hash, title, who, fmt, p, managed, size, nch, 1, 0)
     // 索引追加：现有记录重序列化 + 新记录
