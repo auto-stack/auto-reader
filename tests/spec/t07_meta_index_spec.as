@@ -192,6 +192,51 @@ let db str = "" + drifted.body
 let wb str = "" + wantdr.body
 check(db != wb, "S6 corrupted offset detected by oracle")
 
+// ═══ S7 负例（F-781-R05 复审反例原样）：完整形状但内部 JSON 畸形 ═══
+// 前缀/后缀门禁双过、json.parse 必 raise——修复前 load_meta 帧内
+// catch 毒化 chapter_json 参数槽（str+NoneType 崩溃、exit 1）；修复后
+// 消费方帧内联 try 受控拒绝，且**后续请求不受染**。
+fs.write_text(meta_path(bid1), "{\"version\":1,\"source_sha256\":\"x\",\"total_chapters\":1,\"chapters\":[BAD]}")
+let mj3 str = chapter_json(bid1, 1)
+let mo3 = json.parse(mj3)
+let mo3_title str = "" + mo3.title
+check(mo3_title.find("索引缺失") >= 0, "S7 internal-malformed JSON honest-fail [" + mo3_title + "]")
+check(toc_json(bid1) == "[]", "S7 toc [] on internal-malformed JSON")
+// 后续请求仍正常（同进程无帧毒化残留）：未受损书 bid3 的章/toc 照常。
+let after7 = json.parse(chapter_json(bid3, 1))
+let after7_title str = "" + after7.title
+check(after7_title.find("序章之始") >= 0, "S7 subsequent request unaffected (bid3 ch1) [" + after7_title + "]")
+let toc_after7 = json.parse(toc_json(bid3))
+var n_after7 int = 0
+for it7 in toc_after7 {
+    n_after7 = n_after7 + 1
+}
+check(n_after7 == 3, "S7 subsequent toc unaffected (bid3 3 chapters)")
+
+// ═══ S8 负例：合法 JSON 但缺字段（toc 消费面 title 缺席）═══
+fs.write_text(meta_path(bid1), "{\"version\":1,\"source_sha256\":\"x\",\"total_chapters\":1,\"total_words\":1,\"chapters\":[{\"number\":1,\"body_off\":0,\"body_len\":5,\"word_count\":5}]}")
+let mj4 str = chapter_json(bid1, 1)
+let mo4 = json.parse(mj4)
+let mo4_title str = "" + mo4.title
+check(mo4_title.find("索引缺失") >= 0, "S8 missing-title honest-fail [" + mo4_title + "]")
+check(toc_json(bid1) == "[]", "S8 toc [] on missing title")
+
+// ═══ S9 负例：合法 JSON 但字段错类型（number 为字符串）═══
+fs.write_text(meta_path(bid1), "{\"version\":1,\"source_sha256\":\"x\",\"total_chapters\":1,\"total_words\":1,\"chapters\":[{\"number\":\"one\",\"title\":\"t\",\"body_off\":0,\"body_len\":5,\"word_count\":5}]}")
+let mj5 str = chapter_json(bid1, 1)
+let mo5 = json.parse(mj5)
+let mo5_title str = "" + mo5.title
+check(mo5_title.find("索引缺失") >= 0, "S9 wrong-type honest-fail [" + mo5_title + "]")
+check(toc_json(bid1) == "[]", "S9 toc [] on wrong type")
+
+// ═══ S10 控制：正常 meta 恢复后全链照常（S7..S9 污染不残留）═══
+// 同指纹重导入需 force（否则 duplicate）——force 后 meta 重写为好值。
+let o1b = json.parse(import_book_json(src1, "", true))
+check(o1b.code == "ok", "S10 force re-import ok [" + ("" + o1b.code) + "]")
+let bid1b str = "" + o1b.book_id
+let p10 str = parity(bid1b, b1, "txt", "book-mixed")
+check(p10 == "", "S10 full parity after corruption battery " + p10)
+
 // ═══ 收尾 ═══
 log("SPEC t07 done fails=" + fails.to_string())
 if fails > 0 {

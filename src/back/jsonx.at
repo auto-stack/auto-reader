@@ -1087,3 +1087,299 @@ fn size_replaced(rj str, v str) str {
     let tail str = rj.substr(e, rj.len() - e)
     return head + v + tail
 }
+
+// ═══ PLAN-781 阶段 E（F-781-R05 修复轮）：章 meta 边车结构门 ═══
+// 背景：VM json.parse 对畸形输入 raise——被调帧内 try/catch 会毒化调用
+// 方参数/局部槽位（F-781-E01，且毒化残留影响同任务后续调用，实测）。
+// meta 消费路径（chapter_json/toc_json）必须零 raise：load_meta 以本门
+// 做全结构词法/类型准入（同 valid_index 形态——不依赖 json.parse，先
+// reject 后解析），通过后调用方 json.parse/字段访问不 raise。
+
+/// meta 边车整体校验：顶层 version(int 1)/source_sha256(str)/
+/// total_chapters(int)/total_words(int)/chapters(arr)；已知键重复拒绝、
+/// 未知键容忍；章条目五字段（number/title/body_off/body_len/word_count）
+/// 类型精确、必需齐备。错误返回非空消息；"" = 结构合法。
+pub fn valid_meta(raw str) str {
+    let t str = raw.trim()
+    var i int = skip_ws(t, 0)
+    if i >= t.len() || t.substr(i, 1) != "{" {
+        return "meta must be a JSON object"
+    }
+    i = skip_ws(t, i + 1)
+    var ver_ok int = 0
+    var sh_ok int = 0
+    var tc_ok int = 0
+    var tw_ok int = 0
+    var ch_ok int = 0
+    var ch_start int = -1
+    var ch_end int = -1
+    var guard int = 0
+    while i < t.len() {
+        if guard > 4096 {
+            return "meta object too large"
+        }
+        guard = guard + 1
+        if t.substr(i, 1) == "}" {
+            i = skip_ws(t, i + 1)
+            if i != t.len() {
+                return "meta has trailing content"
+            }
+            break
+        }
+        if t.substr(i, 1) == "," {
+            i = skip_ws(t, i + 1)
+            if i < t.len() {
+                if t.substr(i, 1) == "}" {
+                    return "meta unexpected trailing comma"
+                }
+            }
+            continue
+        }
+        if t.substr(i, 1) != "\"" {
+            return "meta expected property name"
+        }
+        let ke int = scan_string_end(t, i)
+        if ke < 0 {
+            return "meta bad property name"
+        }
+        let key str = unquote(t.substr(i, ke - i))
+        i = skip_ws(t, ke)
+        if i >= t.len() || t.substr(i, 1) != ":" {
+            return "meta expected colon"
+        }
+        i = skip_ws(t, i + 1)
+        let ve int = scan_value_end(t, i, 0)
+        if ve < 0 {
+            return "meta bad value"
+        }
+        let kind str = value_kind(t, i)
+        if key == "version" {
+            if ver_ok == 1 {
+                return "meta duplicate key: version"
+            }
+            if kind != "num" {
+                return "meta version must be a number"
+            }
+            let span str = t.substr(i, ve - i)
+            if span.find(".") >= 0 || span.find("e") >= 0 || span.find("E") >= 0 {
+                return "meta version must be an integer"
+            }
+            if span != "1" {
+                return "meta version must be the integer 1"
+            }
+            ver_ok = 1
+        } else {
+            if key == "source_sha256" {
+                if sh_ok == 1 {
+                    return "meta duplicate key: source_sha256"
+                }
+                if kind != "str" {
+                    return "meta source_sha256 must be a string"
+                }
+                sh_ok = 1
+            } else {
+                if key == "total_chapters" {
+                    if tc_ok == 1 {
+                        return "meta duplicate key: total_chapters"
+                    }
+                    if kind != "num" || !int_literal(t, i, ve) {
+                        return "meta total_chapters must be an integer"
+                    }
+                    tc_ok = 1
+                } else {
+                    if key == "total_words" {
+                        if tw_ok == 1 {
+                            return "meta duplicate key: total_words"
+                        }
+                        if kind != "num" || !int_literal(t, i, ve) {
+                            return "meta total_words must be an integer"
+                        }
+                        tw_ok = 1
+                    } else {
+                        if key == "chapters" {
+                            if ch_ok == 1 {
+                                return "meta duplicate key: chapters"
+                            }
+                            if kind != "arr" {
+                                return "meta chapters must be an array"
+                            }
+                            ch_ok = 1
+                            ch_start = i
+                            ch_end = ve
+                        }
+                    }
+                }
+            }
+        }
+        i = skip_ws(t, ve)
+    }
+    if ver_ok == 0 {
+        return "meta missing version"
+    }
+    if sh_ok == 0 {
+        return "meta missing source_sha256"
+    }
+    if tc_ok == 0 {
+        return "meta missing total_chapters"
+    }
+    if tw_ok == 0 {
+        return "meta missing total_words"
+    }
+    if ch_ok == 0 {
+        return "meta missing chapters"
+    }
+    // 章条目逐条验证（chapters 数组区间内）
+    var j int = skip_ws(t, ch_start + 1)
+    let ce int = ch_end
+    var rguard int = 0
+    while j < ce {
+        if rguard > 200000 {
+            return "meta chapters too large"
+        }
+        rguard = rguard + 1
+        if t.substr(j, 1) == "]" {
+            break
+        }
+        if t.substr(j, 1) == "," {
+            j = skip_ws(t, j + 1)
+            continue
+        }
+        if t.substr(j, 1) != "{" {
+            return "meta chapter entry must be an object"
+        }
+        let re int = scan_value_end(t, j, 1)
+        if re < 0 || re > ce {
+            return "meta bad chapter entry"
+        }
+        let rerr str = valid_meta_entry(t, j, re)
+        if rerr != "" {
+            return rerr
+        }
+        j = skip_ws(t, re)
+    }
+    return ""
+}
+
+/// 数值 span 是否整数字面量（无 . e E，to_int 往返一致）。
+fn int_literal(t str, i int, ve int) bool {
+    let span str = t.substr(i, ve - i)
+    if span.find(".") >= 0 || span.find("e") >= 0 || span.find("E") >= 0 {
+        return false
+    }
+    let nv int = span.to_int()
+    return nv.to_string() == span
+}
+
+/// 单条章 entry 验证：number/body_off/body_len/word_count 整数、title
+/// 字符串；已知键重复拒绝、未知键容忍、必需齐备。
+fn valid_meta_entry(t str, start int, end int) str {
+    var i int = skip_ws(t, start + 1)
+    var seen_n int = 0
+    var seen_t int = 0
+    var seen_bo int = 0
+    var seen_bl int = 0
+    var seen_wc int = 0
+    var guard int = 0
+    while i < end {
+        if guard > 512 {
+            return "meta chapter entry too large"
+        }
+        guard = guard + 1
+        if t.substr(i, 1) == "}" {
+            break
+        }
+        if t.substr(i, 1) == "," {
+            i = skip_ws(t, i + 1)
+            if i < end {
+                if t.substr(i, 1) == "}" {
+                    return "meta chapter entry unexpected trailing comma"
+                }
+            }
+            continue
+        }
+        if t.substr(i, 1) != "\"" {
+            return "meta chapter entry expected property name"
+        }
+        let ke int = scan_string_end(t, i)
+        if ke < 0 {
+            return "meta chapter entry bad property name"
+        }
+        let key str = unquote(t.substr(i, ke - i))
+        i = skip_ws(t, ke)
+        if i >= end || t.substr(i, 1) != ":" {
+            return "meta chapter entry expected colon"
+        }
+        i = skip_ws(t, i + 1)
+        let ve int = scan_value_end(t, i, 2)
+        if ve < 0 || ve > end {
+            return "meta chapter entry bad value"
+        }
+        let kind str = value_kind(t, i)
+        if key == "number" {
+            if seen_n == 1 {
+                return "meta chapter duplicate key: number"
+            }
+            if kind != "num" || !int_literal(t, i, ve) {
+                return "meta chapter number must be an integer"
+            }
+            seen_n = 1
+        } else {
+            if key == "title" {
+                if seen_t == 1 {
+                    return "meta chapter duplicate key: title"
+                }
+                if kind != "str" {
+                    return "meta chapter title must be a string"
+                }
+                seen_t = 1
+            } else {
+                if key == "body_off" {
+                    if seen_bo == 1 {
+                        return "meta chapter duplicate key: body_off"
+                    }
+                    if kind != "num" || !int_literal(t, i, ve) {
+                        return "meta chapter body_off must be an integer"
+                    }
+                    seen_bo = 1
+                } else {
+                    if key == "body_len" {
+                        if seen_bl == 1 {
+                            return "meta chapter duplicate key: body_len"
+                        }
+                        if kind != "num" || !int_literal(t, i, ve) {
+                            return "meta chapter body_len must be an integer"
+                        }
+                        seen_bl = 1
+                    } else {
+                        if key == "word_count" {
+                            if seen_wc == 1 {
+                                return "meta chapter duplicate key: word_count"
+                            }
+                            if kind != "num" || !int_literal(t, i, ve) {
+                                return "meta chapter word_count must be an integer"
+                            }
+                            seen_wc = 1
+                        }
+                    }
+                }
+            }
+        }
+        i = skip_ws(t, ve)
+    }
+    if seen_n == 0 {
+        return "meta chapter missing number"
+    }
+    if seen_t == 0 {
+        return "meta chapter missing title"
+    }
+    if seen_bo == 0 {
+        return "meta chapter missing body_off"
+    }
+    if seen_bl == 0 {
+        return "meta chapter missing body_len"
+    }
+    if seen_wc == 0 {
+        return "meta chapter missing word_count"
+    }
+    return ""
+}
