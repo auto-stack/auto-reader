@@ -5,8 +5,8 @@ status: executing
 feature_name: "真实导入、书库存储与位置恢复"
 author: [Codex]
 created_at: 2026-10-04T00:00:00Z
-updated_at: 2026-10-12T00:00:00Z
-plan_revision: 7
+updated_at: 2026-10-29T00:00:00Z
+plan_revision: 8
 current_step: 16
 total_steps: 32
 created: 2026-10-04
@@ -21,6 +21,8 @@ touched_goals: ["auto-reader/first-real-release"]
 # READER-001：真实导入、书库存储与位置恢复
 
 ## 0. 变更摘要
+
+r8 work（2026-10-29，goal 会话）执行中：PLAN-781 三项前置落地（archived pass-r11）后按 §10.5 路由恢复本计划。运行时重大漂移=CLI 由 auto-lang 2785 构建换至 **auto-man 0.1.0+v0.0.20-117-g873fa23**（exe SHA256=97CE3BDE…），按「假设变更即重跑」全部证据在新建构上重建。已达成：**F-12 混排恢复闭合（Vue 轨）**——reading 页段落挂 `scroll-anchor` 稳定子 key、恢复路径 `scroll_to_child` 元素级定位取代字符占比估算，real-book **11/11**（T-R10 去 fixme，V-20 与阅读 pane 正面积求交）+ smoke 10/10；**10MiB 成功导入达成**——t04 改成功门（17 检查：导入 ok/2001 章/首中末章逐字）+ PLAN-781 deep 全章 oracle 驱动复验；规格 t01~t07=34+38+26+14+23+91+67=293 检查 0 FAIL、auto test 6/6、HTTP t01 39/t02 26、复审驱动 r2~r7=8/12/8/5/24/14 全过。**原生 VM 轨恢复行为验收保持具名未验收（新跨仓缺陷 N-r8-2）**：当前 CLI 下 reading 页在 `-r vm` outlet 无法挂载（详见 §10.6），app 内无可修对象，验收驱动 reader001_r8_native_vm_restore.py 已永久化待框架修复。781e 章 meta 索引分支（plan-781e-meta-index @7bb1869）经业务复验（t07 parity + 全量回归）随本阶段落地。保持 executing/r8。
 
 r7 T-31 独立最终复审已完成（2026-10-08）：裁决=**blocked（具名框架前置未满足），保持 executing/r7**。F-18 修复经 14 项独立新向量确认闭合（信封/record 准入、fail-closed 多行、i32 边界、未知键），F-17 对账核实与提交源一致，主索引零回归；AC-04/05 经终审勾选。required 缺项=F-12 混排（T-25，auto-lang child-anchor 前置）、10MiB 成功导入（T-26，预算/分片接口前置）、原生 VM 验收（T-26，窗口交互入口前置）——均跨仓框架前置，app 内无可修对象。用户路由决策已记录（2026-10-12，§10.5）：**原验收目标保留，auto-lang 能力与验收工具前置计划单独推进，落地后回到001复审**；决策时未新建前置计划、未调整范围。详见 [r7 复审报告](../reviews/reader-001-r7-20261008.md)。
 
@@ -58,6 +60,8 @@ CLI auto 0.1.0+v0.4.2-2785-ga6e108f60；exe SHA256=0B8F5D7BCCB41F4D0E02687D8DFF7
 
 r7 work 基线（2026-10-08）：入口=同树 v0.6-dev @ 1b9030f（r6 记账后 tip，工作树干净）；CLI/依赖与 r6 复审同一构建（2785/0B8F5D7B…，实测复核零漂移）。修复提交见 §9 回执。源码 hash 冻结：jsonx.at=见 §9、library.at=见 §9、reading.at=f0731f269f77b963c829fc391b15f759ca882eb58f0c2cc3834354f9845ef56c（未改，沿用 r6 报告值）。
 
+r8 work 基线（2026-10-29）：**仓形态变更**——app 已由 auto-os 子检出迁移为独立仓 `D:/autostack/auto-reader`（main 分支；v0.6-dev/子检出纪律随之退役，落地轨=main）；worktree=`D:/autostack/.wt/reader-001/auto-reader`（分支 plan-001-dev，基于 781e 分支 tip 7bb1869——PLAN-781 阶段 E 章 meta 索引 reader 侧交付，001 为其业务终审 owner，随 r8 落地 main）。CLI=**auto-man 0.1.0+v0.0.20-117-g873fa23**（D:/autostack/auto-man/target/debug/auto.exe，SHA256=97CE3BDEDFC6C2A62FD71678D80B71003EC4985946FE406928308690FC2E4B19），对 r7 基线全量漂移，按「假设变更即重跑」全部证据重建。页面模块改名 reading.at→**reading_page.at**（widget reading_page；VM 轨模块名 reading 触发 outlet 挂载缺陷 N-r8-2，等价改名绕避）。启动 profile：AUTO_HTTP_STEP_BUDGET=1e9 + AUTO_HTTP_REQUEST_TIMEOUT_MS=300000（run_fresh_server.sh 注入）。deps/stylekit 陈旧符号链接指针删除（CLI 现按 pac.at path 实体化 deps/，目录已 gitignore）。
+
 冻结被审r6计划SHA256=A8D2DA453B9AECF2573A4B68789997B0D4E8A5201FACA4B5195612858B478859；SD-11~18块hash=2a22001c76beb6ff2e7676f22f5b3141312370daa40e8904ded8d1921df6e5bd，抽取口径及源码hash见报告。多次失败后先查闭合表/oracle，再检验主索引四键正负界、合法未知值、真实移除→恢复消费者和门状态，不以原反例全绿替代共享规则闭合。
 
 ## 5. 详细设计
@@ -87,7 +91,7 @@ r7 work 基线（2026-10-08）：入口=同树 v0.6-dev @ 1b9030f（r6 记账后
 | F-08/10 | 既有正确性 | 等长变文/emoji/合法undefined原反例通过 | T-11/17；AC-02 | 逐字锚点保留，合法正文不能作缺失哨兵 |
 | F-09 | 既有写侧正确性 | 写侧原反例及F-14读态反例通过 | T-12/18；AC-02/04 | 写payload与存储态共享基础规则但明确不同字段契约 |
 | F-11 | 既有索引正确性 | 已闭合：主索引形状/四键范围/未知值通过；恢复消费者F-18本轮闭合，统一准入全入口成立 | T-13/19；AC-04 | 非整数元数据在任何改写前拒绝（含restore存储输入） |
-| F-12 | P1，原目标未闭合 | 混排恢复¶50在pane外，top=-2848.57（维持r5几何证据，本源未变） | T-14/20/25；AC-02 | 产品自行把目标滚入阅读pane，直接布局交集断言；框架前置具名等待 |
+| F-12 | P1，原目标未闭合→**Vue 轨已闭合（r8），VM 轨前端具名等待（N-r8-2）** | 锚点机制（PLAN-781 scroll-anchor + scroll_to_child）落地 reading_page：恢复按真实布局入 pane；real-book 11/11（T-R10 混排 V-20 正面积交集转正即绿）；`-r vm` outlet 无法挂载 reading 页（跨仓缺陷，§10.6） | T-14/20/25；AC-02 | Vue 轨几何门已过；VM 轨待框架修复挂载缺陷后以 reader001_r8_native_vm_restore.py 出证 |
 | F-13 | P2，Phase 3回归 | 已闭合：合法undefined/null真实点击与恢复通过 | T-17；AC-02 | 真实保存/刷新恢复成功，旧缺锚点负例仍失败 |
 | F-14 | P2，原读侧目标遗漏 | 已闭合：数字串/错书ID/缺字段返回空串并保原件 | T-18；AC-02/04 | 不合法态拒用保原件；ID与请求严格匹配 |
 | F-15 | P2，原范围目标遗漏 | 已闭合：主索引四键正负界通过；恢复移除记录范围由F-18本轮闭合 | T-19/23；AC-04 | 类型合法性与写入准入可直接观察、失败索引字节不变 |
@@ -134,8 +138,8 @@ r7 work 基线（2026-10-08）：入口=同树 v0.6-dev @ 1b9030f（r6 记账后
 
 - [x] T-23: owner_stage=work；闭合F-15范围遗漏（AC-04/05），范围jsonx.at valid_record与library.at索引读改所有调用点；依赖T-19已修词法规则。先探针明确每个已知整数键可无损表示范围，再在parse/typed提取/备份/资产写入之前拒绝越界；或采用可无损读写的方案，不靠事后wrap。永久覆盖合法边界、2147483648/9223372036854775808/2^80、负界/小数/指数；非法入口list/import/remove/restore不得改索引/备份/旧资产。新r5三范围反例需转PASS，合法整数对照不回归。 r6独立复审：主索引代表性修复通过，但restore消费者F-18/相关证据未完整闭合，继续未完成，已有正确行为保留。 r7闭合（2026-10-08）：restore接入同一准入（valid_removed_entry→valid_record→发布前valid_index），非法restore不再改索引/备份/暂存/日志/资产；证据见§9回执。
 - [x] T-24: owner_stage=work；修复F-16（AC-04），范围jsonx.at valid_record与t06规格/HTTP，依赖已知整数协议口径。整数/范围规则仅检查size/chapter_count/import_version/created_at；未知合法JSON值仍跳过。未知rating=4/4.5/1e2、对象/数组正对照，已知整数键小数/指数负对照，各读改准入保持一致。不引入未知字段写回保留的新承诺。 r6独立复审：未知小数/指数形态/对象/数组对照通过，保持完成；完整源码/入场响应见报告，不声称新增了未提交的单测断言。
-- [ ] T-25: owner_stage=work；继续闭合F-12（AC-02），范围reading.at恢复及real-book T-R10；既有child-anchor提案保留，不再把“已登记提案”计为产品通过。先核查当前框架版本是否已有能定位目标/回报布局的接口；无则记录auto-lang scroll-pane负责计划、精确接口、Vue/VM消费者和依赖提交，等待单独框架计划获授权并落地。app不越权修改框架。之后接入并启用混排门，产品自主滚动；均匀/混排、中文/ASCII、small/large和窄宽pane代表性组合目标rect与pane须有交集。缺前置时本任务保持未完成。 【2026-10-06 状态更新】未完成（具名 blocker，保持未验收）：当前 CLI（2785-ga6e108f60）滚动原语面仍为 6 个 pane 级原语、无元素/child-anchor 定位（native_catalog 9900-9905 复核）。框架前置提案已具体化：auto-lang child-anchor scroll intent（scroll_to_child(handle, child_index)/ScrollIntent::ToChild；owner=auto-lang scroll-pane 计划；consumer=本 app reading.at 恢复路径与 real-book T-R10；验收=混排夹具目标段双轨入 pane）。等待独立框架计划授权落地；落地前混排用例维持 test.fixme，本任务不勾。
-- [ ] T-26: owner_stage=work；完成10MiB成功导入及原生VM真实恢复的原验收门（T-04/09/15，全AC）。先形成有界前置记录：预算/分片或流式能力的具体接口、负责仓/计划与consumer；原生窗口实际交互入口及证据取得方法。现有错误保护和启动证据保留，不能标成功。框架前置另获授权落地后，10MiB内容/受管副本逐字核验、规范读态冷启动、原生VM恢复目标可见分别留实际证据；不能测试则列精确blocker，任务不勾。不得自行降低原目标。 【2026-10-06 状态更新】未完成（具名 blocker，保持未验收）：10MiB 成功导入前置 = auto-lang 预算可配/分片导入接口（engine.rs CPU_CUMULATIVE_STEP_BUDGET=10M 硬编码，跨仓候选）；原生 VM 真实恢复验收前置 = 原生窗口交互入口与证据取得方法（当前无自动化窗口驱动）。本轮错误保护（预算显式错误+索引不变）与启动零毒化证据保留，成功目标不标通过。任务保持未完成。
+- [ ] T-25: owner_stage=work；继续闭合F-12（AC-02），范围reading恢复及real-book T-R10；既有child-anchor提案保留，不再把“已登记提案”计为产品通过。先核查当前框架版本是否已有能定位目标/回报布局的接口；无则记录auto-lang scroll-pane负责计划、精确接口、Vue/VM消费者和依赖提交，等待单独框架计划获授权并落地。app不越权修改框架。之后接入并启用混排门，产品自主滚动；均匀/混排、中文/ASCII、small/large和窄宽pane代表性组合目标rect与pane须有交集。缺前置时本任务保持未完成。 【2026-10-06 状态更新】未完成（具名 blocker，保持未验收）：当前 CLI（2785-ga6e108f60）滚动原语面仍为 6 个 pane 级原语、无元素/child-anchor 定位（native_catalog 9900-9905 复核）。框架前置提案已具体化：auto-lang child-anchor scroll intent（scroll_to_child(handle, child_index)/ScrollIntent::ToChild；owner=auto-lang scroll-pane 计划；consumer=本 app reading.at 恢复路径与 real-book T-R10；验收=混排夹具目标段双轨入 pane）。等待独立框架计划授权落地；落地前混排用例维持 test.fixme，本任务不勾。 【2026-10-29 r8 更新】前置已由 PLAN-781 交付（scroll-anchor DSL + nat 9922/9923 双轨）并完成业务接入：reading_page 段落带稳定子 key、恢复路径 scroll_to_child 入队（取代字符占比估算），**Vue 轨混排几何门转正即绿**（real-book 11/11，T-R10 按 V-20 与阅读 pane 正面积求交）；**VM 轨前端因 N-r8-2（reading 页 outlet 挂载缺陷，§10.6）无法到达阅读页**，双轨验证差半轨——本任务保持未勾，待框架修复后以 reader001_r8_native_vm_restore.py 补 VM 轨几何证据。
+- [ ] T-26: owner_stage=work；完成10MiB成功导入及原生VM真实恢复的原验收门（T-04/09/15，全AC）。先形成有界前置记录：预算/分片或流式能力的具体接口、负责仓/计划与consumer；原生窗口实际交互入口及证据取得方法。现有错误保护和启动证据保留，不能标成功。框架前置另获授权落地后，10MiB内容/受管副本逐字核验、规范读态冷启动、原生VM恢复目标可见分别留实际证据；不能测试则列精确blocker，任务不勾。不得自行降低原目标。 【2026-10-06 状态更新】未完成（具名 blocker，保持未验收）：10MiB 成功导入前置 = auto-lang 预算可配/分片导入接口（engine.rs CPU_CUMULATIVE_STEP_BUDGET=10M 硬编码，跨仓候选）；原生 VM 真实恢复验收前置 = 原生窗口交互入口与证据取得方法（当前无自动化窗口驱动）。本轮错误保护（预算显式错误+索引不变）与启动零毒化证据保留，成功目标不标通过。任务保持未完成。 【2026-10-29 r8 更新】**10MiB 成功导入已达成**：PLAN-781 交付 AUTO_HTTP_STEP_BUDGET（宿主可配至 4e9），run_fresh_server.sh 注入 1e9 profile；t04 改成功门 17 检查全过（导入 ok/2001 章对账/首中末章逐字前缀）+ PLAN-781 deep 驱动全章 oracle 复验（结果见 §9 r8 回执）。**原生 VM 恢复行为验收保持未验收（N-r8-2）**：`-r vm` outlet 无法挂载 reading 页（§10.6），永久验收驱动 reader001_r8_native_vm_restore.py 已交付待框架修复。本任务保持未勾（半闭合：10MiB ✓，原生 VM ✗）。
 - [x] T-27: owner_stage=work；F-17门对账与Spec候选修正（全AC），依赖T-23~26真实结果。重跑auto test、t01~06实际日志/exit、HTTP、r2~r5、real-book/smoke，并逐项记录PASS/FAIL/SKIP；r2缺参400不冒充语义门。采用套件新实例/隔离目录及真实等待条件核验冒烟，保留本轮大量夹具+固定等待失败的边界。先更正文档候选中的错误终审/交付声明，冻结候选及全SHA/依赖hash；任务勾选必须对应完整不变量，current_step由唯一任务列表计算。required项不全仍executing，不能移入pending_closeout、隐藏fixme或发布canonical/ledger。 r6独立复审：主索引代表性修复通过，但restore消费者F-18/相关证据未完整闭合，继续未完成，已有正确行为保留。 r7闭合（2026-10-08）：全量回归exit0逐项记录（§9回执：auto test 6/6、规格226检查、HTTP 77、r2~r6驱动、UI 20+1fixme、冷启动）；T-25/26真实结果=具名blocked；文档候选/计数/矩阵已对账。
 - [ ] T-28: owner_stage=review；本聊天或获授权的独立最终复审（全AC，SD-11~18），依赖已提交work候选及T-27证据。暂停实现写入，固定同一树HEAD/依赖/Spec与delta散列，独立验证合法与非法控制、实际副作用、混排/长文/原生VM门。所有required实现与review门真过才reviewed，之后才merge；缺项needs_fix或具名blocked并保持executing。实现会话自审和已归档回执不代替此最终裁决。
 
@@ -167,12 +171,14 @@ r7 work 基线（2026-10-08）：入口=同树 v0.6-dev @ 1b9030f（r6 记账后
 AC的owner_stage=work（实现与证据），T-22负责独立裁决。以下勾选为本轮最终复审覆盖，完整目标的门还包括T-04/14/15的长文和双轨恢复，不可用AC短句将其删除。
 
 - [x] AC-01: 两份中文真实文件可导入且逐字核对，新增书不再生成占位章节。本轮t01/t03/t05与HTTP/原反例代表性成功路径通过。
-- [ ] AC-02: 重启后书与原文件仍在、恢复同段落；同标题不同原文件不互相覆盖。内容锚点/emoji主体与隔离通过，F-13/14本轮已过；F-12混排视口仍具名未验收（T-25框架前置等待），规范态实际冷启动与原生VM目标可见未验收（T-31复核）。
+- [ ] AC-02: 重启后书与原文件仍在、恢复同段落；同标题不同原文件不互相覆盖。内容锚点/emoji主体与隔离通过，F-13/14本轮已过；**F-12 混排视口恢复 Vue 轨已闭合（r8 锚点机制，T-R10 V-20 几何门通过），VM 轨前端挂载缺陷（N-r8-2）具名未验收**；规范态实际冷启动与原生VM目标可见未验收（VM 轨恢复行为门挂 N-r8-2，见 §10.6）。
 - [x] AC-03: 同hash重复导入有明确选择；异常中断不留下成功却缺原文件的记录。本轮t01/t05/t06/r2代表性去重/force/副本/中断通过。
 - [x] AC-04: 无法解码/损坏/不可写给错误且不损坏已有书库。既有编码/备份/列表形状保护通过，F-14和主索引F-15/16已过；恢复消费者F-18已由Phase 6闭合并经r7终审14项独立新向量确认（restore准入先于解析与改写、身份核对、发布前候选验证；越界/小数/指数/null/缺字段/换绑/结构负例拒绝且字节不变）。10MiB 错误保护单列，成功导入门在 AC-01 侧未验收。
 - [x] AC-05: 书目移除可恢复，默认不删除用户原路径文件；迁移前有备份。正常移除/恢复/备份与旧版本拒绝路径通过；F-18坏移除记录恢复已闭合并经终审独立确认（含fail-closed多行策略、i32边界无损、兄弟行逐字保留）。10MiB成功导入与原生窗口门不在此AC覆盖内且未验收。
 
 ## 8. 执行步骤与交接
+
+r8 交接（2026-10-29）：PLAN-781 前置落地后恢复执行。**已闭合**：F-12 Vue 轨（锚点接入 + T-R10 V-20 几何门，real-book 11/11）、10MiB 成功导入（t04 成功门 + deep 全章 oracle）。**具名未验收**：原生 VM 轨恢复行为（N-r8-2：CLI 更换后 reading 页 outlet 挂载缺陷，§10.6；验收驱动 reader001_r8_native_vm_restore.py 永久化，框架修复后补证）。全量回归在 auto-man 117-g873fa23 上重建（详见 §9 r8 回执）。终审（T-31 后继）裁量 required 缺项处置。
 
 r7 终审裁决（T-31，2026-10-08）= **blocked，保持 executing**。Phase 6 work（T-29/30）与终审（T-31）已完成并提交；F-18/F-17 闭合经独立确认。剩余全部为具名跨仓框架前置，app 内无可修对象：F-12 混排（T-25，等待 auto-lang child-anchor scroll intent 计划）、10MiB 成功导入（T-26，等待预算可配/分片接口）、原生 VM 验收（T-26，等待原生窗口交互入口与证据方法）。
 
@@ -438,3 +444,12 @@ final pass才reviewed；之后merge才能发布候选规范/ledger、归档并�
 当前next=work。详细债务、来源和原回执保留于§9及[冻结r4](../reviews/reader001-r4-plan-frozen.md)，不再保留竞争的“latest/pass/待审”指令。
 
 5. r7 终审后的用户路由决策（2026-10-12 用户确认，取代 10-08 的 a/b 待决状态）：**保留原验收目标**——混排目标段入 pane、10MiB 成功导入、原生 VM 恢复行为验证三项不移交、不降范围。路线=**单独推进 auto-lang 能力与验收工具前置计划**（child-anchor scroll intent；导入预算可配/分片；原生窗口交互入口与证据方法），001 在前置落地后回到终审。决策当时未新建前置计划、未调整范围、未重跑功能测试；前置立项属 auto-lang 仓，须按其仓规约与授权另行进行，app 不越权修改框架。001 保持 executing/r7、16/32，前置落地前不归档。
+   **【2026-10-29 更新】前置已落地**：auto-lang PLAN-781（Reader 框架前置：原生验收、段落锚点与10MiB导入）已交付并归档（T-07 终审 pass r11，2026-10-16），依赖回执指名 001 仍须业务接入、实际复验、独立终审。001 据此恢复 executing/r8。
+
+6. r8 新增跨仓缺陷与边界登记（2026-10-29，CLI=auto-man 117-g873fa23 实测；均非本仓 diff 引入，app 侧已做等价绕避或如实登记）：
+   - **N-r8-2（P1，VM 轨 outlet 挂载）**：reading 页模块在 `-r vm` 下无法经 outlet 挂载——路由推进（__current_route 正确变为 /chapter/1）但页面组件不实例化、Init 不触发、零诊断输出；模块名 `reading` 本身即触发（同形内容改名 reading_page 曾一度恢复挂载，后续复验在 OpenChapter 导航下仍退出/不挂载，症状含「vm interpreter returned ok=true」干净退出）。多轮最小化复现与两变量矩阵（组件内容×导航路径）已做，独占环境下仍复现。验收驱动 reader001_r8_native_vm_restore.py 永久化；框架侧修复前 VM 轨 UI 验收保持具名未验收。
+   - **N-r8-2a（P1，VM 轨 handler 降档投毒）**：Init 处理器内 is_real/else 两分支重复 `let total`（同 handler 内跨分支重名 let）使 handler_reading_Init 降档编译投毒、导出被整体丢弃（"[CODEGEN] dropping poisoned export"），页面失去 Init；改名即愈。已由 r8 二分实测并 app 侧修复（reading_page else 侧 total_demo）。
+   - **N-r8-2b（P2，vue codegen int 降档）**：文件级 fn 形参不进 int 证明集，`/` 裸发射且 `as int` 退化为 `Number()` 不截断（r7 时代 CLI 行为不同）；后端 int 参数严格拒 float → demo 进度 PUT 400。app 侧已改除法自由环（pct_of/bookshelf/book_detail）。
+   - **N-r8-1（P2，VM 轨 store→Http.post 体）**：书架导入对话框臂（store handler 内 Http.post 裸记录实参）请求体缺参（400 missing param path）——Vue 轨同路径正常；本 diff 未触该面，预存。
+   - **N-r8-3（P3，autoui_action 通道）**：action press 派发的 handler 内 router.push 为 no-op（fixture 派发的 push 正常）；另书卡为 col onclick，MCP 无 col 点击原语——原生导航经 fixture trigger（AUTOUI_TEST_FIXTURES=1）承担，验收驱动已注明。
+   - deps/stylekit 旧符号链接指针机制已废（新 CLI 按 pac.at path 实体化 deps/，目录 gitignore）。
