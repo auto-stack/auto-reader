@@ -189,6 +189,32 @@ final pass才reviewed；之后merge才能发布候选规范/ledger、归档并�
 同树v0.6-dev按AGENTS §2.1提交推送app，再只更新父仓本app gitlink、保留其他WIP，完成detach。框架变更另由其仓授权与计划，不从app越界修改。
 
 ## 9. 复审记录
+### 2026-10-29 r8 独立最终复审（review_scope=final；唯一最新裁决）
+
+- stage: review | review_scope: final | reviewer_identity/limitations: 实现会话内独立复审上下文（无另一会话/agent 可用，沿 r3/r5/r7 先例）——裁决由工件重建：被审基线 34c6850 上重跑全部关键门、复审自有新向量（不采信执行勾选）；模型/session 未暴露；原生 VM 窗口未人手操作 | plan_id: READER-001 | reviewed_plan_revision: 8 | current_plan_revision: 8 | outcome: **blocked（具名跨仓缺陷 N-r8-2 未满足，保持 executing）**
+- worktree_path: D:/autostack/.wt/reader-001/auto-reader | branch: plan-001-dev | reviewed_commit: **34c6850**（实现终版 885a6b8 + README 记账） | base_commit: 7bb1869（781e tip） | worktree clean ✓；diff 7bb1869..34c6850 = 12 文件全部位于 r8 授权面（前端页/测试/驱动/README），canonical specs 与 .autoos ledger 零触碰
+- dependency_revisions: auto-man 0.1.0+v0.0.20-117-g873fa23，exe SHA256=97CE3BDEDFC6C2A62FD71678D80B71003EC4985946FE406928308690FC2E4B19（实测复核）；PLAN-781 archived（pass r11）
+- spec_inputs: SD-11~19 候选保留待审（canonical 未动，符合 work 纪律）；r8 新增候选=锚点定位消费语义（scroll-anchor/scroll_to_child）+ N-r8-2a/b 边界；r7 复审报告基线沿用
+- acceptance_results（全部在被审基线 34c6850 实测复跑）:
+  - AC-01 **pass**：t01 34 + t03 26（0 FAIL）+ HTTP t01 39 + deep 驱动导入/受管副本 SHA256==原件
+  - AC-02 **fail（差原生 VM 轨一项）**：F-12 Vue 轨经复审自有新向量独立确认（REV-F12 探针：2000字混排/large/1000×700/¶30——pane scrollTop=3320、标记段与 pane 正面积 iy=56；诊断直证锚点滚动为产品行为）；负控（无进度书无假恢复）过；跨重启阅读状态持久过（deep）；**原生 VM 恢复行为未验收=N-r8-2**
+  - AC-03 **pass**：t05 23 + t04 迁移/去重/同题异容 + r2 8/8
+  - AC-04 **pass**：t06 91 + r4/r5/r6/r7=8/5/24/14 + deep 数字域/低预算显式拒绝且书库不变
+  - AC-05 **pass**：t06 + r6 24/24（恢复链准入）+ deep 恢复链
+- evidence:
+  - 规格 t01~t07 = 293 检查 0 FAIL（退出码+日志双判据，被审基线重跑）；auto test 6/6。
+  - t04 HTTP 17 检查 0 FAIL（全新实例 reader001-review-r8-final：10MiB 成功导入/2001 章/首中末章逐字/v0 迁移拒绝恢复/去重/同题异容）；r2~r7 = 8/12/8/5/24/14 全 PASS（同实例）。
+  - UI 全新实例：real-book 11/11（T-R10 V-20 几何门）+ smoke 10/10（各用全新实例，实例卫生纠偏后取证）。
+  - deep oracle（t26_deep_10mib_verify.py EXIT=0）@c10db63 **复用有效**：diff c10db63..34c6850 = README/驱动文件/reading_page.at 前端展示行，src/back 与章 GET/导入路径零改动；扫描覆盖全部 2001 章逐字（重启前后）+ 受管副本 SHA256 + 低预算负例。
+  - 原生驱动复跑（被审基线）：**签名精化**——改名后 reading 页可挂载（scroll_ctl_reading-pane 在册），但内容装载失败（content 106px 空壳、无 Init 产物/无恢复标记）→ N-r8-2 家族仍阻塞 VM 轨恢复行为验收；15 记录中 11 过。
+- findings:
+  - **N-r8-2（P1，跨仓，保持）**：VM 轨 reading 页挂载/初始化缺陷家族（auto-ui/auto-man 域）——签名精化：①模块名 reading 触发面（改名后挂载恢复）；②挂载后 Init 不产内容/曾见 vm interpreter ok=true 干净退出。app 侧不可修；修复后以 reader001_r8_native_vm_restore.py 补证即闭环。
+  - **N-r9-1（复审探针缺陷，nonblocking，沿 N-3/N-6 先例）**：复审 F-12 探针初版缺双层解码+恢复段 needle 差一（29 vs 30）——服务端导入两次均 200 成功；修正诊断版直证几何通过后判定。修正记录在案，产品无缺陷。
+  - 无新产品缺陷。
+- pending_closeout_gates: N-r8-2 框架修复 → reader001_r8_native_vm_restore.py 出证 → 复审补证 → merge-owned（canonical/ledger 沉淀、landing、归档清理）；当前全部保持 pending，不得以已过回归替代
+- next: **框架侧（auto-ui/auto-man 仓，按其仓规约立项）修复 N-r8-2 家族**——这是本计划完成（reviewed→merge→archived）的唯一剩余 unblock 动作；修复落地后回 001：work 补 VM 轨证据（驱动已就绪）→ 复审补证 → pass → merge。在此之前 001 保持 executing/r8、24/32，不归档。
+
+
 
 ### 2026-10-29 Phase 7（r8）work 收尾（PLAN-781 前置落地后的业务接入；交接独立终审）
 
