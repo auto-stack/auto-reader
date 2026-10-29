@@ -184,6 +184,13 @@ final pass才reviewed；之后merge才能发布候选规范/ledger、归档并�
 
 ## 9. 复审记录
 
+### 2026-10-29 goal 回合1：前置落地核实与路由恢复（§10.5 解阻条件满足）
+
+- stage: goal | plan_id: READER-001 | plan_revision: r7 | round: 1 | from: blocked（§10.5 用户路由等待前置落地） | to: work | status: executing | outcome: pass（核实路由，本回合无 stage 写入） | worktree: D:/autostack/auto-reader（main @ 29b5dec，除未跟踪 src/front/tmp/ 截图外干净） | commit: 29b5dec | next: work
+- 核实（ durable 工件重建，非会话记忆）：① §10.5 三项具名前置已由 auto-lang **PLAN-781「Reader 框架前置：原生验收、段落锚点与10MiB导入」**交付——status=archived，T-07 终审 pass（r11，2026-10-16，reviewed_commit 3dca8a39c，明确"Reader业务终审不被此pass代替"）；其依赖回执指名 001 仍须**业务接入、实际复验、独立终审**。三项对应：child-anchor 段落锚点（scroll-anchor DSL + nat 9922/9923 + 双轨布局 adapter）、10MiB 导入 profile（AUTO_HTTP_STEP_BUDGET 可配至 4e9 + AUTO_HTTP_REQUEST_TIMEOUT_MS）、原生窗口验收通道（AutoUI MCP，test_vm_mcp.py）。② Reader 侧 781 阶段 E 章 meta 索引分支 **plan-781e-meta-index @7bb1869**（领先 main 6 提交：importers/jsonx/library.at + t07 parity 规格，零计划文件冲突，可 ff）按回执特意保留、001 为其业务终审 owner。③ 运行时重大漂移：`auto` CLI 已由 auto-lang 2785 构建换至 **auto-man 0.1.0+v0.0.20-117-g873fa23**（D:/autostack/auto-man/target/debug/auto.exe，SHA256=97CE3BDEDFC6C2A62FD71678D80B71003EC4985946FE406928308690FC2E4B19）——按"假设变更即重跑"，work 阶段全部证据须在新构建上重建。
+- 下阶段范围（work）：重开 T-25/T-26 及依赖链（T-04/08/09/14/15/01/02/03 按 F-12/10MiB/原生VM 实际闭合重验）——reading.at 恢复路径接入 scroll-anchor（Vue/VM 双轨，T-R10 去 fixme）、导入/服务面接入预算 profile 并完成 10MiB 成功导入逐字核验、MCP 原生通道完成原生 VM 恢复行为验收；781e 分支业务终审随本阶段执行。
+- 记账基线：本回执先行提交 main；work 阶段在 reader-781 保留树延续。
+
 ### 2026-10-08 r7 T-31 独立最终复审（唯一最新裁决）
 
 - stage: review | review_scope: final | reviewer_identity/limitations: 本聊天独立复审上下文（与实现同会话，无另一会话/agent 可用，沿 r3/r5 先例）；独立性以工件重建——独立新向量、固定 hash 核对、关键门在被审基线重跑，不采信实现勾选；模型/session 未暴露；原生 VM 窗口未操作 | plan_id: READER-001 | reviewed_plan_revision: 7 | current_plan_revision: 7 | outcome: **blocked（具名框架前置未满足）**
