@@ -543,6 +543,13 @@ final pass才reviewed；之后merge才能发布候选规范/ledger、归档并�
 - runtime 绑定（两个二进制，均含 PLAN-886 诊断面）：`auto`=`0.1.0+v0.0.20-118-ge6cc06f` SHA256=`C049ABE3…`；`auto-ui-tool` SHA256=`C1F54640…`
 - residual: 无功能残留。跨仓边界（N-r8-1/2b/3）作为「已登记能力的边界」留在 canonical Spec §6，不构成本计划未验收门。
 
+### 2026-10-29 goal 回合4：收尾链完成（goal 链记录）
+
+- stage: goal | plan_id: READER-001 | plan_revision: 9 | round: 4 | from: merge | to: done | status: archived | outcome: **pass**
+- 本回合链路：work（N-r8-2 定案 + 全门补证，29/32）→ review pass（全 AC，32/32，reviewed r9）→ merge（`--ff-only` Updating 055a5a6..47103a7）→ canonical spec 沉淀（SHA256 `171AAE8B…`）+ ledger v2 → 计划归档（`docs/plans/archive/001-real-library.md`，status=archived）→ worktree/分支/组清理（wt-guard clean；清理 373 个 reparse point 后移除）→ landing check（合并后 main 冷启动 PASS，零 poison/零 SYNTH-FAIL）
+- worktree: `D:/autostack/.wt/reader-001/auto-reader` 已移除（plan-001-dev 已删）| commit: `9c766bb`（归档提交）| next: done
+- pending: 无。跨仓边界 N-r8-1/2b/3 作为"已登记能力边界"留在 canonical Spec §6，不是本计划未验收门。
+
 ## 10. 待澄清事项
 
 1. T-20负责先限时核查当前PLAN-656目标/布局接口；若必须改AutoLang，产出具体原语、消费者、Vue/VM验收和独立前置计划提案。当前app不获框架核心改动的隐含授权。缺少前置则恢复到原段目标继续未验收。
