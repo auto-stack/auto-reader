@@ -1,7 +1,7 @@
 ---
 plan_id: READER-001
 title: "真实导入、书库存储与位置恢复"
-status: reviewed
+status: archived
 feature_name: "真实导入、书库存储与位置恢复"
 author: [Codex]
 created_at: 2026-10-04T00:00:00Z
@@ -531,6 +531,17 @@ final pass才reviewed；之后merge才能发布候选规范/ledger、归档并�
 - cleaned: 不适用（无 .wt worktree/独立分支需清除；检出按 AGENTS §2.1 detach 收尾）
 
 [整体roadmap](../roadmap-v0.6.md) · [agent执行说明](../README.md)
+
+合并回执 READER-001:r9（2026-10-29，goal 收尾会话）：
+
+- prepared: reviewed 基线 **47103a7**（终审记录 055a5a6 之后 pre-landing sync；代码终版 268c7d4）；canonical Spec=`docs/specs/reader/real-library.md`（SD-11~19 维持 + r9 新增：元素级锚点消费语义、10MiB 成功门、N-r8-2/2b/1/3 边界、r9 验证资产；新 SHA256=`171AAE8BD4734FF2A83BF76F382555BFAB449884C057C7BFDE094D27F2212350`）；交付轨=main（独立仓，v0.6-dev 子检出形态随 PLAN-781 退役）
+- landed: `git merge --ff-only plan-001-dev` → `Updating 055a5a6..47103a7`（Fast-forward，无 merge 冲突）；代码链 3ca802d→43e6b7f→99de4fb→c10db63→885a6b8→34c6850→**268c7d4**；spec 提交 `f0dbcf3`、ledger 提交 `83412a5`
+- ledger_refreshed: `.autoos/specs.json` v1→**v2**：R001-1 Delivered（三项原未验收门全关）、R001-2/3 补锚点定位语义与 handler 整页编译门、R001-4 改 r9 计数与两二进制绑定、R001-5 复审链补 r6~r9、R001-6 work 报告指针、新增 **R001-7** 合并回执；读回校验通过
+- archived: `docs/plans/archive/001-real-library.md`，`status: archived`，completion_kind=delivered
+- cleaned: worktree `D:/autostack/.wt/reader-001/auto-reader`（plan-001-dev）— wt-guard 输出 clean 后 `git worktree remove`、分支 `-d`、组目录移除
+- landing check（合并后的 main 检出冷启动，不依赖 worktree 产物）：`auto run --server=vm` 全新隔离目录 `reader001-review-landing-op9ywal_` → 17824/17825 均监听、`GET /api/library/books` = `{"version":1,"books":[]}`、stderr **零** `dropping poisoned export` / 零 `[SYNTH-FAIL]` → **PASS**
+- runtime 绑定（两个二进制，均含 PLAN-886 诊断面）：`auto`=`0.1.0+v0.0.20-118-ge6cc06f` SHA256=`C049ABE3…`；`auto-ui-tool` SHA256=`C1F54640…`
+- residual: 无功能残留。跨仓边界（N-r8-1/2b/3）作为「已登记能力的边界」留在 canonical Spec §6，不构成本计划未验收门。
 
 ## 10. 待澄清事项
 
