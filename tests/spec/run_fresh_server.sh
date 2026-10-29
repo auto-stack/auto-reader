@@ -15,7 +15,18 @@ FLAG=""
 if [ "$2" = "--vm-full" ] || [ "$1" = "--vm-full" ]; then FLAG="-r vm"; fi
 
 mkdir -p "$DATA_DIR"
+# T-26 导入预算 profile（PLAN-781 交付的宿主可信配置）：HTTP dispatch 累计
+# 指令上限可配——10MiB 成功导入最坏 ~420M 步，默认 10M 必然预算错误。测试/
+# 开发实例统一 1e9 步 + 5min 请求超时（已设置时尊重外部值）。上限语义见
+# auto-lang docs/specs/auto-lang/vm/design/handler-execution-budget.md。
+if [ -z "$AUTO_HTTP_STEP_BUDGET" ]; then
+  export AUTO_HTTP_STEP_BUDGET=1000000000
+fi
+if [ -z "$AUTO_HTTP_REQUEST_TIMEOUT_MS" ]; then
+  export AUTO_HTTP_REQUEST_TIMEOUT_MS=300000
+fi
 echo "AUTO_READER_DATA=$DATA_DIR"
 echo "front: http://localhost:17824  back: http://localhost:17825"
+echo "AUTO_HTTP_STEP_BUDGET=$AUTO_HTTP_STEP_BUDGET AUTO_HTTP_REQUEST_TIMEOUT_MS=$AUTO_HTTP_REQUEST_TIMEOUT_MS"
 
 AUTO_READER_DATA="$DATA_DIR" auto run --server=vm $FLAG

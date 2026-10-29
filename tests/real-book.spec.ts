@@ -316,12 +316,14 @@ test.describe('READER-001 真实书 UI', () => {
     expect(st.para_text).toBe('null')
   })
 
-  // F-12 未验收登记（计划 Phase 4 T-20）：混排内容下占比估算定位偏离
-  // （r4 复审实测 ¶50 于 pane 外）；恢复标记与提示仍正确。框架前置提案
-  // （child-anchor scroll intent）落计划 §10——本用例以 fixme 显式跳过，
-  // 不以「标记已出现」冒充视口恢复，也不让已知未验收项染红整门。
-  test.fixme('T-R10: 混排内容（4000字长段+100短段）恢复目标段进入阅读 pane（F-12 未验收）', async ({ page }) => {
-    // 保存 ¶50（body 行 50 = 短段49；框架前置落地后本用例转正）
+  // T-25（F-12 闭合）：框架前置已由 PLAN-781 交付（scroll-anchor +
+  // auto.scroll.to_child，双轨 nearest 公式），reading.at 恢复定位改锚点
+  // 入队。本用例转正，oracle 按 V-20 口径直接断言标记段 rect 与阅读 pane
+  // （data-scroll-pane）正面积交集；不做任何测试侧滚动，也不以「标记已
+  // 出现」冒充视口恢复。
+  test('T-R10: 混排内容（4000字长段+100短段）恢复目标段进入阅读 pane（V-20 几何门）', async ({ page }) => {
+    // 保存 ¶50（body 行 50 = 短段49；估算定位在混排下失准——r4/r5 实测
+    // top=-2848 于 pane 外；锚点按真实布局顶/底对齐定位）
     const chm = http('GET', `http://127.0.0.1:17825/api/library/chapter?book_id=${mixedId}&number=1`)
     const ml: string[] = chm.body.split('\n')
     const mpi = 50
@@ -338,8 +340,12 @@ test.describe('READER-001 真实书 UI', () => {
       .poll(
         async () => {
           const box = await target.boundingBox()
-          const vh = page.viewportSize()!.height
-          return !!box && box.y + box.height > 0 && box.y < vh
+          const pane = await page.locator('[data-scroll-pane="1"]').first().boundingBox()
+          if (!box || !pane) return false
+          // 正面积交集（V-20）：x/y 两轴重叠量均 > 0
+          const ix = Math.min(box.x + box.width, pane.x + pane.width) - Math.max(box.x, pane.x)
+          const iy = Math.min(box.y + box.height, pane.y + pane.height) - Math.max(box.y, pane.y)
+          return ix > 0 && iy > 0
         },
         { timeout: 15000 },
       )

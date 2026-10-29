@@ -12,10 +12,11 @@
 // 正文按段渲染。Phase 3（F-08/F-10）：点段保存携带顶层 para_text 内容
 // 锚点（外层 JSON 传输零转义；后端与原文行逐字核对）；恢复以存储态
 // para_text 与当前段落逐字验证，缺失/失配诚实提示。
-// Phase 3（F-12）：正文列改 scroll-pane（PLAN-656 双轨 controller）——
-// 恢复时两段式滚动：先溢出 scroll_to 触发测量与 onscroll，OnScroll 按
-// 「累计字符占比 × 可滚动跨度」精化定位（估算定位 v1；元素级定位为
-// 框架前置提案，见计划 §10）。
+// Phase 3（F-12→T-25）：正文列 scroll-pane（PLAN-656 controller）。恢复定
+// 位自 Phase 7 起改 PLAN-781 子内容锚点（scroll-anchor + auto.scroll.to_child，
+// 双轨同源 nearest 公式、真实布局定位）：每段带稳定子 key（p<idx>），恢复
+// 时入队元素级定位，取代原「溢出滚动 + onscroll 字符占比估算」两段式——
+// 估算对混排段失准（F-12），锚点按真实布局顶/底对齐入 pane。
 // 逻辑内联于 handler（widget 内局部 fn 不支持——T-03 实测 parse error）；
 // 纯计算下沉文件级 fn。/api/library/* 响应双层编码——统一经 parse_lib
 // 二次解析（缺书/失败回 null，守卫跨 Vue/VM 双轨安全）。
@@ -24,14 +25,28 @@ use fmt: pct1
 
 style page_btn = "inline-flex items-center gap-1 px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-lg transition-colors disabled:opacity-40"
 
-/// 进度百分比。经 fn 形参计算——`as int` 套在 model 字段表达式上时
+/// 进度百分比（floor）。经 fn 形参计算——`as int` 套在 model 字段表达式上时
 /// vue codegen 漏 `.value` 解包（生成 `chapter_num * 100` 而非
 /// `chapter_num.value * 100`），fn 形参无此问题。
+/// 除法自由环：vue 轨文件级 fn 形参不进 int 证明集，`/` 裸发射且 `as int`
+/// 退化为 Number() 不截断（新 CLI 实测；后端 int 参数严格拒 float →
+/// PUT progress 400）——floor(cur*100/total) 用纯整乘加比较环等价实现，
+/// 双轨同义（codegen 债务登记计划 §10）。
 fn pct_of(cur int, total int) int {
     if total <= 0 {
         return 0
     }
-    return (cur * 100 / total) as int
+    if cur <= 0 {
+        return 0
+    }
+    if cur >= total {
+        return 100
+    }
+    var p int = 0
+    while ((p + 1) * total <= cur * 100) {
+        p = p + 1
+    }
+    return p
 }
 
 /// 段文本校验签名（Locator v1 兼容位）。
@@ -43,7 +58,8 @@ fn para_hash(text str) str {
     return "sig1:" + text.len().to_string() + ":" + lines.len().to_string()
 }
 
-/// 正文 → 段落数组 [{idx, text}]（去空行；idx = 原行号）。
+/// 正文 → 段落数组 [{idx, text, key}]（去空行；idx = 原行号；key = 稳定
+/// 子锚点 key，scroll-anchor 寻址用——pane 内唯一，跨章节同构）。
 fn split_paragraphs(body str) List {
     let lines = body.split("\n")
     var out List = []
@@ -51,7 +67,8 @@ fn split_paragraphs(body str) List {
     while i < lines.len() {
         let t str = ("" + lines[i]).trim()
         if t != "" {
-            out.push({ idx: i, text: t })
+            let k str = "p" + i.to_string()
+            out.push({ idx: i, text: t, key: k })
         }
         i = i + 1
     }
@@ -94,7 +111,7 @@ fn real_payload(rid str, ch int, para int, ph str, font str, line str) str {
 }
 
 widget reading {
-    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int), OnScroll(float, float, float, float, float, float, float, float) }
+    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int) }
 
     model {
         var book_id int = 0
@@ -116,11 +133,8 @@ widget reading {
         var cur_paragraph int = -1
         var cur_para_text str = ""
         var restored_note str = ""
-        // T-14 恢复滚动：scroll-pane controller 键 + 待精化恢复目标
+        // T-25 恢复定位：scroll-pane controller 锚柄（scroll_to_child 寻址）
         var rsc str = "reading-pane"
-        var restore_pi int = -1
-        var restore_cum int = 0
-        var restore_total int = 0
     }
 
     view {
@@ -170,9 +184,9 @@ widget reading {
                         }
                     }
                 }
-                // Reading column — T-14：scroll-pane（PLAN-656 双轨 controller
-                // 程序化滚动）；onscroll 驱动恢复定位的精化收敛
-                scroll-pane (controller: .rsc, style: "flex-1 min-h-0 w-full", onscroll: .OnScroll) {
+                // Reading column — T-25：scroll-pane（PLAN-656 controller）；
+                // 恢复定位由段落 scroll-anchor + scroll_to_child 入队完成
+                scroll-pane (controller: .rsc, style: "flex-1 min-h-0 w-full") {
                     if .loaded {
                         col {
                             style: "max-w-2xl mx-auto px-6 py-10 gap-6"
@@ -190,6 +204,7 @@ widget reading {
                                     for p in .paragraphs {
                                         col {
                                             onclick: .TapParagraph(p.idx)
+                                            scroll-anchor: p.key
                                             style: ["px-3 py-2 rounded-lg cursor-pointer transition-colors",
                                                 if p.idx == .cur_paragraph {
                                                     "bg-primary/10 border-l-4 border-primary para-marked"
@@ -267,6 +282,8 @@ widget reading {
                 // F-05 修复：章节号一律以路由为准（显式入口不被旧状态
                 // 覆盖）；旧状态只提供排版设置与段级恢复判定
                 let pr = parse_lib(Http.get_json("/api/library/progress?book_id=" + .route_id))
+                // T-25：本页待恢复目标段（行号），锚点入队后即消费
+                var restore_target int = -1
                 if pr != null {
                     let pf str = "" + pr.font_size
                     if pf != "" {
@@ -347,7 +364,7 @@ widget reading {
                                             .cur_paragraph = pi
                                             .cur_para_text = "" + p.text
                                             .restored_note = "已恢复上次位置（点任意段落可更新）"
-                                            .restore_pi = pi
+                                            restore_target = pi
                                         } else {
                                             .restored_note = "上次保存的段落内容已变化，请重新点选位置"
                                         }
@@ -362,36 +379,19 @@ widget reading {
                         }
                     }
                 }
-                // T-14 恢复滚动（两段式）：统计累计/总字符 → .loaded 置真后
-                // 经一次 await 让出（Vue 在 await 边界刷新 DOM，段落此时才
-                // 真正入树；VM 轨 intent 队列本就渲染后排空）→ 渲染后溢出
-                // scroll_to（夹到末端，触发测量与 onscroll）→ OnScroll 再按
-                // 累计字符占比精化定位。元素级定位原语缺失（框架差距），
-                // 占比估算对均匀段落精确、对极端混排有偏差——如实登记。
+                // T-25 恢复定位（PLAN-781 锚点）：.loaded 置真后经一次 await
+                // 让出（Vue 在 await 边界刷新 DOM，段落此时真正入树；VM 轨
+                // intent 队列本就渲染后排空），再按稳定子 key 入队元素级定
+                // 位——nearest 公式按真实布局顶/底对齐入 pane（双轨同源）。
+                // 入队回执非完成证明（完成 oracle = 真实 offset 变化 + 目标
+                // 正面积交集，由 V-20 测试门承担）；入队期 error 诚实提示。
                 .loaded = true
-                if .restore_pi >= 0 {
-                    var total int = 0
-                    var cum int = 0
-                    var seen int = 0
-                    var k2 int = 0
-                    while k2 < .paragraphs.len() {
-                        let p2 = .paragraphs[k2]
-                        let tl int = ("" + p2.text).len() + 1
-                        total = total + tl
-                        if p2.idx == .restore_pi {
-                            seen = 1
-                        } else {
-                            if seen == 0 {
-                                cum = cum + tl
-                            }
-                        }
-                        k2 = k2 + 1
-                    }
-                    .restore_cum = cum
-                    .restore_total = total
+                if restore_target >= 0 {
                     let warm = parse_lib(Http.get_json("/api/library/progress?book_id=" + .route_id))
-                    if .restore_pi >= 0 {
-                        let ok1 = scroll_to(.rsc, 0.0, 100000000.0)
+                    let rk str = "p" + restore_target.to_string()
+                    let rr str = scroll_to_child(.rsc, rk)
+                    if rr.find("error:") == 0 {
+                        .restored_note = .restored_note + "；自动定位失败，请手动滚动"
                     }
                 }
                 let total int = .chapter_count
@@ -587,24 +587,6 @@ widget reading {
                 .restored_note = f"已记录位置：第 ${idx} 段"
             } else {
                 .restored_note = "位置保存失败：后端未确认，请重试"
-            }
-        }
-        // T-14 恢复滚动精化：Init 的溢出滚动触发本事件后，按「累计字符
-        // 占比 × 可滚动跨度」一次精化定位并清除待恢复标记（本方法引发的
-        // 二次 onscroll 到达时 restore_pi 已清，不再迭代）。
-        .OnScroll(ox, oy, vw, vh, cw, chh, px, py) -> {
-            if .restore_pi >= 0 {
-                if .restore_total > 0 {
-                    if chh > vh {
-                        let cf float = 0.0 + .restore_cum
-                        let tf float = 0.0 + .restore_total
-                        let ratio float = cf / tf
-                        let span float = chh - vh
-                        let target float = ratio * span
-                        let ok2 = scroll_to(.rsc, 0.0, target)
-                    }
-                }
-                .restore_pi = -1
             }
         }
     }

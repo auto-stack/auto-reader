@@ -11,7 +11,12 @@ fn detail_chapter_from_progress(progress int, chapter_count int) int {
     if progress <= 0 {
         return 1
     }
-    let computed int = (progress * chapter_count / 100) as int
+    // 截断除法改为除法自由环（vue 轨文件级 fn 形参不进 int 证明集，
+    // `as int` 退化为 Number() 不截断——新 CLI 实测，codegen 债务登记计划 §10）
+    var computed int = 0
+    while ((computed + 1) * 100 <= progress * chapter_count) {
+        computed = computed + 1
+    }
     if computed < 1 {
         return 1
     }

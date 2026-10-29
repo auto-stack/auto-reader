@@ -51,7 +51,10 @@ store BooksStore {
             .books = Http.get_json("/api/books")
         }
         .SetProgress(id int, progress int) -> {
-            try { Http.put("/api/books/" + id.to_string() + "/progress", json.from_value({ progress: progress })) } catch { }
+            // json.from_value 在 Vue 轨未映射（T-00 登记差距；verbatim 透发
+            // 成 ReferenceError 被 catch 吞，tsc 构建亦红）——与 AddBook/
+            // ImportBook 同款裸映射实参（Vue 面 JSON.stringify 产出请求体）。
+            try { Http.put("/api/books/" + id.to_string() + "/progress", { progress: progress }) } catch { }
             .books = Http.get_json("/api/books")
         }
         // 真实书导入：结果存 last_import（{code,message,book_id,existing_id}）
