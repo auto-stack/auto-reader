@@ -113,6 +113,34 @@ fn real_payload(rid str, ch int, para int, ph str, font str, line str) str {
     return payload
 }
 
+fn fill_pref(cur str, key str, def str) str {
+    if cur != def {
+        return cur
+    }
+    let v = storage.get(key)
+    if v != nil {
+        if v != "" {
+            return v
+        }
+    }
+    return cur
+}
+
+fn body_style_of(font str, line str) str {
+    var size_cls str = "text-base"
+    if font == "small" {
+        size_cls = "text-sm"
+    }
+    if font == "large" {
+        size_cls = "text-lg"
+    }
+    var lead_cls str = "leading-relaxed"
+    if line == "compact" {
+        lead_cls = "leading-snug"
+    }
+    return "text-foreground " + size_cls + " " + lead_cls
+}
+
 widget reading_page {
     msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int) }
 
@@ -283,8 +311,11 @@ widget reading_page {
             }
             if .is_real {
                 // F-05 修复：章节号一律以路由为准（显式入口不被旧状态
-                // 覆盖）；旧状态只提供排版设置与段级恢复判定
-                let pr = parse_lib(Http.get_json("/api/library/progress?book_id=" + .route_id))
+                // 覆盖）；旧状态只提供排版设置与段级恢复判定。
+                // var 而非 let：F-14 身份守卫在 book_id 失配时重赋 null
+                //（VM 轨编译器强制 let 不可变——重赋使整个 Init 编译失败
+                // 且被静默丢弃，即 N-r8-2 根因；诊断面修复后现形）
+                var pr = parse_lib(Http.get_json("/api/library/progress?book_id=" + .route_id))
                 // T-25：本页待恢复目标段（行号），锚点入队后即消费
                 var restore_target int = -1
                 if pr != null {
@@ -415,35 +446,11 @@ widget reading_page {
                 }
                 .progress_label = pct1(.progress_pct) + "%"
             }
-            // 排版偏好：进度态优先，退回 storage
-            let fs = storage.get("br-font-size")
-            if fs != nil {
-                if fs != "" {
-                    if .font_size == "medium" {
-                        .font_size = fs
-                    }
-                }
-            }
-            let lh2 = storage.get("br-line-height")
-            if lh2 != nil {
-                if lh2 != "" {
-                    if .line_height == "comfy" {
-                        .line_height = lh2
-                    }
-                }
-            }
-            var size_cls str = "text-base"
-            if .font_size == "small" {
-                size_cls = "text-sm"
-            }
-            if .font_size == "large" {
-                size_cls = "text-lg"
-            }
-            var lead_cls str = "leading-relaxed"
-            if .line_height == "compact" {
-                lead_cls = "leading-snug"
-            }
-            .body_style = "text-foreground " + size_cls + " " + lead_cls
+            // 排版偏好合成下沉文件级 fn（等价语义）；VM 轨大 handler 内联
+            // storage 尾段触发降档投毒（N-r8-2a），此重构为其绕避之一
+            .font_size = fill_pref(.font_size, "br-font-size", "medium")
+            .line_height = fill_pref(.line_height, "br-line-height", "comfy")
+            .body_style = body_style_of(.font_size, .line_height)
             if !.is_real {
                 .loaded = true
                 store.SetProgress(.book_id, .progress_pct)
