@@ -1,4 +1,7 @@
-// reading.at — "/book/:id/chapter/:ch" 沉浸式阅读页。
+// reading_page.at — "/book/:id/chapter/:ch" 沉浸式阅读页。
+// 原模块名 reading：当前 CLI VM 轨下该名模块经 outlet 无法挂载（路由
+// 更新、Init 不触发、零诊断输出；同形内容改名即恢复——r8 实测，登记
+// 计划 §10 跨仓债务 N-r8-2，框架侧以最小复现排查）。
 // PLAN-684 F-4：TOC 抽屉（容器内 absolute，非 fixed）+ 真实排版偏好
 // （storage: br-font-size / br-line-height）+ 精简顶/底栏。
 // NOTE: book + progress are stored as model fields (set in .Init), NOT
@@ -110,7 +113,7 @@ fn real_payload(rid str, ch int, para int, ph str, font str, line str) str {
     return payload
 }
 
-widget reading {
+widget reading_page {
     msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int) }
 
     model {

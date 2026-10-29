@@ -9,7 +9,7 @@ widget App {
     routes {
         "/" -> use bookshelf
         "/book/:id" -> use book_detail
-        "/book/:id/chapter/:ch" -> use reading
+        "/book/:id/chapter/:ch" -> use reading_page
         "/settings" -> use settings
     }
 
