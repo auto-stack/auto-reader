@@ -410,8 +410,8 @@ widget reading_page {
                     .chapter_count = book.chapter_count
                 }
                 let total_demo int = .chapter_count
-                if total > 0 {
-                    .progress_pct = pct_of(.chapter_num, total)
+                if total_demo > 0 {
+                    .progress_pct = pct_of(.chapter_num, total_demo)
                 }
                 .progress_label = pct1(.progress_pct) + "%"
             }
