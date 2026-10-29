@@ -1,37 +1,42 @@
-# auto-reader：第一版 roadmap
+# auto-reader：首版路线图
 
-状态：planning-baseline；日期：2026-10-04。应用产品版本拟用 0.1.x，需发行时确定；现有 pac.at 的导入版本号不自动代表该产品已经完成。AutoOS v0.6 目标窗口为2026年12月底，应用节奏按验收门槛调整。
+更新：2026-10-29。001已交付归档；002/003本轮仅修订为r3，尚未实施。产品版本与平台支持以实际交付证据为准，pac.at导入版本号不等于所有规划完成。
 
-## 交付顺序
+## 当前顺序
 
-| 里程碑 | 成果 | 范围 | 实施计划 | 现状 |
-|---|---|---|---|---|
-| M1 | 真实书库 | TXT/Markdown导入、持久化、稳定位置和迁移 | READER-001 | 复审needs_fix（2026-10-06）；001保持executing/r7，Phase 6修复移除记录恢复准入与证据对账；主索引修复已验证，混排/长文/原生VM门仍未完成，见计划§5/9 |
-| M2 | 读与摘录 | 样式、搜索/书签/高亮、导出和Notes契约 | READER-002 | 未开始 |
-| M3 | EPUB产品化 | 重排版子集、目录/图片/资源隔离及双端矩阵 | READER-003 | 未开始 |
+| 顺序 | 成果 | 计划与启动条件 | 当前状态 |
+|---|---|---|---|
+| 1 | 真实TXT/Markdown书库、内容锚点与重启恢复 | [READER-001](plans/archive/001-real-library.md) | archived/r9，32/32；最终复审055a5a6、实现268c7d4、合入后landing PASS。这里同步既有证据，本轮未重跑验收 |
+| 2（当前优先） | 最小EPUB3重排版导入、目录/图片/内部链接、基本字号与离线位置恢复 | [READER-003 r3](plans/003-epub-reflow.md)；依赖已交付001＋T-00确认的必要ZIP/XML/二进制/渲染/真实输入能力 | drafting，0/7；不等完整002或Notes；先做有界能力与资源预算调查 |
+| 3 | 本地阅读体验、搜索、书签/高亮/注释、准确回访与Markdown导出 | [READER-002 r3 阶段A](plans/002-reading-annotations.md)；消费001/003已交付内容与locator接口 | drafting，本地阶段可独立验收/阶段交付，不等Notes运行或接收服务 |
+| 4 | Notes真实交接、离线待发送、幂等重试与耐久回执 | [READER-002 r3 阶段B](plans/002-reading-annotations.md)；A已交付＋[NOTES-002](D:/autostack/auto-notes/docs/plans/002-quick-card-assets.md)真实接收能力 | 等待接收端实际交付；只导出文件/mock不算真实联动完成 |
 
-M0先冻结 source-sync 与来源清单，所有app操作在auto-os/apps/018-book-reader进行，修改时切v0.6-dev，完成提交/父仓指针更新后恢复detached。当前可先做计划01的接口、fixture和独立新模块；恢复主力机后再审查v0.5来源增量并融合旧入口。计划02/03依赖前序的真实证据，不能仅凭文档或勾选开始依赖集成。
+依赖图为 `001 → 003 → 002-A → 002-B`，Notes接收能力只进入B。003自己交付最小内容adapter、基本阅读与EPUB位置；002消费同一模型，不反向要求003先等注释或Notes。003旧合同的高亮恢复要求移入002-A，仍需验收，不当成已经实现或被删除。
 
-## 时间与容量
+002-A可phase review/merge并让本地成果投入使用；B未完成时002保持executing，不把A通过称整份002完成或归档。后续双端结论分别记录，不用Vue成功替代原生VM。
 
-建议M1用1–2周完成能力探针和最小真实数据闭环，M2用1–2周完成主体体验，M3按平台/格式复杂度预留2–3周，之后1–2周集中验证与修复。这是容量估算而非AI开发速度承诺；四个应用可由独立agent分工，但同仓计划顺序执行，不能把这份估算叠加成同一人三个月的硬承诺。
+## 003的真实前置
 
-先保证首个应用M1稳定，再用同样模式启动下一个。能力探针不通过时减少范围或登记明确的跨仓前置计划；已承诺的核心能力未经讨论不能悄悄改为mock验收。
+001/r9提供书库、受管原件、状态及恢复基础。EPUB专用ZIP/XML/二进制身份、受管资源、两端基本文本/图片/定位、真实UI导入/导航与资源预算，由003 T-00逐项验证；缺少公共能力时在实际框架owner立最小前置，消费其交付回执后再实施依赖任务。不以“当前能读TXT”推定“当前能读EPUB”。
 
-## 可延后与远期
+Notes/Jade、auto-web建仓、全局知识服务、整轮框架结构收口与Linux发行版基础均不作为003的全局启动门。实际共享文件/接口按owner协调；真正缺少的ZIP/渲染/输入能力不能用mock绕过。
 
-PDF/扫描件、复杂EPUB排版和公式、听书、在线书库、多端同步为v0.7+；AI段落解释可做小原型，不抢占真实阅读闭环。
+## 001归档状态及边界
 
-首版依赖当前AutoUI/AutoLang基线；可移植数据协议不依赖新的HIR/AC或完整知识操作系统。远期接统一auto-man的应用/资产/知识包管理，当前不要在应用内再实现一套包安装服务。
+001实际归档位置是 `docs/plans/archive/001-real-library.md`，r9、32/32。其收据记录：10MiB成功导入与全章oracle、混排内容锚点真实可见、原生恢复驱动16/16、真实Vue回归及main landing PASS；早期r7/r8 needs_fix或未验收说明保留在历史，不能作为当前001状态。
 
-## 发布门槛
+001不是EPUB完成证据，也不宣称所有运行栈/平台均可用。当前已验UI组合为 `auto run --server=vm` 和 `auto run -r vm --server=vm`；Rust后端映射、原生导入请求体/部分导航驱动等限制见[现实现规范](specs/reader/real-library.md)与001记录。003若实际需要这些入口，必须在其能力门中关闭，不能用001的API预导入/恢复夹具冒充003的真实UI导入。
 
-实际个人任务闭环、真实数据重启恢复、失败/取消行为、可迁出格式、Vue/VM能力矩阵、Windows/Linux实际可运行范围及Harmony demo边界必须有证据。缺少平台没有跑过不能写“全支持”。仅文档阶段不运行cargo测试；实施后的测试依照代码作用域进行。
+## 执行与交付
 
-## 计划入口
+- 开发/计划/顺序复审使用 `D:/autostack/auto-reader` 独立clone的main，一app一写入者；`auto-os/apps/auto-reader`只固定已推送交付版本，平时detached。先推app，再更新AutoOS精确pin并验证。旧v0.6-dev及Demo编号目录仅为历史。
+- 001保持归档，不为新增增强需求重开；本轮只改002/003、导航/路线和总表，不修改业务源码、canonical Spec或ledger，不取新号、不启动实现、构建或GUI。
+- 规模和资源预算在003 T-00/002 T-00明确单位、边界及超限结果；未提出硬上限不等于无限规模承诺，也不以过去的周数估算代替能力验证。
+- 最终测试与复审按各Plan指定阶段/触面执行；原始证据本地保留、Plan记摘要，不改语言crates时不跑其Cargo全量或docs_gen。
+- Linux另等auto-os-distro完成Nix＋COSMIC基础；本次Windows已验组合与EPUB本地实现不等待该基础，也不冒称Linux已验证。
 
-1. [READER-001：真实导入、书库存储与位置恢复](plans/001-real-library.md)
-2. [READER-002：阅读体验、摘录与知识交接](plans/002-reading-annotations.md)
-3. [READER-003：重排版 EPUB 导入与阅读](plans/003-epub-reflow.md)
+## 后续增强
 
-[完整设计](design/01-product-design.md) · [调研](research/20261004-benchmarks.md) · [agent操作说明](README.md)
+PDF/扫描OCR、复杂出版物排版、听书、在线书源和多端同步继续留待后续；AI解释不抢占真实阅读与数据可靠性。002的本地增强/真实Notes交接按上述阶段保留，不因优先EPUB而撤销需求。
+
+[产品设计（目标态）](design/01-product-design.md) · [执行入口](README.md) · [AutoOS总跟踪表](https://github.com/auto-stack/auto-os/blob/main/docs/plans/b-apps-basic-capabilities.md)

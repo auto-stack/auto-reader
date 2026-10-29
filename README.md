@@ -2,7 +2,7 @@
 
 图书阅读器，使用 AutoLang / AutoUI 开发的独立应用。
 
-本仓是首批产品源码基线；当前能力以导入版本为准，仓库描述中的产品方向不表示全部已实现。
+READER-001已交付归档（r9，32/32）：真实TXT/Markdown书库、受管原件、内容锚点与重启恢复。最小EPUB和本地增强/Notes联动分别由003、002 r3规划，尚未实现。
 
 ## 运行
 
@@ -52,25 +52,22 @@ auto run -r vm --server=vm
 对单文件编译失败曾退出 0——CLI 缺陷已登记，脚本规格以日志 `fails=0` 与
 退出码双重判据）。
 
-2026-10-12 用户路由决策后，auto-lang **PLAN-781**（Reader 框架前置：原生验收、
-段落锚点与 10MiB 导入）已交付并归档（final pass r11）：child-anchor 段落锚点、
-`AUTO_HTTP_STEP_BUDGET` 导入预算、AutoUI MCP 原生验收通道、章 meta 索引
-（reader 侧分支 plan-781e-meta-index，已随 r8 落地）。2026-10-29 r8：恢复定位
-切换 scroll-anchor 元素级锚点（Vue 轨 T-R10 混排几何门转正通过）；10MiB 成功
-导入达成（t04 成功门 + 781 deep 全章 oracle）；原生 VM 轨恢复行为验收因
-CLI 更换后 reading 页面在 `-r vm` outlet 无法挂载（跨仓缺陷 N-r8-2，登记
-计划 §10）保持具名未验收。完整事实见计划 §9/§10，不能将上表已过回归
-等同于全计划通过。
+2026-10-29：READER-001 r9已完成最终复审并归档，N-r8-2根因已定案为app的 `let pr` 非法重赋值及框架静默诊断可见性，应用修复与语言886均已有交付记录。原生恢复驱动16/16、Vue混排几何门、10MiB成功导入和main landing证据见[归档001](docs/plans/archive/001-real-library.md)。早期r7/r8的needs_fix或未验收描述保留为历史，不作为当前状态；这不抹去上列其他运行栈/导入驱动限制。
 
 ## 来源与组合
 
 来源提交、路径与文件 hash 见 `SOURCE-IMPORT.json`。首次导入提交保留在 `source-sync` 分支；完整 v0.5 恢复后从该基线导入差异，再与产品开发线合并。
 
-AutoOS 通过 [`apps/018-book-reader`](https://github.com/auto-stack/auto-os/tree/v0.6-dev/apps/018-book-reader) submodule 固定本仓版本；教学 Demo 保留在来源仓。
+AutoOS 通过 [`apps/auto-reader`](https://github.com/auto-stack/auto-os/tree/main/apps/auto-reader) submodule 固定本仓版本；教学 Demo 保留在来源仓。
 
 ## 产品规划（2026-10-04）
 
 [需求与设计、首版 roadmap、业界调研及前三个实施计划](docs/README.md)。
 
-实现与验收状态以各计划证据为准；[READER-001](docs/plans/001-real-library.md)
-处于 executing/r8（PLAN-781 前置落地后的业务接入阶段），r8 问题与修复方案见 §5/§9/§10。
+当前顺序为 **001（已归档）→003最小EPUB→002-A本地增强与摘录→002-B Notes交接**。003不等待完整002；002-A可独立验收/阶段交付，B等Notes-002真实接收，B未完成不把002整Plan归档。
+
+- [READER-001（archive/r9，32/32）](docs/plans/archive/001-real-library.md)
+- [READER-003：最小重排版EPUB导入与阅读（drafting/r3）](docs/plans/003-epub-reflow.md)
+- [READER-002：本地阅读体验、摘录与分阶段Notes联动（drafting/r3）](docs/plans/002-reading-annotations.md)
+
+本轮仅修订计划、路线与状态，不启动实现。003所需的基本内容/字号/位置适配在003自身交付；原003高亮恢复要求归入002-A，需求保留。开发使用 `D:/autostack/auto-reader` 独立clone的main，AutoOS子模块仅固定交付版本；先push应用再更新组合pin，独立clone不切detached。Linux支持仍等待Nix＋COSMIC发行版基础。

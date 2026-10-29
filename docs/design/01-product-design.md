@@ -2,6 +2,8 @@
 
 状态：proposed；日期：2026-10-04。目标为安静可靠的个人阅读器，连接 Notes/Jade，辅助阅读与回访原文。
 
+> 2026-10-29排程更新：001已归档r9、32/32；本文“内存种子/占位章节”为导入时历史观察，现实现见[real-library Spec](../specs/reader/real-library.md)与[001最终记录](../plans/archive/001-real-library.md)。近期顺序按[当前roadmap](../roadmap-v0.6.md)调整为001→003最小EPUB→002-A本地增强/摘录→002-B Notes联动；下列R03/R04/R05/R06目标仍保留，阶段名不代表已实施。003原高亮恢复转002-A，不要求完整002先交付。
+
 ## 1. 现状与目标
 
 `src/back/db.at` 明确是内存种子库；`create_book` 按标题/作者生成3个占位章节。现有 bookshelf/reading/book_detail/settings 和 book_store 提供界面原型；Book 的整数progress不足以在更换字体后准确恢复阅读位置。第一步是导入真正文件、保存真实书库，而不是继续添加假书。
