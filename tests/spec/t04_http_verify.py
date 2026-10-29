@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 # t04_http_verify.py — READER-001 T-04 应用级 HTTP 验证（长文/迁移/重复/中断）。
 # 前置：bash tests/spec/run_fresh_server.sh（干净数据目录的 VM 后端在 17825）。
-# 覆盖：容量阶梯（64KB 多章 / 512KB 边界 / 10MiB 预算上限）、v0 索引拒绝
+# 覆盖：容量阶梯（64KB 多章 / 512KB 边界 / 10MiB 成功导入）、v0 索引拒绝
 #       （迁移语义）、同内容异名去重、同题异容独立档案。
+# T-26（r8）：10MiB 断言改为成功门——AUTO_HTTP_STEP_BUDGET profile
+#       （run_fresh_server.sh，PLAN-781 交付）下导入必须 ok 且内容可读；
+#       全章逐字 deep oracle 由 scripts/tools/test_reader_import_budget.py 承担。
 # 幂等：生成物首行注入运行级唯一标识（内容去重基于内容）；请求体 ASCII
 # 安全（\u 转义）；空响应幂等重试（T-02 实测缺陷）。
 import json
@@ -67,7 +70,7 @@ def main():
     # 1) 容量阶梯 fixture（现场生成）
     p_small = gen(f"cap-64kb-{RUN}.txt", 6, 80)        # ~64KB，预算内
     p_mid = gen(f"cap-512kb-{RUN}.txt", 40, 80)        # ~512KB，预算边界
-    long_path = gen(f"cap-10mb-{RUN}.txt", 2000, 80)   # ~10MiB（AC 目标，超预算）
+    long_path = gen(f"cap-10mb-{RUN}.txt", 2000, 80)   # ~10MiB（AC 目标，预算内成功）
     check(os.path.getsize(long_path) >= 10 * 1024 * 1024, "10MiB fixture generated",
           os.path.getsize(long_path))
 
@@ -125,20 +128,30 @@ def main():
     check(oc.get("code") == "ok" and oc.get("existing_id") == "",
           "same-title different-content → distinct", oc)
 
-    # 6) 10MiB（AC 目标）置于最后：VM 轨 10M 指令预算硬上限（engine.rs
-    #    CPU_CUMULATIVE_STEP_BUDGET）——登记跨仓能力计划，不以降标顶替。
-    #    Phase 2 诚实化（F-07）：空响应/超时不算「显式错误」，只算无响应；
-    #    无论响应形态如何都对账落盘态——书库索引与受管资产不得出现新书
-    #    （防假成功）。显式错误形态（code=io_error 等结构化响应）才记 PASS。
-    pre_books = curl("GET", "/api/library/books")
-    pre_ids = {x.get("book_id") for x in pre_books.get("books", [])}
+    # 6) 10MiB（AC 目标 T-26，r8 成功门）置于最后：run_fresh_server.sh 注入
+    #    AUTO_HTTP_STEP_BUDGET=1e9（PLAN-781 宿主可配预算；默认 10M 必然
+    #    预算错误的旧错误保护形态由 781 前置计划单测面继续覆盖）。本驱动对账：
+    #    导入 ok（或响应竞态下落盘态出现新书）+ 章数对账 + 首/中/末章逐字抽查。
     o10 = curl("POST", "/api/library/import", {"path": long_path, "author": "", "force": False})
-    explicit_error = (o10.get("error") is not None) or (o10.get("code") in ("io_error", "decode_error", "invalid_path"))
-    check(explicit_error, "10MiB import explicit error (VM budget ceiling, cross-repo)", o10)
-    post_books = curl("GET", "/api/library/books")
-    post_ids = {x.get("book_id") for x in post_books.get("books", [])}
-    check(post_ids == pre_ids, "10MiB attempt leaves library unchanged (no false success)",
-          {"pre": len(pre_ids), "post": len(post_ids)})
+    books10 = curl("GET", "/api/library/books")
+    m10 = [x for x in books10.get("books", []) if x.get("title") == f"cap-10mb-{RUN}"]
+    imported_ok = (o10.get("code") == "ok") or (len(m10) == 1)
+    check(imported_ok, "10MiB import succeeds under budget profile", o10)
+    check(len(m10) == 1, "10MiB book in library exactly once", len(m10))
+    if m10:
+        rec10 = m10[0]
+        bid10 = rec10.get("book_id", "")
+        check(rec10.get("chapter_count") == 2001, "10MiB chapters=2001 (开篇+2000)",
+              rec10.get("chapter_count"))
+        for num, label in ((1, "first"), (1000, "mid"), (2001, "last")):
+            c10 = curl("GET", f"/api/library/chapter?book_id={bid10}&number={num}")
+            exp_title = "开篇" if num == 1 else f"第{num - 1}章 长卷"
+            check(str(c10.get("title", "")).startswith(exp_title),
+                  f"10MiB {label} chapter title", c10.get("title"))
+            # 开篇体首行为 gen() 注入的运行标记行，其余章以 PARA 开头
+            exp_body = f"run:{RUN}" if num == 1 else PARA.strip()
+            check(str(c10.get("body", "")).startswith(exp_body),
+                  f"10MiB {label} chapter body verbatim prefix", c10.get("body", "")[:40])
 
     print(f"--- summary: {len(FAILS)} fails ---")
     sys.exit(1 if FAILS else 0)

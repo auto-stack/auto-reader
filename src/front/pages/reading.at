@@ -406,7 +406,7 @@ widget reading {
                 if book != null {
                     .chapter_count = book.chapter_count
                 }
-                let total int = .chapter_count
+                let total_demo int = .chapter_count
                 if total > 0 {
                     .progress_pct = pct_of(.chapter_num, total)
                 }
