@@ -189,6 +189,10 @@ final pass才reviewed；之后merge才能发布候选规范/ledger、归档并�
 同树v0.6-dev按AGENTS §2.1提交推送app，再只更新父仓本app gitlink、保留其他WIP，完成detach。框架变更另由其仓授权与计划，不从app越界修改。
 
 ## 9. 复审记录
+### 2026-10-29 goal 回合3：独立终审完成（goal 链停止记录）
+
+- stage: goal | plan_id: READER-001 | plan_revision: r8 | round: 3 | from: review | to: user（框架侧修复后回归） | status: executing | outcome: blocked（终审裁决=具名跨仓缺陷 N-r8-2；goal 链按停止条件交回，unblock 动作见上） | worktree: D:/autostack/.wt/reader-001/auto-reader（保留，plan-001-dev @ 34c6850） | commit: 34d762c（本仓 main 记账） | next: user/框架侧
+
 ### 2026-10-29 r8 独立最终复审（review_scope=final；唯一最新裁决）
 
 - stage: review | review_scope: final | reviewer_identity/limitations: 实现会话内独立复审上下文（无另一会话/agent 可用，沿 r3/r5/r7 先例）——裁决由工件重建：被审基线 34c6850 上重跑全部关键门、复审自有新向量（不采信执行勾选）；模型/session 未暴露；原生 VM 窗口未人手操作 | plan_id: READER-001 | reviewed_plan_revision: 8 | current_plan_revision: 8 | outcome: **blocked（具名跨仓缺陷 N-r8-2 未满足，保持 executing）**
