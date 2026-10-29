@@ -141,16 +141,17 @@ T-02 实测）。**直连客户端请求体必须 ASCII 安全（\u 转义）**�
   + 存储态 para_text 与当前段落逐字相等」齐备才标记「已恢复」；**缺内容
   锚点（旧 sig1 态）/内容失配/段失位**分别给诚实提示，不标记、不假恢复。
   保存须响应含 `"ok":true` 才显示成功，失败给可重试提示。
-- **恢复滚动（F-12，SD-09/SD-14）**：正文列为 scroll-pane（PLAN-656 双轨
-  controller）；恢复采用**两段式占比估算定位 v1**——渲染后溢出 scroll_to
-  触发测量与 onscroll，再按「累计字符占比 × 可滚动跨度」精化。**精度
-  边界（如实，r4 复审混排实测）**：均匀段落精确（T-R3 直测入视口通过），
-  混排内容（如 4000 字长段+100 短段）占比不等于排版高度、目标可落于
-  pane 外（复现登记，UI 用例 test.fixme）——**本项恢复目标保持未验收**；
-  元素级定位原语缺失（无 child-anchor intent），框架前置提案已具体化：
-  auto-lang child-anchor scroll intent（scroll_to_child(handle,
-  child_index) / ScrollIntent::ToChild，owner=scroll-pane 计划，验收=
-  混排夹具目标段双轨入 pane）——落地后 T-R10 转正为视口断言。
+- **恢复滚动（F-12，r8 落地 / r9 双轨出证；SD-09/SD-14 的「占比估算 v1」自本版废止）**：
+  正文列为 scroll-pane；reading_page 每个段落带**稳定子 key**（`p<行号>`，
+  PLAN-781 `scroll-anchor` DSL，Vue/VM 双轨同源）；恢复路径在「保存章节 ==
+  打开章节 + 段在场 + para_text 逐字相等」齐备后，把目标段以
+  **`scroll_to_child`（元素级 intent）** 入队，滚动由产品自行完成——不再
+  使用「累计字符占比 × 可滚动跨度」估算（混排构型下占比≠排版高度，实测
+  目标落 pane 外）。**验收 oracle = 目标段 rect 与 `[data-scroll-pane]` 的
+  正面积交集（V-20）**：Vue 轨 = Playwright `tests/real-book.spec.ts` T-R10
+  （已由 fixme 转正）；VM 轨 = 原生驱动 `tests/review/reader001_r8_native_vm_restore.py`
+  的 `autoui_visibility`（¶50 正面积可见）+ pane offset>2000（深位）+ ¶100
+  尾部反差。框架原语 owner=auto-lang PLAN-781（已归档），app 不越权改核心。
 - 设计文档（design/01-product-design.md §3）的 Locator v1 exact_quote/
   text_offset 字段由 para_text + paragraph_index 承接，升级不改变存储
   键名（import_version 可扩展）。
@@ -164,11 +165,33 @@ T-02 实测）。**直连客户端请求体必须 ASCII 安全（\u 转义）**�
   64 字符相同而行尾不同的文件必同值——非小概率事件，Phase 2 实测复现）；
   去重与资产复用一律经完整逐字内容核对（§3），碰撞内容隔离到独立槽位，
   不串文、不误判重。
-- **10MiB 长文导入被阻断（保持未验收）**：VM 指令预算
-  `CPU_CUMULATIVE_STEP_BUDGET=10M` 硬上限，实测 ≥1MiB 导入即超（512KB
-  边界：响应可超时但服务端完成；t04 HTTP 已诚实化——空响应不算显式
-  错误，并落盘对账库不变）。跨仓能力计划候选（auto-lang：预算可配/分片
-  导入）；**本项 AC 目标保留未验收**，不以降标或「显式失败」替代通过。
+- **10MiB 长文导入（原阻断项；r8 关闭、r9 复验）**：PLAN-781 交付宿主可信
+  预算配置——`AUTO_HTTP_STEP_BUDGET`（可配至 4e9，`run_fresh_server.sh` 注入
+  1e9）与 `AUTO_HTTP_REQUEST_TIMEOUT_MS`（300000）。**成功导入为已验收门**：
+  10MiB / 2001 章 t04 **19 PASS / 0 FAIL**（章数对账 + 首/中/末章逐字前缀）+
+  deep 全章 oracle（`tests/spec/t26_deep_10mib_verify.py`，EXIT=0，重启前后
+  两轮逐字 + 受管副本 SHA256==原件）。默认 10M 指令预算下的**显式拒绝**仍是
+  负例保护（错误保护 ≠ 成功门）。
+- **handler 合成是「整 handler 编译期门」（N-r8-2，r9 定案）**：VM 轨 handler
+  内对 `let` 变量重赋值（身份守卫 `pr = null` 即实例）会使**整个 handler**
+  编译失败；框架把未产出 prolog 的导出按 Plan 423 P5 判毒丢弃（**判定正确**，
+  否则运行期从指令中间进入栈失衡）。框架侧原缺陷是**失败静默**（合成失败只进
+  未接线的 `log::warn`）；auto-lang PLAN-886 后恒出 stderr：`[SYNTH-FAIL]
+  handler synthesis failed: <原因>` 与 `[CODEGEN] dropping poisoned export
+  '<name>': entry <addr> is not FN_PROLOG (byte, code_len, ±4 窗口)`。
+  **app 纪律**：handler 内可变绑定一律 `var`；「页面挂载但 Init 不执行/内容空」
+  先看 stderr 的 `[SYNTH-FAIL]`。早期"模块名 `reading` 触发 outlet"结论已撤销
+  （污染期误读）。
+- **N-r8-2b（Vue codegen int 降档，维持）**：文件级 fn 形参不进 int 证明集，
+  `/` 裸发射且 `as int` 退化为 `Number()` 不截断 → 后端 int 参数严格拒 float
+  （进度 PUT 400）。app 侧用除法自由环（`pct_of` / `pct_bookshelf` /
+  `pct_detail`）规避；跨仓 codegen 债。
+- **N-r8-1 / N-r8-3（预存，非本仓门）**：①VM 轨导入对话框 store→`Http.post`
+  裸记录体缺参（400 `missing param path`，Vue 轨同路径正常）——验收驱动改走
+  library HTTP（与 UI 点段/导入传输等价）；②`autoui_action` press 派发的
+  handler 内 `router.push` 为 no-op（书卡为 col onclick、MCP 无 col 点击原语）
+  ——原生导航经 `AUTOUI_TEST_FIXTURES=1` 的 fixture trigger 承担（仅导航、
+  不注入恢复行为）。
 - **rust 后端轨（`auto run` 缺省 vue+a2r）不可用**：动态 JSON 字段访问、
   uuid/time、substr cast、path-form use 等缺陷群（清单见
   docs/research/20261005-t00-runtime-capability.md §12）。pac.at 已按
@@ -214,34 +237,30 @@ T-02 实测）。**直连客户端请求体必须 ASCII 安全（\u 转义）**�
 - /api/library/* 响应双层编码：Http.get_json 后需再 json.parse。
 - 路由为 hash 模式（`#/book/<uuid>/chapter/<n>`）；UI 测试导航须带 `#`。
 
-## 8. 验证资产（Phase 4 重建，双轮一致；CLI 构建绑定见复审记录）
+## 8. 验证资产（r9 全量重跑；构建绑定见复审记录）
 
-- 模块单测（#[test]，自包含零 use）：`auto test` → 5 通过
-  （hashx 1 + pathx 2 + jsonx 2；importers 单测因「use 进测试装置编译
-  失败」缺陷迁脚本规格 t03——CLI 对该失败退出 0 的缺陷已登记）。
+- 模块单测（`#[test]`，自包含零 use）：`auto test` → **6/6**。
 - 脚本规格（VM 脚本轨；**失败输出与退出码同时判**，日志 %TEMP%/tNN-spec.log）：
-  t01_library_spec（34）/ t02_reading_spec（38）/ t03_importers_spec（26）/
-  t04_library_spec（14）/ t05_collision_spec（23）/ t06_integrity_spec（56，
-  含 F-15 整数元数据负例）= 191 检查，全 PASS fails=0。
-- 应用级 HTTP（全新隔离目录 + `auto run --server=vm`；直连请求体 ASCII
-  转义）：t01（39）/ t02（26）/ t04（12，10MiB 项空响应不算显式错误 +
-  落盘对账）= 77 检查。
-- 复审驱动（数据目录名须 reader001-review-*；三份各配全新服务器）：
-  `tests/review/reader001_repro.py` → 8/8（F-02/03/06）；
-  `tests/review/reader001_r3_repro.py` → 12/0（F-08/09/10/11）；
-  `tests/review/reader001_r4_repro.py` → 8/0（F-13 合法 undefined 持久化、
-  F-14 读态三负例、F-15 三整数反例、混排夹具）。旧 r2 驱动 F-04 两例经
-  框架缺参 400 通过的口径已改记——语义校验证据以 r4 驱动与 t02 完整契约
-  为准（T-21 要求）。
-- UI（Playwright，每套件全新服务器；PW_CHROMIUM 可覆盖浏览器可执行）：
-  tests/real-book.spec.ts → 10 passed + 1 skipped（T-R10 混排视口恢复
-  **显式未验收**，test.fixme 登记）+ smoke.spec.ts → 10 passed。
-- 独立复审（2026-10-06 r5/T-22）：双轮全量一致 + 全新向量行为探针
-  （引号/反斜杠锚点、para_text 数值型、缺字段、chapter=0、坏枚举、记录
-  2.5/1e2/2.0）+ 冷启动持久化 + VM 全轨零毒化——见计划 §9 复审记录。
-  复审期间新发现并修复：typed 动态绑定对缺失字段静默强转（N-5，
-  commit 4b97bf8 concat+roundtrip 修复）。
+  t01（34）/ t02（38）/ t03（26）/ t04（14）/ t05（23）/ t06（91=56+35 S13）/
+  t07（67，章 meta 索引 parity）= **293 检查 0 FAIL**。
+- 应用级 HTTP（全新隔离目录 + `auto run --server=vm`；直连请求体 ASCII 转义）：
+  t01（39）/ t02（26）/ t04（**19 PASS/0 FAIL**，含 10MiB 成功门）= **84 检查**。
+- 复审驱动（数据目录名须 `reader001-review-*`；每份配全新服务器）：
+  `reader001_repro.py` → **8**；`reader001_r3_repro.py` → **12**；
+  `reader001_r4_repro.py` → **8**；`reader001_r5_repro.py` → **5**；
+  `reader001_r6_repro.py` → **24**；`reader001_r7_repro.py` → **14**
+  （全部 pass 记录、0 fail；r7 为独立向量：信封/record 准入、fail-closed、
+  i32 边界、重复恢复幂等）。
+- UI（Playwright，每套件全新服务器；`PW_CHROMIUM` 可覆盖浏览器可执行）：
+  `tests/real-book.spec.ts` → **11/11**（T-R10 混排视口恢复转正，V-20 正面积
+  几何门）；`tests/smoke.spec.ts` → **10/10**。
+- 原生 VM 轨（PLAN-781 通道，AutoUI MCP + fixture trigger 导航）：
+  `tests/review/reader001_r8_native_vm_restore.py` → **16 记录 / 0 fails**
+  （boot → 导入 → 保存 → 冷重启 → 导航 → ¶50 正面积可见 + pane 深位 + ¶100 反差）。
 - 干净数据目录启动：`bash tests/spec/run_fresh_server.sh`。
-- **两项显式未验收（不因本清单其他项通过而关闭）**：
-  ① 10MiB 成功导入（§6 预算上限，错误保护已单列通过）；
-  ② F-12 混排内容恢复目标段入 pane（§5 占比估算 v1 + 元素级框架前置）。
+- 运行时绑定（r9，两个二进制均须含 PLAN-886 诊断面）：`auto` =
+  `0.1.0+v0.0.20-118-ge6cc06f`，SHA256=`C049ABE3385D3E3634301A5DD1EE843E41A4CAACD2DE4214EA8D942EAB43D72E`；
+  `auto-ui-tool`（VM 轨真正执行 handler 合成的进程），SHA256=
+  `C1F54640120A19A9054ABD4B7C732B07F37F687D501A1891A59427DD368E1651`。
+- 原两项显式未验收（10MiB 成功导入、F-12 混排入 pane）**已于 r8/r9 关闭**，
+  证据见计划 §9 的 r8/r9 回执；不再保留"未验收"残留表述。
