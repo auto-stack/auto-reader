@@ -124,3 +124,43 @@
 - 旧 skip 重判：verify_local vm 轨 1 SKIP（N-003-8 时代）须以本轮 CLI+tool
   重判；必需原生任务不得继承 skip。004 的两份正对照夹具只承担其自身边界，
   不顶替真实 app 结果。
+
+## 7. 实施定稿补充（T-06 as-built，2026-11-01）
+
+T-00 决策经 T-02..T-05 实施与聚合门验证后的落定形态（与 §3/§4 的差异与细化）：
+
+- **媒体端点分层**：`GET /api/reader/media/:bid/:res` 落地于
+  api.at → db.at `reader_media` → library.at `epub_media_response`
+  （codegen db.rs 一致性门要求端点经 db 面；`auto build` 红即具名）。
+  root = 书目受管副本 `<managed>.chapters`；`res_` 前缀 + [A-Za-z0-9._-]
+  白名单；content type 按 res 扩展名（image/png|jpeg|gif|bmp|webp）。
+- **拒绝码 as-built**：`img_too_large`（13MiB 实测 rc=-2）、
+  `img_extract_failed`（缺条目 rc=-1；`img_missing` 为存在性后守卫，
+  常态由 extract_failed 承载）、`img_unsupported_type`（bad.svg 实测）、
+  `img_name_unsupported`（未收编字符，未在探针书触发——profile 边界）。
+- **链接表**：`<n>.links.json` 边车（正文 .txt 零变更实证——行对齐由
+  目标段逐字断言钉死）；章内容相对 href 以**自章 ZIP 目录**为基准
+  （sub/ch3.xhtml 与 ../ch1.xhtml 双向实测）；无 fragment → 章首
+  (para=-1)；三类诚实拒绝（外部 scheme/缺章/未知 fragment）+ 故意缺失
+  的自章 fragment 同拒绝（#fn1 探针）。
+- **输入回写**：搜索框/注释对话框 5 输入项真 oninput handler
+  （`SearchInput` 等 str 形参——VM 轨事件通道按 handler 名送达，
+  `NoOp` 丢值；auto-photos SetSearch 同款约定；Vue 24/24 回归不变）。
+- **vue codegen 缺陷回避（跨仓债，当前 pinned CLI 实测）**：
+  ①文件级 fn 形参与 widget model 字段同名 → codegen 对形参误加 `.value`
+  （merge_marks `chapter_src`→`csrc` 改名，mount 即崩）；
+  ②style 三元分支为 model 引用时被发空串（`(cond ? '' : '')`）——段标记
+  类改字面量嵌套三元；连带 001 T-R10 V-20 在该 CLI 下恢复（real-book
+  11/11）。两项 owner=auto-ui（vue.rs）。
+- **原生 UI 通道边界（T-04 诊断矩阵，owner=auto-ui-runtime/auto-man）**：
+  同窗同刻顶栏/抽屉/TOC 行按压 status:ok；scroll-pane 子树内全部按压
+  （段落 col、chips button）"View not found at path"（styled_vtree↔typed
+  view path 分歧）。VM 前端 `Http.post` 记录体缺参（400 missing param
+  book_id 后端日志锚）+ 直连多字节体劣化（001 在案）→ 原生 UI 写传输
+  缺口；纯 .at 无干净回避。原生读/导航/渲染面 + state_changes（写意图）
+  + 服务端锚定数据契约由 tests/native/test_native_standalone_ui.py
+  永久承载（37 records / 0 FAIL / 3 具名 GAP）。
+- **顺带修复（003 遗留缺陷）**：EPUB 章标题恒回落"第 N 章"（titles
+  双管道围栏）——T-02 探针实证后修复，章标题=nav 标签实测。
+- **漂移核对（T-06）**：CLI e7dd7df1 / tool 4d2198b8 与 T-00 冻结一致；
+  auto-ui d85edbb、auto-photos 5eec01b 未漂移。
