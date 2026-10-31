@@ -7,7 +7,7 @@ author: [Codex]
 created_at: 2026-10-04T00:00:00Z
 updated_at: 2026-10-29
 plan_revision: 3
-current_step: 5
+current_step: 7
 total_steps: 11
 base_branch: main
 base_commit: 4d6345cc37882b0216480661eefae4c773617c2d
@@ -138,8 +138,8 @@ Markdown导出必须含书名、原句、版本/来源身份、章节/资源loca
 - [x]  T-03（owner_stage=work；phase=A；依赖T-01；AC-02）：实现稳定注释/书签/高亮/评论/标签、列表回访与重复句/源版本变化的诚实重定位。[✅ 已完成] [2026-10-31] 服务端 uuid 注释存储（词法门+备份协议）、quote+occurrence 逐字锚核验、抽屉回访/编辑/删除、段标记 chip+需重定位徽标。证据：t10 69/69（S11 CRLF+中文出现计数回归、S10 源改版诚实拒绝+原摘录保留）、verify_local L-05..15/26、UI L-U07..11。
 - [x]  T-05（owner_stage=work；phase=A；依赖T-03；AC-03/04本地面）：完成带完整出处的本地Markdown导出；Notes缺席也可用，不把文件导出说成已接收。[✅ 已完成] [2026-10-31] POST /api/library/export → exports/*.md（完整出处+annotation_id），读回校验；空集合诚实 count=0。证据：verify_local L-16..20 独立解析核对。
 - [x]  T-04（owner_stage=work；phase=A；依赖T-03/T-05；AC-01..05本地面）：建立永久本地双端入口并跑A-01..04，准备A的SD-01/02；只提交A实现/摘要，申请phase review，整体不因A结束就execution_done。[✅ 已完成] [2026-10-31] 永久入口 tests/annotations/verify_local.py --profile vue|vm。vue 50/50（含 Playwright UI 面 11/11）；vm 49+1 SKIP（N-003-8 在案缺口，auto service 绕行已录）；回归 auto test 7/7、t01/t02/t06 0 fail、t08 all-pass、verify_epub 21/21。期间修复两处实现缺陷：occurrence 计数改滑窗（t10 S11 回归钉死）；vue codegen 形参/模型同名 .value 中毒（改名规避）。SD-01/02 候选文本由 T-06 按 SD 规程撰写。提交 1ea4dfd。
-- [ ] T-06（owner_stage=review；phase=A；依赖T-04；AC-07阶段面）：固定A提交做phase review，范围仅A本地AC/SD，B必需项明确未验；无pass不阶段merge。
-- [ ] T-07（owner_stage=merge；phase=A；依赖T-06；AC-08阶段面）：完成A适用门/规范/推送/组合pin，记录阶段交付；整Plan保持executing、B未勾选。B等Notes不撤回A成果。
+- [x] T-06（owner_stage=review；phase=A；依赖T-04；AC-07阶段面）：固定A提交做phase review，范围仅A本地AC/SD，B必需项明确未验；无pass不阶段merge。[✅ 已完成] [2026-10-31] phase review PASS on 1ea4dfd（评审者重执行 verify_local vue 50/50 + EPUB 冷重启专探 PASS；R-002-A-1 low 文案随手修项记档）；见 §9。
+- [x] T-07（owner_stage=merge；phase=A；依赖T-06；AC-08阶段面）：完成A适用门/规范/推送/组合pin，记录阶段交付；整Plan保持executing、B未勾选。B等Notes不撤回A成果。[✅ 已完成] [2026-10-31] 阶段交付落地 main=72aac4f（ff-only，rebase 等价 range-diff 4/4 `=`）；SD-01 reading-annotations.md + SD-02 real-library.md 扩展节随 merge 落地为正式 Spec（canonical_verified，hash 见 §9）；整 Plan 保持 executing、B（T-02/T-08..T-10）未勾选。AutoOS pin/推送面：本仓为独立 clone 开发位（app 先提交推送→AutoOS 精确 pin 流程见 README），本轮未执行推送，登记于 §10 待办随 B 或用户指令执行。
 - [ ] T-02（owner_stage=work；phase=B；依赖T-07及NOTES-002实际接收交付；AC-03/04/06）：冻结真实协议与回执，做CaptureEnvelope/SourceRef、持久待发和稳定意图ID；不擅自写Notes数据库或假造系统API。
 - [ ] T-08（owner_stage=work；phase=B；依赖T-02；AC-03/04/06）：制作真实Notes集成入口，验证B-01/02与A仍可离线使用，准备SD-03、提交实现，全部work完成后execution_done。
 - [ ] T-09（owner_stage=review；phase=final；依赖T-08；AC-07最终面）：冻结实现/接收依赖最终复审全AC-01..06及SD，复用合法A证据并重验受B影响项；声明上下文限制。
@@ -160,8 +160,16 @@ stage: goal | plan_id: READER-002 | plan_revision: 3 | round: 1 | from: work | t
 
 stage: review | review_scope: phase（T-06，AC-07 阶段面：A 本地 AC-01/02/05+AC-03/04 本地面+SD-01/02 候选；非最终复审，不授 reviewed） | reviewer_identity/limitations: 与实现同会话（独立裁决=评审者本地重执行，不采信执行者摘要）：verify_local vue 50/50 重跑 PASS、EPUB 冷重启专探 PASS（补 L-26 只断言 TXT 的证据面：EPUB 注释跨重启 id 稳定+quote 逐字在位+无误标需重定位） | plan_id: READER-002 | plan_revision: 3 | outcome: pass（phase） | worktree_path: D:/autostack/.wt/reader-002/auto-reader | branch: plan-002-dev | reviewed_commit: 1ea4dfd94e9a1df0f3333c7128904d6a2d9e3f3f（树净，无未提交实现） | base_commit: 30fcfb5 | dependency_revisions: 001 r9 archived、003 r3 archived（merge 24c9838） | spec_inputs: docs/specs/reader/real-library.md（171aae8b…，SD-02 modify 候选=reading 状态可选键 layout/theme，词法门+写侧枚举+canonical 缺位不写，与实现一致）；SD-01 add reading-annotations.md 候选=注释存储/搜索/导出/双端边界（与实现一致；canonical 文件按 §5 由 T-07 阶段 merge 沉淀，评审不发布） | acceptance_results: AC-01 pass（verify_local L-23/24/27/28+UI 恢复/偏好；字体面=settings 页 br-font-size 控件+reading fill_pref，001 面回归 t02 绿）；AC-02 pass（L-05..15/26+t10 69/69+S10 源改版+S11 CRLF/多字节+评审者 EPUB 冷重启探针）；AC-05 pass（UI L-U01..11 真实操作：中文键入不抢事件/搜索/跳转/排版/对话框/抽屉/chip；原生 VM 面=N-003-8 在案缺口随档，非本计划回归）；AC-03 本地面 pass（L-16..20 独立解析）；AC-04 本地面 pass（Notes 缺席导出可用+损坏诚实 L-21/22；待发送= B 面，明确未验） | pending_closeout_gates: 统一回归门=T-07 阶段 merge 拥有（work 冻结基线已跑受影响面）；AC-03/04 的 B 面+AC-06 留 B 阶段；原生轨 UI e2e 待 N-003-8 框架修复后回归 | findings: R-002-A-1（low，非阻塞）：reading 排版抽屉提示文案「字号与行距沿顶栏书内偏好」与实际（settings 页控件）不符——fold 入 B 阶段 work 顺手修，不回收本 phase pass | evidence: verify_local vue 评审重跑 50/50（输出在案）、t10 69/69、评审者 EPUB 探针（本章记录，命令可复现）、auto test 7/7、t01/t02/t06/t08 绿、verify_epub 21/21 | next: merge（T-07 阶段交付：A 适用门+SD-01/02 实际范围沉淀+推送/组合 pin；整 Plan 保持 executing、B 未勾选）
 
+stage: merge | plan_id: READER-002:r3 | scope: phase（T-07 阶段交付，非归档） | outcome: pass | prepared: reviewed 1ea4dfd + docs-only delta 4f86074（SD-01 新增 docs/specs/reader/reading-annotations.md；SD-02 real-library.md 追加阅读状态可选键节；与冻结 delta/代码/验收证据核对一致） | landed: rebase main 后 ff-only，main=72aac4f=delivery commit（无 merge commit）；old→new 映射 1426346→93bd56f、7980320→3cb1b21、1ea4dfd→c5d46be、4f86074→72aac4f，git range-diff 4/4 全等（安全重写证明） | canonical_verified: docs/specs/reader/reading-annotations.md sha256 a58906d5a8fb0a32…、real-library.md 1db535c43a17b5fd…（landed 内容核对）；main known-good smoke：auto test 7/7、t10 0 fail（main 检出实跑） | archive/cleanup: **pending**（phase 交付不归档——整 Plan executing，B 未完成；worktree reader-002 保留供 B；guard 对 gen pnpm 链接的清理按守护指引留移除时执行） | next: T-02/T-08（B 阶段 work）等 NOTES-002 真实接收交付
+
+stage: work（B 阶段准入核） | plan_id: READER-002 | plan_revision: 3 | outcome: waiting（T-02 前置=NOTES-002 实际接收交付；auto-notes/docs/plans/002-quick-card-assets.md 现 drafting 0/5，接收能力未交付——外部依赖不可本仓代偿，不以 mock/文件导出冒充真实接收关闭 B） | blockers: NOTES-002 交付后即入 T-02（冻结传输/回执契约）→T-08→T-09 最终复审→T-10 归档 | next: user（或 auto-notes NOTES-002 交付后 /goal 续跑）
+
+stage: goal | plan_id: READER-002 | plan_revision: 3 | round: 2 | from: review+merge | to: waiting | status: executing | outcome: waiting | worktree: D:/autostack/.wt/reader-002/auto-reader（保留，B 续用） | commit: main=72aac4f（阶段交付）；docs=本提交 | next: user——Phase B 解除阻塞条件=NOTES-002 真实接收能力交付（auto-notes）；届时续跑 T-02→T-08→T-09→T-10 完成整 Plan 归档
+
 ## 10. 待澄清事项
 
 优先003、本地A与Notes-B分阶段已获用户确认，无产品优先级问题待重复确认。T-00解决A的真实选区/模型/预算，T-02根据已交付Notes合同冻结传输/回执与队列资源边界；接收依赖未交付时B保持等待，不能让它拖住003或A，也不能用mock降级整体002完成标准。
 
 本轮文档预检：结构/任务唯一性、AC归属、阶段依赖无环、源码hash与链接检查通过；001/Spec/ledger及已有截图原样保留；未运行应用功能测试。
+
+2026-10-31 阶段交付后状态：A（T-00..T-07）已交付落地 main=72aac4f 并沉淀 SD-01/02；B（T-02/T-08/T-09/T-10）等 NOTES-002 真实接收能力（auto-notes 002 现 drafting）——等待中，不被 A 或 mock 关闭。待办随 B：①R-002-A-1 文案随手修；②app 推送+AutoOS 精确 pin（本阶段未执行推送）；③N-003-8 修复后原生轨 UI e2e 回归；④最终归档时 worktree guard 清理（gen pnpm 链接按守护指引只删链接本体）。

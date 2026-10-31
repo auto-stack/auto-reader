@@ -13,8 +13,8 @@
 | 计划 | 当前状态/作用 |
 |---|---|
 | [READER-001：真实导入、书库存储与位置恢复](plans/archive/001-real-library.md) | archived/r9、32/32；最终复审和main landing已有记录，保持归档 |
-| [READER-003：最小重排版EPUB导入与阅读](plans/003-epub-reflow.md) | drafting/r3、0/7；当前优先，直接依赖001和本Plan确认的必要平台能力，不等002 |
-| [READER-002：本地体验、摘录与Notes联动](plans/002-reading-annotations.md) | drafting/r3、0/11；A本地增强/注释/导出可独立交付，B真实接收等Notes-002，不阻塞003 |
+| [READER-003：最小重排版EPUB导入与阅读](plans/archive/003-epub-reflow.md) | archived/r3；EPUB最小重排版已交付（merge 24c9838，landing 21/21） |
+| [READER-002：本地体验、摘录与Notes联动](plans/002-reading-annotations.md) | executing/r3、7/11；阶段A（本地样式/搜索/注释/导出+SD-01/02）已交付 main=72aac4f，B真实接收等NOTES-002交付 |
 
 ## 执行纪律
 
