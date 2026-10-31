@@ -2,7 +2,7 @@
 
 图书阅读器，使用 AutoLang / AutoUI 开发的独立应用。
 
-READER-001已交付归档（r9，32/32）：真实TXT/Markdown书库、受管原件、内容锚点与重启恢复。最小EPUB和本地增强/Notes联动分别由003、002 r3规划，尚未实现。
+READER-001已交付归档（r9，32/32）：真实TXT/Markdown书库、受管原件、内容锚点与重启恢复。READER-003已交付归档：最小EPUB3导入/目录/章读取（惰性解压+缓存）/图片URI链（显示面留N-003-7具名缺口待框架 image widget）。本地增强/Notes联动由002 r3规划，尚未实现。
 
 ## 运行
 
@@ -67,7 +67,7 @@ AutoOS 通过 [`apps/auto-reader`](https://github.com/auto-stack/auto-os/tree/ma
 当前顺序为 **001（已归档）→003最小EPUB→002-A本地增强与摘录→002-B Notes交接**。003不等待完整002；002-A可独立验收/阶段交付，B等Notes-002真实接收，B未完成不把002整Plan归档。
 
 - [READER-001（archive/r9，32/32）](docs/plans/archive/001-real-library.md)
-- [READER-003：最小重排版EPUB导入与阅读（drafting/r3）](docs/plans/003-epub-reflow.md)
+- [READER-003：最小重排版EPUB导入与阅读（archive，merge 24c9838）](docs/plans/archive/003-epub-reflow.md)
 - [READER-002：本地阅读体验、摘录与分阶段Notes联动（drafting/r3）](docs/plans/002-reading-annotations.md)
 
 本轮仅修订计划、路线与状态，不启动实现。003所需的基本内容/字号/位置适配在003自身交付；原003高亮恢复要求归入002-A，需求保留。开发使用 `D:/autostack/auto-reader` 独立clone的main，AutoOS子模块仅固定交付版本；先push应用再更新组合pin，独立clone不切detached。Linux支持仍等待Nix＋COSMIC发行版基础。
