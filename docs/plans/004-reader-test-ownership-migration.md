@@ -1,12 +1,12 @@
 ---
 plan_id: READER-004
-status: executing
+status: execution_done
 feature_name: Reader验收驱动与夹具归属迁移
 author: [Codex]
 created_at: 2026-10-31
 updated_at: 2026-10-31
 plan_revision: 1
-current_step: 2
+current_step: 3
 total_steps: 6
 supersedes_spec_components: [docs/specs/reader/real-library.md]
 new_spec_components: []
@@ -110,8 +110,8 @@ SD-01..03是auto-lang协同写面，不冒充Reader本仓Spec；SD-04为本计�
 |---|---|---|---|
 | T-01 | work/方案确认 | [x] 核两仓指令/基面，建唯一兄弟树；来源hash/case/调用者/生成资产审计，冻结MCP实际方法集合与命令 | AC-01/02；V-01 |
 | T-02 | work/T-01 | [x] Reader新增tests/native与目标fixtures，迁两驱动并去外部技能导入，更新CLI/README | AC-01/02/03；V-01/02 |
-| T-03 | work/T-02 | Reader树完整迁移触面真实验收及反控；记录首次红/退出状态/数据hash/端口reap（**blocked：运行时回归，见§10**） | AC-01/02；V-03/04 |
-| T-04 | work/T-03 | 语言树删除源两目录及两驱动，准备当前Spec迁移delta，核所有活跃调用者 | AC-03；V-05 |
+| T-03 | work/T-02 | [x] Reader树完整迁移触面真实验收及反控；记录首次红/退出状态/数据hash/端口reap | AC-01/02；V-03/04 |
+| T-04 | work/T-03 | [x] 语言树删除源两目录及两驱动，准备当前Spec迁移delta，核所有活跃调用者 | AC-03；V-05 |
 | T-05 | review/T-04 | 冻结两树，同树独立上下文审查逐AC/删除与SD，需修回原树；不以实现自检代复审 | AC-04；V-01..05 |
 | T-06 | merge/T-05 | 先Reader合入其main，再语言master退役+Spec沉淀；在auto-reader归档004、按适用最新留存政策、逐树wt-guard clean后清理分支/组 | AC-05；记录两仓delivery及清理收据 |
 
@@ -119,7 +119,11 @@ T-01 证据（2026-10-31）：基面 auto-reader a0801bc / auto-lang 0e6fbf9b4�
 T-02 证据：commit 9bab983（14 文件，+3431/-4）；py_compile 两驱动通过；--help 两驱动过（原生 usage/退出码语义不变；导入 --auto-bin/--reader-dir 新缺省语义）；生成器重建与源侧逐字节一致（manifest.json sha256=7afa5231…，5 数据文件全同）；残余引用扫描仅出处注释命中。fixture .gitignore 补 manifest.json（本仓无语言仓全局 *.json 规则）。
 T-03 首红证据（2026-10-31，非迁移缺陷）：完整导入套件 6 腿 6/11（v17/v19/v14/w03 实例腿全部 backend not live；v15_boot 4 项因 fail-fast 语义仍记录 [+]/[+]），report=plan-artifacts/reader-004/import/；根因探针 = **当前运行时 `auto.exe`（auto-man/target/debug，2026-10-31 11:37 构建）对 reader 主检出与 worktree 同样报 `[AutoVM server] error: Undefined variable: zip`**（READER-003 EPUB `zip` 命名空间解析失败，后端 120s 未就绪）；plan-890 legacy 副本/AUTO_LANG_ROOT/旧备份配对探针均不复绿。属并发 auto-man 会话施工回归（其 Cargo.lock WIP 正加 aes/zip），非本包改动所致。V-02 的非 repo cwd/退出码检查已先期通过（--auto-bin 缺省缺失→exit 3；argparse 用法错→exit 2）。
 
-下一执行入口：运行时恢复后重跑 T-03（导入全腿 + 原生默认集 + v12_injected_fail 反控）；已预判迁移驱动 `v08_reader_current_state` 记录例（required=False）的缺陷取证 oracle 在 READER-001 修复后必红（其自身条款：修复后转正真实保存链验收），待原生套件实跑确认后按测试范围规则做有界修复并重跑受影响面。不依赖899执行。创建源码树/构建/测试前核主仓同期变更，不能复制别人的WIP。无新增审查模型/代理授权。
+T-03 完成证据（2026-10-31，运行时恢复后；双二进制口径=用户裁定）：运行时身份 auto.exe `e7dd7df1`（17:22 gbe740b6，报告自录 sha）+ auto-ui-tool `4d2198b8`（16:34 用户侧重建，导入驱动经 AUTO_UI_TOOL_BIN 显式透传；原生驱动实例剥离 AUTO_* 落同级 discovery=同一 tool）。**V-03 导入面**：6 腿分片全绿 36/36 检查、逐片 exit 0（`plan-artifacts/reader-004/import-r3-chunks/chunk-{1..6}/`；v17_txt 10MiB+1347 章逐字×2 轮、冷重启 pid 切换、v19 低预算指名拒/坏编码/库不变、v14 双实例不串线、v15 boot fail-fast ×6、w03 损坏章负例+未扰章守恒）。**V-04 原生面**：g1-g4 = 11 required PASS + g5 转正版 v08_reader_current_state 8 检查 PASS + g6 `v12_injected_fail` 反控 exit=2 ✓，全部 owned-port sweep clean（`plan-artifacts/reader-004/native/{g1..g6}/`）。运行期两修复（ee5d7a6 + cd903dd）：N-1 身份 oracle 适配分裂宿主拓扑（端口由本 run 进程树持有，CIM+BFS，反伪装意图不变）；N-2 v08_reader_current_state 按其自身条款转正（781 缺陷取证 oracle 在 r9 修复后不可过——直证探针 v08-state-probe3：¶ 标签在场/空占位与合成错误缺席；新 oracle=真实按压导航 OpenBook/OpenChapter + 真实正文渲染断言 + r8 同款 library HTTP 保存链读回逐字一致；required=False→True）。原样 verbatim 首红在身份门被拦（g5-firstred 日志留档）。运行时解阻史与两个外部事实记录于 §9 前 receipt 与 §10。
+
+T-04 证据（2026-10-31，语言分支 codex/reader-004-lang @ 970003151，基 0e6fbf9b4）：git rm 源两目录+两驱动（10 文件）；SD-01（handler-execution-budget.md：驱动/夹具改指 auto-reader owner，语言侧 cargo t plan781 / cargo th http_e2e_plan781 不变）、SD-02（native-acceptance-channel.md：新入口+进程树身份 oracle 注记，通道合同不变）、SD-03（ui/overview.md：导航改指）落盘；活跃引用扫描=残留仅 docs/plans/archive/781-*.md 与 784/814 attachments 历史快照（按计划保留）。**V-05 边界记录**：scripts/test-governance/test-purpose-policy.json 的 S-014 条目为语言仓主检出**未提交 WIP**（不在本分支树、git 无历史），不可跨会话改写——其指向退役路径的事实归该 WIP owner 提交时承接，此处如实路由。
+
+下一执行入口：work 段完结（execution_done，T-01..T-04 全绿）→ review（T-05，review_scope=final，同树独立上下文逐 AC/删除与 SD 复审；两树冻结于 reader cd903dd / lang 970003151）。统一回归门=review/merge 所有者。reader 分支基为 38fa8d8（重放自用户侧操演，reflog 留痕），main 现 bf62c8c（+2 纯簿记提交不触代码，证据复用有效），merge 时合流。不依赖899执行。无新增审查模型/代理授权。
 
 ## 9. 复审记录
 
@@ -131,8 +135,14 @@ T-03 首红证据（2026-10-31，非迁移缺陷）：完整导入套件 6 腿 6
 
 2026-10-31 / stage: goal | plan_id: READER-004 | plan_revision: r1 | round: 2 | from: work | to: work | status: executing | outcome: waiting | worktree: D:/autostack/.wt/reader-004/auto-reader | commit: 9bab983 | next: user。等待轮：复探运行时仍红（同一 11:37 auto.exe + 同一 zip 错误；auto-man WIP/HEAD 无新进展，`~/.auto` 安装面今日未动，lock WIP 未触及 auto-lang-core，语言仓 3 提交纯 docs）；legacy d2b2664 副本配 10-30 auto-ui-tool 仍红（排除 e6cc06f 单点回归假说）。已向用户提供三选项（等 owner 会话 / 授权旧提交构建 / 用户自行处理），未获答复。不做任何源/树写入；恢复后从 work 段 T-03 进入（§10 解除动作不变）。
 
+2026-10-31 / stage:work / READER-004 r1 / outcome:pass / worktree:D:/autostack/.wt/reader-004/auto-reader (codex/reader-004-dev: 6ecfe64→ee5d7a6→cd903dd, base 38fa8d8) + D:/autostack/.wt/reader-004/auto-lang (codex/reader-004-lang: 970003151, base 0e6fbf9b4) / dependency_revisions: auto.exe e7dd7df1 + auto-ui-tool 4d2198b8 / task_ids: T-01..T-04 全部完成 / evidence: V-01 来源hash+生成资产逐字节守恒（§8 T-01/02 行）；V-02 入口/退出码；V-03 36/36（import-r3-chunks）；V-04 原生 g1-g4 11 required PASS + g5 转正版 8 检查 PASS + g6 反控 exit2（native/g1..g6）；V-05 残留仅历史归档（policy-json WIP 路由 §9 T-04 行）/ blockers: 无（运行时解阻史+UI 按压通道缺口路由见 §10）/ next_responsible_role: review（T-05 final，两树冻结）。
+
+2026-10-31 / stage: goal | plan_id: READER-004 | plan_revision: r1 | round: 3 | from: work | to: review | status: execution_done | outcome: pass | worktree: D:/autostack/.wt/reader-004/auto-reader | commit: cd903dd (reader) / 970003151 (lang) | next: review（T-05 final，review_scope=final；T-06 归属 merge）。work 段全链完成：迁移守恒验证 36/36 + 原生 12 required 全过 + 反控正确非零；两修复（身份树适配 N-1、v08 转正 N-2）与语言侧退役（T-04）均已提交并验证。
+
 ## 10. 待澄清事项
 
 用户已指定目标owner为auto-reader；此处不再询问归属选择。待确认上述具体跨仓迁移方案后实施，尤其包含两份驱动及其路径/MCP辅助依赖，而非只移动数据目录。
 
 **阻塞已解除（2026-10-31，用户取证纠正）**：真因不是 auto.exe 回归——`run -r vm` 的 api.at 链编译发生在 **auto-ui-tool.exe**（auto-ui 仓 `run_vm.rs`）进程内；该 tool 停在 10-30 11:05 构建、内嵌 lang-core 无 zip natives（二进制 `auto.zip.` 命中 0 次），且 `auto-ui-tools` 非 auto-man workspace 默认成员、日常构建不重建它。zip natives 本身是今日上午才进 auto-lang（实现 10:52、静态 catalog 11:29），reader 的 zip 消费 11:47 提交——此路径今日首跑即"首红"，无绿→红回归。用户侧已重建 tool（`cargo build -p auto-ui-tools`，新 sha256 前16 `4d2198b8bceba015`，旧件备份 `auto-ui-tool.exe.1030-baseline`；auto.exe `706d13f5` 未动），探针复绿（server ready + health 200）。原 bug 报告的方向性错误已由用户追加更正节（同文件）。**T-03 证据口径（用户裁定）**：必须固定双二进制——`--auto-bin` 与实际编译宿主（显式 `AUTO_UI_TOOL_BIN`，导入驱动经 os.environ 透传至子进程；原生驱动 Instance 会剥离子进程 AUTO_*，落 auto.exe 同级 discovery=同一重建版 tool，结果等价），并把两 sha256 记入证据。无需 auto-man 立项。
+
+**路由框架 owner（2026-10-31，T-03d 发现，非本包范围）**：阅读页活视图重建导致 **UI 段落按压经 AutoUI MCP 通道不可稳定驱动**——`autoui_vtree` 给出的段落容器 vnode 在按压时报 `View not found at path`（vtree 与活视图失配），`autoui_find` 返回祖先链但链上容器均无 press handler；书架卡片按压亦有一次候选误命中相邻 `.bookshelf.ShowAdd` 的竞态（5 探针中 1 次）。复现证据：`plan-artifacts/reader-004/probe/pp2..pp5`、`native/g5/out/raw/v08_reader_current_state.json` press_log。转正版 v08 的保存链改走 r8 已验证的 library HTTP 面（16/16 同源），渲染断言保留真实按压导航；UI 按压面待通道/框架侧修复后可回归（886 诊断面同族）。
