@@ -7,7 +7,7 @@ author: [Codex]
 created_at: 2026-10-04T00:00:00Z
 updated_at: 2026-10-29
 plan_revision: 3
-current_step: 0
+current_step: 1
 total_steps: 11
 base_branch: main
 base_commit: 4d6345cc37882b0216480661eefae4c773617c2d
@@ -133,7 +133,7 @@ Markdown导出必须含书名、原句、版本/来源身份、章节/资源loca
 
 ## 8. 执行步骤
 
-- [ ] T-00（owner_stage=work；phase=A；依赖001/003实际交付；AC-01..05）：核实内容/locator/选区、两端能力与数据模型，输出local-capability-decision.md；不等待Notes，仅对真实缺项立具名最小前置。
+- [x] T-00（owner_stage=work；phase=A；依赖001/003实际交付；AC-01..05）：核实内容/locator/选区、两端能力与数据模型，输出local-capability-decision.md；不等待Notes，仅对真实缺项立具名最小前置。[✅ 已完成] [2026-10-31] docs/plans/evidence/002/local-capability-decision.md：双格式同面章节/段模型与 Locator v1 逐字锚冻结；input/textarea 双轨在册（auto-chat/auto-musk IME 先例），快捷键裁决=widget 级绑定不做全局 handler；注释文件 `<book_id>.annotations.json` 沿 put_reading 写协议；具名缺口 N-002-A-1（内联 span 缺失→段级标记承载）N-002-A-2（原生 IME 面 T-04 实录）。基线 30fcfb5，依赖 001/003 已归档。
 - [ ] T-01（owner_stage=work；phase=A；依赖T-00；AC-01/05）：实现本地样式/偏好、搜索/目录和布局输入规则，持久保存并保持同内容锚点；复用003基本阅读，不另写EPUB解析器。
 - [ ] T-03（owner_stage=work；phase=A；依赖T-01；AC-02）：实现稳定注释/书签/高亮/评论/标签、列表回访与重复句/源版本变化的诚实重定位。
 - [ ] T-05（owner_stage=work；phase=A；依赖T-03；AC-03/04本地面）：完成带完整出处的本地Markdown导出；Notes缺席也可用，不把文件导出说成已接收。
@@ -150,6 +150,8 @@ Markdown导出必须含书名、原句、版本/来源身份、章节/资源loca
 r3依据用户授权调整排程与依赖；r2原文保留在 `4d6345cc37882b0216480661eefae4c773617c2d`、blob `f18f2756a1978d6ba1a2f78baca0dc946a150dbf`。原AC-01/02/05归A，AC-03分本地导出与B真实来源接收，AC-04分本地可用与B持久待发，接收幂等要求明确为AC-06；原需求全部保留分阶段，不以A过门关闭B。原T-00..04编号保留并重新标注阶段/细化，新增T-05..10承担导出及阶段/最终交付，尚无实现成果被重置。
 
 stage: new | plan_id: READER-002 | plan_revision: 3 | outcome: blocked（合同分期就绪；首任务等待003实际交付，A不等Notes） | next: 先执行003；其实际交付后work/T-00，B另等Notes真实接收。11项任务全未勾选。
+
+stage: work | plan_id: READER-002 | plan_revision: 3 | outcome: pass（T-00 完成，1/11） | worktree_path: D:/autostack/.wt/reader-002/auto-reader | branch: plan-002-dev | base_commit: 30fcfb5 | code_commit: 30fcfb5（纯调查，无代码改动） | dependency_revisions: READER-001 r9 archived、READER-003 r3 archived（merge 24c9838） | task_ids: T-00 | evidence: docs/plans/evidence/002/local-capability-decision.md（基线核对 reading_page/pac hash 与 §4 一致；library 差异=003 合入，预期）；目标授权=用户 /goal 完成计划004 → 经确认指向交付 READER-002 全链（work→review→merge） | blockers: 无（N-002-A-1/2 具名缺口不阻塞 A） | next_responsible_role: work（T-01 样式/偏好/搜索/布局）
 
 ## 10. 待澄清事项
 
