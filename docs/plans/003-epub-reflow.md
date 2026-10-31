@@ -7,7 +7,7 @@ author: [Codex]
 created_at: 2026-10-04T00:00:00Z
 updated_at: 2026-10-29
 plan_revision: 3
-current_step: 1
+current_step: 2
 total_steps: 7
 base_branch: main
 base_commit: 4d6345cc37882b0216480661eefae4c773617c2d
@@ -131,7 +131,7 @@ EPUB持久身份以原始二进制内容证明/摘要＋格式版本区分，T-0
 ## 8. 执行步骤
 
 - [x] T-00（owner_stage=work；依赖001实际交付；AC-01..05）：冻结CAP-01..04与最小profile；验证候选ZIP/XML/二进制/图像/原生入口，输出capability-decision.md；必要缺项具名立最小owner前置，不依赖完整002。[✅ 2026-10-31] capability-decision.md 已产出（commit f251eed）：真sha256/字节读写字节精确/file.copy/image.thumb 可用；zip/xml native 不存在→纯.at 栈；惰性按章解压架构（导入期结构校验、首读期解压）；预算冻结。探针 t00_epub_cap_probe{,2..10}.as。
-- [ ] T-01（owner_stage=work；依赖T-00与实际具名前置交付；AC-01/03/04）：实现EPUB容器/package/spine/nav/资源adapter与受管导入提交、旧库格式兼容；数据先验证再发布，不改原件。[⛔→✅ 2026-10-31 解除] 原纯.at DEFLATE 路径被运行时列表缺陷 N-003-1..6 阻断（framework-gap.md 在案）；用户裁决走选项 B，auto-lang 仓 **PLAN-897 已交付归档**（zip.list_json/read_text/extract_entry 三 native，VM 轨探针 22/22 PASS，merge a25e67983、archive 3fa75dd9c）。新 CLI＝D:/autostack/auto-man/target/debug/auto.exe SHA256 706d13f56277fc70913571bee675b554a3d08e4809d67953fe4d8ed5a2310543（版本串仍 118；以 SHA 为准）。T-01 改线：ZIP/解压全走 zip natives（max_bytes 直传 CAP-03 预算），XML/OPF/nav 用纯 .at str 扫描（字节索引域，可靠）；inflatex.at 归档为能力研究记录（不被消费）。
+- [x] T-01（owner_stage=work；依赖T-00与实际具名前置交付；AC-01/03/04）：实现EPUB容器/package/spine/nav/资源adapter与受管导入提交、旧库格式兼容；数据先验证再发布，不改原件。[⛔→✅ 2026-10-31 解除] 原纯.at DEFLATE 路径被运行时列表缺陷 N-003-1..6 阻断（framework-gap.md 在案）；用户裁决走选项 B，auto-lang 仓 **PLAN-897 已交付归档**（zip.list_json/read_text/extract_entry 三 native，VM 轨探针 22/22 PASS，merge a25e67983、archive 3fa75dd9c）。新 CLI＝D:/autostack/auto-man/target/debug/auto.exe SHA256 706d13f56277fc70913571bee675b554a3d08e4809d67953fe4d8ed5a2310543（版本串仍 118；以 SHA 为准）。T-01 改线：ZIP/解压全走 zip natives（max_bytes 直传 CAP-03 预算），XML/OPF/nav 用纯 .at str 扫描（字节索引域，可靠）；inflatex.at 归档为能力研究记录（不被消费）。 [✅ 2026-10-31 r2 续跑] epub.at 导入事务交付（commit 5e9b513）：zip natives（PLAN-897）+ 纯 .at XML 扫描（find/substr 字节域）；sha256 整文件身份；file.copy 受管副本 + sha256 读回对账；epubmeta 边车；library .epub 分派（UTF-8 预检前）。t08 spec 8/8 PASS（首导/去重/force/非EPUB/缺文件）；过程实录：VM 字符串机制多坑（多操作数拼接链毒化、 转义不受支持、tag 前缀边界）→ 改线为单遍 manifest 扫描 + 可见分隔符。
 - [ ] T-02（owner_stage=work；依赖T-01；AC-01/02/05）：接共用最小内容模型、真实目录/图片/内链与基本字号，扩充兼容locator和持久恢复；不实现002注释系统。
 - [ ] T-03（owner_stage=work；依赖T-01及T-00预算决策；AC-03/04）：完成规范化路径、禁止活动内容/外部实体/远程加载、实际解压/图像预算与失败回滚/可重试状态。
 - [ ] T-04（owner_stage=work；依赖T-02/T-03；AC-01..05）：制作永久fixture/双端入口并跑E-01..06及受影响旧库回归，准备SD-01/02，提交实现/证据摘要后execution_done；本轮不执行。
@@ -149,6 +149,8 @@ stage: work | plan_id: READER-003 | plan_revision: 3 | round: 1 | outcome: **blo
 stage: goal | plan_id: READER-003 | plan_revision: 3 | round: 1 | from: work | to: user（框架侧前置） | status: executing | outcome: blocked | worktree: D:/autostack/.wt/reader-003/auto-reader（保留，plan-003-dev @ ca9d86f） | commit: 34d762c 不可用（本轮主仓仅计划记账） | next: user/框架侧；goal 链按停止条件交回，恢复动作见 §10 与 framework-gap.md
 
 stage: goal | plan_id: READER-003 | plan_revision: 3 | round: 2 | from: user（框架前置交付） | to: work | status: executing | outcome: pass（解除条件达成，T-01 续跑） | framework_delivery: auto-lang PLAN-897 archived（3fa75dd9c；natives merge a25e67983；新 CLI SHA256 706d13f5…） | worktree: D:/autostack/.wt/reader-003/auto-reader（保留） | next: work/T-01（zip natives + 纯 .at XML 改线）
+
+stage: work | plan_id: READER-003 | plan_revision: 3 | outcome: pass（T-01 完成；T-02..T-04 继续 executing） | worktree_path: D:/autostack/.wt/reader-003/auto-reader | branch: plan-003-dev | base_commit: fa6185e | code_commit: 5e9b513（epub.at 导入事务 + library 分派 + t08 spec） | dependency_revisions: auto CLI SHA256 706d13f5…（PLAN-897 后） | task_ids: T-01 ✅ | evidence: tests/spec/t08_epub_import_spec.as 8/8 PASS（隔离 AUTO_READER_DATA）；fixture 生成器 tests/spec/plan897_make_epub.py | blockers: 无（T-02 章读取/目录/T-03 收尾/T-04 验证套件待做） | next_responsible_role: work（同会话继续）
 
 ## 10. 待澄清事项
 
