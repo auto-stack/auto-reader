@@ -152,6 +152,8 @@ stage: goal | plan_id: READER-003 | plan_revision: 3 | round: 2 | from: user（�
 
 stage: work | plan_id: READER-003 | plan_revision: 3 | outcome: pass（T-01 完成；T-02..T-04 继续 executing） | worktree_path: D:/autostack/.wt/reader-003/auto-reader | branch: plan-003-dev | base_commit: fa6185e | code_commit: 5e9b513（epub.at 导入事务 + library 分派 + t08 spec） | dependency_revisions: auto CLI SHA256 706d13f5…（PLAN-897 后） | task_ids: T-01 ✅ | evidence: tests/spec/t08_epub_import_spec.as 8/8 PASS（隔离 AUTO_READER_DATA）；fixture 生成器 tests/spec/plan897_make_epub.py | blockers: 无（T-02 章读取/目录/T-03 收尾/T-04 验证套件待做） | next_responsible_role: work（同会话继续）
 
+stage: work | plan_id: READER-003 | plan_revision: 3 | outcome: pass（T-02 后端完成；前端 reading_page EPUB 分支 + T-03/T-04 继续） | code_commit: 7eb48b9（epub 章惰性解压+缓存、epub_toc_json、library toc/chapter EPUB 分支） | task_ids: T-02 后端 ✅（前端待做） | evidence: t08 19/19 PASS（含 TOC nav 标签→spine 序号、章文本/图片标记行/缓存一致性/越界占位、TXT 旧路不回归） | 过程实录: find_after 包含语义使记录遍历 e==s 卡死 → 改「管道=记录尾」遍历（substr(pos, s-pos), pos=s+1） | next_responsible_role: work（同会话继续）
+
 ## 10. 待澄清事项
 
 **⛔ 当前阻断（2026-10-31，T-01 work 阶段）**：纯 .at DEFLATE 解压被运行时列表缺陷阻断（N-003-1..6，证据与最小复现见 docs/plans/evidence/003/framework-gap.md；最直接证据＝解码输出与期望文本逐字节 +7 位移）。**解除动作（具名）**：框架 owner（auto-lang/auto-man）按 framework-gap.md「最小修复选项」交付其一——A：修复 VM 列表读值失真（convert.rs Vec<i32> push_to_stack 路径嫌疑）使 src/back/inflatex.at 参考实现通过 t00_inflate_probe；或 B：提供 zip/inflate native。取得交付回执后本计划按 CAP-01 路由恢复 T-01..T-04，目标/AC/范围不变。在回执前本计划不推进实现、不以 fixture 注入或降低验收替代。
