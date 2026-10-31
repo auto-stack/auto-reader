@@ -23,6 +23,12 @@
 // 逻辑内联于 handler（widget 内局部 fn 不支持——T-03 实测 parse error）；
 // 纯计算下沉文件级 fn。/api/library/* 响应双层编码——统一经 parse_lib
 // 二次解析（缺书/失败回 null，守卫跨 Vue/VM 双轨安全）。
+// READER-002 阶段A（T-01/T-03/T-05）：全文搜索抽屉、注释/书签/高亮
+// （对话框创建 quote=段文本可编辑+出现序，锚核验在服务端）、注释抽屉
+// （回访跳转/删除/需重定位徽标/Markdown 导出）、排版偏好扩展
+// （layout narrow|medium|wide + theme light|sepia|dark 随 reading 状态
+// 持久化——SD-02 可选键，缺位=默认）。快捷键裁决（T-00）：无全局键盘
+// handler，搜索 onenter / 对话框按钮 widget 级触发，不抢输入框/IME。
 use store: BooksStore
 use fmt: pct1
 
@@ -63,17 +69,107 @@ fn para_hash(text str) str {
 
 /// 正文 → 段落数组 [{idx, text, key}]（去空行；idx = 原行号；key = 稳定
 /// 子锚点 key，scroll-anchor 寻址用——pane 内唯一，跨章节同构）。
-fn split_paragraphs(body str) List {
+/// READER-002：并入本章注释标记数 mark_n 与需重定位位 mark_bad
+/// （quote 非空且在本段出现序不足 = bad——与后端核验同式，展示面诚实
+/// 预判，终判在服务端）。入参全标量（anns_resp 为注释 GET 原文，函数内
+/// 解析——规避 List/struct 作 fn 参数的双轨缺陷面）。
+fn merge_marks(body str, anns_resp str, ch int) List {
     let lines = body.split("\n")
     var out List = []
+    var anns = json.parse("[]")
+    if anns_resp != "" {
+        if anns_resp.find("\"annotations\":[") >= 0 {
+            var okp bool = false
+            var wrap = null
+            try {
+                wrap = json.parse(anns_resp)
+                okp = true
+            } catch {
+                okp = false
+            }
+            if okp {
+                anns = wrap.annotations
+            }
+        }
+    }
     var i int = 0
     while i < lines.len() {
         let t str = ("" + lines[i]).trim()
         if t != "" {
+            var n int = 0
+            var bad int = 0
+            for a in anns {
+                let ach int = a.chapter_number
+                if ach == ch {
+                    let apx int = a.para_idx
+                    if apx == i {
+                        n = n + 1
+                        let q str = "" + a.quote
+                        if q != "" {
+                            let occ int = a.occurrence
+                            let live int = count_sub(t, q)
+                            if live < occ {
+                                bad = 1
+                            }
+                        }
+                    }
+                }
+            }
             let k str = "p" + i.to_string()
-            out.push({ idx: i, text: t, key: k })
+            out.push({ idx: i, text: t, key: k, mark_n: n, mark_bad: bad })
         }
         i = i + 1
+    }
+    return out
+}
+
+/// READER-002：注释集富化（抽屉渲染面）——注释 GET 原文 + 当前章正文
+/// → [{annotation_id, kind, chapter_number, para_idx, quote, occurrence,
+/// comment, bad}]。bad 仅对当前章核对（quote 出现序不足 = 需重定位；
+/// 其他章未核 = 不显示徽标，不做未证断言）。入参全标量。
+fn enrich_ann(ann_resp str, body str, ch int) List {
+    var out List = []
+    if ann_resp == "" {
+        return out
+    }
+    if ann_resp.find("\"annotations\":[") < 0 {
+        return out
+    }
+    var okp bool = false
+    var wrap = null
+    try {
+        wrap = json.parse(ann_resp)
+        okp = true
+    } catch {
+        okp = false
+    }
+    if !okp {
+        return out
+    }
+    let lines = body.split("\n")
+    let arr = wrap.annotations
+    for a in arr {
+        let aid str = "" + a.annotation_id
+        let akind str = "" + a.kind
+        let ach int = a.chapter_number
+        let apx int = a.para_idx
+        let q str = "" + a.quote
+        let aocc int = a.occurrence
+        let acm str = "" + a.comment
+        var badv int = 0
+        if ach == ch {
+            if q != "" {
+                if apx < lines.len() {
+                    let ln str = ("" + lines[apx]).trim()
+                    if count_sub(ln, q) < aocc {
+                        badv = 1
+                    }
+                } else {
+                    badv = 1
+                }
+            }
+        }
+        out.push({ annotation_id: aid, kind: akind, chapter_number: ach, para_idx: apx, quote: q, occurrence: aocc, comment: acm, bad: badv })
     }
     return out
 }
@@ -96,7 +192,9 @@ fn parse_lib(text str) JsonValue? {
 /// 多字节损坏规避）。段文本指纹由调用方算好传入。
 /// 参数名禁与 widget model 变量同名（vue codegen 会对同名参数误加
 /// .value 致 undefined——T-03 实测），故用 rid。
-fn real_payload(rid str, ch int, para int, ph str, font str, line str) str {
+/// READER-002：layout/theme 为可选枚举（SD-02）；缺省串为空时不写键
+/// （旧存储形态兼容，后端按缺位处理）。
+fn real_payload(rid str, ch int, para int, ph str, font str, line str, lay str, thm str) str {
     var payload str = "{\"book_id\":\""
     payload = payload + rid
     payload = payload + "\",\"chapter_number\":"
@@ -109,7 +207,18 @@ fn real_payload(rid str, ch int, para int, ph str, font str, line str) str {
     payload = payload + font
     payload = payload + "\",\"line_height\":\""
     payload = payload + line
-    payload = payload + "\",\"updated_at\":0}"
+    payload = payload + "\""
+    if lay != "" {
+        payload = payload + ",\"layout\":\""
+        payload = payload + lay
+        payload = payload + "\""
+    }
+    if thm != "" {
+        payload = payload + ",\"theme\":\""
+        payload = payload + thm
+        payload = payload + "\""
+    }
+    payload = payload + ",\"updated_at\":0}"
     return payload
 }
 
@@ -141,8 +250,103 @@ fn body_style_of(font str, line str) str {
     return "text-foreground " + size_cls + " " + lead_cls
 }
 
+/// READER-002：阅读列宽（宽窄布局）。缺省 medium=max-w-2xl（001 原状）。
+fn layout_cls_of(layout str) str {
+    if layout == "narrow" {
+        return "max-w-xl"
+    }
+    if layout == "wide" {
+        return "max-w-4xl"
+    }
+    return "max-w-2xl"
+}
+
+/// READER-002：阅读主题（亮/米/暗）。作用于正文容器底色与文字色；
+/// 页框（顶/底栏）保持应用主题——本地阅读偏好只覆盖沉浸面。
+fn theme_body_of(theme str) str {
+    if theme == "sepia" {
+        return "bg-[#f4ecd8] text-[#5b4636]"
+    }
+    if theme == "dark" {
+        return "bg-[#1f2430] text-[#d6dae2]"
+    }
+    return "bg-background text-foreground"
+}
+
+/// 主题下段落悬停/标记的次级样式（与 theme_body_of 同枚举）。
+fn theme_hover_of(theme str) str {
+    if theme == "sepia" {
+        return "hover:bg-[#eadfbd]"
+    }
+    if theme == "dark" {
+        return "hover:bg-[#2a3140]"
+    }
+    return "hover:bg-muted"
+}
+
+fn theme_marked_of(theme str) str {
+    if theme == "sepia" {
+        return "bg-[#eadfbd]"
+    }
+    if theme == "dark" {
+        return "bg-[#2a3140]"
+    }
+    return "bg-primary/10"
+}
+
+/// 段内出现计数（重叠口径，与后端 count_occurrences 同式——UI 侧
+/// 「第 N 处」候选与锚点预判；终判在服务端）。
+fn count_sub(hay str, needle str) int {
+    if needle == "" {
+        return 0
+    }
+    var count int = 0
+    var rest str = hay
+    var guard int = 0
+    while guard < 1000 {
+        guard = guard + 1
+        let pos int = rest.find(needle)
+        if pos < 0 {
+            break
+        }
+        count = count + 1
+        if pos + 1 >= rest.len() {
+            break
+        }
+        rest = rest.substr(pos + 1, rest.len() - pos - 1)
+    }
+    return count
+}
+
+/// 标签输入消毒 + 规范 JSON 数组（"a, b" → ["a","b"]；空 → "[]"）。
+/// 引号/反斜杠剥除（防 JSON 注入——服务端词法门兜底拒绝）。
+fn tags_json_of(input str) str {
+    let parts = input.split(",")
+    var out str = "["
+    var n int = 0
+    while n < parts.len() {
+        let raw str = ("" + parts[n]).trim()
+        if raw != "" {
+            let s str = raw.replace("\"", "").replace("\\", "")
+            if s != "" {
+                if n > 0 {
+                    if out.len() > 1 {
+                        out = out + ","
+                    }
+                }
+                out = out + "\""
+                out = out + s
+                out = out + "\""
+            }
+        }
+        n = n + 1
+    }
+    out = out + "]"
+    return out
+}
+
 widget reading_page {
-    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int) }
+    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int), ToggleSearch, DoSearch, ToggleAnns, ToggleStyle, SetLayout(str), SetTheme(str), JumpTo(int, int), AnnDelete(str), OpenAnnDialog(int), AnnKind(str), AnnSubmit, AnnCancel, DoExport, NoOp }
 
     model {
         var book_id int = 0
@@ -166,6 +370,43 @@ widget reading_page {
         var restored_note str = ""
         // T-25 恢复定位：scroll-pane controller 锚柄（scroll_to_child 寻址）
         var rsc str = "reading-pane"
+        // ── READER-002 A：排版偏好扩展（SD-02 可选键；缺省=001 原状）──
+        var layout str = "medium"
+        var theme str = "light"
+        // ── 搜索（T-01）──
+        var show_search bool = false
+        var search_q str = ""
+        var search_results List = []
+        var search_note str = ""
+        var search_total int = 0
+        // ── 注释（T-03）──
+        var show_anns bool = false
+        var anns List = []
+        var ann_marks List = []   // [{ch, pi, n, bad}] 当前章标记/需重定位
+        var ann_note str = ""     // 抽屉级提示（导出/错误）
+        // ── 注释对话框（创建/编辑）──
+        var ann_dialog bool = false
+        var ann_edit_id str = ""  // ""=新建；非空=编辑该 id
+        var ann_kind str = "highlight"
+        var ann_ch int = 0
+        var ann_pi int = -1
+        var ann_quote str = ""
+        var ann_occ_str str = "1"
+        var ann_comment str = ""
+        var ann_tags str = ""
+        var ann_dlg_note str = ""
+        // ── 排版抽屉 ──
+        var show_style bool = false
+        // ── 派生样式（handlers 经文件级 fn 赋值——view 不做逻辑）──
+        var theme_body_cls str = "bg-background text-foreground"
+        var theme_hover_cls str = "hover:bg-muted"
+        var theme_marked_cls str = "bg-primary/10"
+        var layout_col_cls str = "max-w-2xl"
+        var para_marked_cls str = "bg-primary/10 border-primary para-marked"
+        var para_idle_cls str = "border-transparent hover:bg-muted"
+        var ann_dlg_title str = "添加注释"
+        // 注释 GET 原文（merge_marks/enrichment 共同标量输入）
+        var ann_resp str = ""
     }
 
     view {
@@ -186,13 +427,28 @@ widget reading_page {
                     text "Loading…" { style: "font-medium text-muted-foreground flex-1 truncate" }
                 }
                 button {
+                    onclick: .ToggleSearch
+                    style: "px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-lg transition-colors shrink-0"
+                    text "🔍 搜索" {}
+                }
+                button {
+                    onclick: .ToggleAnns
+                    style: "px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-lg transition-colors shrink-0"
+                    text "✎ 注释" {}
+                }
+                button {
+                    onclick: .ToggleStyle
+                    style: "px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-lg transition-colors shrink-0"
+                    text "Aa" {}
+                }
+                button {
                     onclick: .ToggleToc
                     style: "px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-lg transition-colors shrink-0"
                     text "☰ Contents" {}
                 }
             }
 
-            // Body: TOC drawer + reading column
+            // Body: TOC drawer + search/annotations/style drawers + reading column
             row {
                 style: "flex-1 min-h-0 items-stretch relative overflow-hidden"
                 // TOC drawer — absolute 贴容器左，关闭时不占位
@@ -215,12 +471,174 @@ widget reading_page {
                         }
                     }
                 }
+                // 搜索抽屉（READER-002 T-01）— absolute 贴容器右
+                if .show_search {
+                    col {
+                        style: "absolute inset-y-0 right-0 z-30 w-80 border-l border-border bg-card p-3 gap-2 overflow-y-auto shadow-lg"
+                        text "本书内搜索" { style: "text-xs font-semibold text-muted-foreground uppercase tracking-wide px-2 py-1 shrink-0" }
+                        input {
+                            value: .search_q
+                            oninput: .NoOp
+                            onenter: .DoSearch
+                            placeholder: "输入关键词（精确子串）"
+                            style: "w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground outline-none focus:border-primary"
+                        }
+                        button {
+                            onclick: .DoSearch
+                            style: "px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                            text "搜索" {}
+                        }
+                        if .search_note != "" {
+                            text .search_note { style: "text-xs text-muted-foreground px-2" }
+                        }
+                        for r in .search_results {
+                            col {
+                                onclick: .JumpTo(r.chapter_number, r.para_idx)
+                                style: "items-start gap-1 px-2 py-2 rounded-lg cursor-pointer hover:bg-accent transition-colors"
+                                text f"第 ${r.chapter_number} 章 · ¶${r.para_idx}" { style: "text-xs text-muted-foreground font-mono" }
+                                text r.para_text { style: "text-sm text-foreground truncate w-full" }
+                            }
+                        }
+                        if .search_total > 0 {
+                            text f"共 ${.search_total} 处（点击跳转）" { style: "text-xs text-muted-foreground px-2 py-1" }
+                        }
+                    }
+                }
+                // 注释抽屉（READER-002 T-03/T-05）— absolute 贴容器右
+                if .show_anns {
+                    col {
+                        style: "absolute inset-y-0 right-0 z-30 w-80 border-l border-border bg-card p-3 gap-2 overflow-y-auto shadow-lg"
+                        text "注释与书签" { style: "text-xs font-semibold text-muted-foreground uppercase tracking-wide px-2 py-1 shrink-0" }
+                        if .ann_note != "" {
+                            text .ann_note { style: "text-xs text-muted-foreground px-2" }
+                        }
+                        if .anns.len() == 0 {
+                            text "（暂无注释——点击段落后再点「＋ 注释」创建）" { style: "text-sm text-muted-foreground px-2 py-2" }
+                        } else {
+                            for a in .anns {
+                                col {
+                                    style: "items-start gap-1 px-2 py-2 rounded-lg border border-border/60"
+                                    row {
+                                        onclick: .JumpTo(a.chapter_number, a.para_idx)
+                                        style: "items-center gap-2 cursor-pointer w-full"
+                                        text a.kind { style: "text-xs font-mono text-primary shrink-0" }
+                                        text f"第 ${a.chapter_number} 章 · ¶${a.para_idx}" { style: "text-xs text-muted-foreground font-mono flex-1" }
+                                        if a.bad == 1 {
+                                            text "需重定位" { style: "text-xs text-destructive shrink-0" }
+                                        }
+                                    }
+                                    if a.quote != "" {
+                                        text a.quote { style: "text-sm text-foreground truncate w-full" }
+                                    }
+                                    if a.comment != "" {
+                                        text a.comment { style: "text-xs text-muted-foreground truncate w-full" }
+                                    }
+                                    row {
+                                        style: "gap-2"
+                                        button {
+                                            onclick: .AnnEdit(a.annotation_id)
+                                            style: "px-2 py-1 text-xs text-foreground hover:bg-accent rounded transition-colors"
+                                            text "编辑" {}
+                                        }
+                                        button {
+                                            onclick: .AnnDelete(a.annotation_id)
+                                            style: "px-2 py-1 text-xs text-destructive hover:bg-destructive/10 rounded transition-colors"
+                                            text "删除" {}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        button {
+                            onclick: .DoExport
+                            style: "px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors shrink-0"
+                            text "导出 Markdown" {}
+                        }
+                    }
+                }
+                // 排版抽屉（READER-002 T-01）— absolute 贴容器右
+                if .show_style {
+                    col {
+                        style: "absolute inset-y-0 right-0 z-30 w-64 border-l border-border bg-card p-3 gap-3 overflow-y-auto shadow-lg"
+                        text "排版" { style: "text-xs font-semibold text-muted-foreground uppercase tracking-wide px-2 py-1 shrink-0" }
+                        text "栏宽" { style: "text-sm text-foreground px-2" }
+                        row {
+                            style: "gap-2 px-2"
+                            button {
+                                onclick: .SetLayout("narrow")
+                                style: ["px-3 py-1.5 text-sm rounded-lg transition-colors",
+                                    if .layout == "narrow" {
+                                        "bg-primary text-primary-foreground"
+                                    } else {
+                                        "text-foreground hover:bg-accent"
+                                    }]
+                                text "窄" {}
+                            }
+                            button {
+                                onclick: .SetLayout("medium")
+                                style: ["px-3 py-1.5 text-sm rounded-lg transition-colors",
+                                    if .layout == "medium" {
+                                        "bg-primary text-primary-foreground"
+                                    } else {
+                                        "text-foreground hover:bg-accent"
+                                    }]
+                                text "中" {}
+                            }
+                            button {
+                                onclick: .SetLayout("wide")
+                                style: ["px-3 py-1.5 text-sm rounded-lg transition-colors",
+                                    if .layout == "wide" {
+                                        "bg-primary text-primary-foreground"
+                                    } else {
+                                        "text-foreground hover:bg-accent"
+                                    }]
+                                text "宽" {}
+                            }
+                        }
+                        text "阅读主题" { style: "text-sm text-foreground px-2" }
+                        row {
+                            style: "gap-2 px-2"
+                            button {
+                                onclick: .SetTheme("light")
+                                style: ["px-3 py-1.5 text-sm rounded-lg transition-colors",
+                                    if .theme == "light" {
+                                        "bg-primary text-primary-foreground"
+                                    } else {
+                                        "text-foreground hover:bg-accent"
+                                    }]
+                                text "亮" {}
+                            }
+                            button {
+                                onclick: .SetTheme("sepia")
+                                style: ["px-3 py-1.5 text-sm rounded-lg transition-colors",
+                                    if .theme == "sepia" {
+                                        "bg-primary text-primary-foreground"
+                                    } else {
+                                        "text-foreground hover:bg-accent"
+                                    }]
+                                text "米" {}
+                            }
+                            button {
+                                onclick: .SetTheme("dark")
+                                style: ["px-3 py-1.5 text-sm rounded-lg transition-colors",
+                                    if .theme == "dark" {
+                                        "bg-primary text-primary-foreground"
+                                    } else {
+                                        "text-foreground hover:bg-accent"
+                                    }]
+                                text "暗" {}
+                            }
+                        }
+                        text "字号与行距沿顶栏书内偏好（保存于阅读状态）" { style: "text-xs text-muted-foreground px-2" }
+                    }
+                }
                 // Reading column — T-25：scroll-pane（PLAN-656 controller）；
-                // 恢复定位由段落 scroll-anchor + scroll_to_child 入队完成
-                scroll-pane (controller: .rsc, style: "flex-1 min-h-0 w-full") {
+                // 恢复定位由段落 scroll-anchor + scroll_to_child 入队完成。
+                // READER-002：栏宽/主题由本地排版偏好承载（沉浸面）。
+                scroll-pane (controller: .rsc, style: ["flex-1 min-h-0 w-full", .theme_body_cls]) {
                     if .loaded {
                         col {
-                            style: "max-w-2xl mx-auto px-6 py-10 gap-6"
+                            style: [.layout_col_cls, "mx-auto px-6 py-10 gap-6"]
                             h1 .chapter.title { style: "text-2xl font-bold text-foreground" }
                             if .is_real {
                                 if .restored_note != "" {
@@ -234,16 +652,42 @@ widget reading_page {
                                 } else {
                                     for p in .paragraphs {
                                         col {
-                                            onclick: .TapParagraph(p.idx)
                                             scroll-anchor: p.key
-                                            style: ["px-3 py-2 rounded-lg cursor-pointer transition-colors",
-                                                if p.idx == .cur_paragraph {
-                                                    "bg-primary/10 border-l-4 border-primary para-marked"
-                                                } else {
-                                                    "border-l-4 border-transparent hover:bg-muted"
-                                                }]
-                                            text f"¶${p.idx}" { style: "text-xs text-muted-foreground/60 font-mono" }
-                                            text p.text { style: .body_style }
+                                            style: "items-stretch gap-0"
+                                            col {
+                                                onclick: .TapParagraph(p.idx)
+                                                style: ["px-3 py-2 rounded-lg cursor-pointer transition-colors border-l-4",
+                                                    if p.idx == .cur_paragraph {
+                                                        .para_marked_cls
+                                                    } else {
+                                                        .para_idle_cls
+                                                    }]
+                                                row {
+                                                    style: "items-center gap-2"
+                                                    text f"¶${p.idx}" { style: "text-xs text-muted-foreground/60 font-mono shrink-0" }
+                                                    if p.mark_n > 0 {
+                                                        text f"✎ ${p.mark_n}" { style: "text-xs text-primary font-mono shrink-0" }
+                                                    }
+                                                    if p.mark_bad > 0 {
+                                                        text "需重定位" { style: "text-xs text-destructive shrink-0" }
+                                                    }
+                                                }
+                                                text p.text { style: .body_style }
+                                            }
+                                            // 当前段注释动作行（＋ 注释入口；
+                                            // 不改变点段=记位置的既有行为）
+                                            if p.idx == .cur_paragraph {
+                                                if .is_real {
+                                                    row {
+                                                        style: "gap-2 px-3 py-1"
+                                                        button {
+                                                            onclick: .OpenAnnDialog(p.idx)
+                                                            style: "px-2 py-1 text-xs bg-primary/10 text-primary rounded hover:bg-primary/20 transition-colors"
+                                                            text "＋ 注释/书签" {}
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -256,6 +700,96 @@ widget reading_page {
                             style: "items-center justify-center py-20 text-muted-foreground"
                             text "Loading…" {}
                         }
+                    }
+                }
+            }
+
+            // 注释对话框（READER-002 T-03）——底部浮层；quote/occurrence/
+            // comment/tags 直传顶层字段（多字节安全），锚核验在服务端。
+            if .ann_dialog {
+                col {
+                    style: "absolute inset-x-0 bottom-0 z-40 bg-card border-t border-border p-4 gap-2 shadow-2xl max-h-[60%] overflow-y-auto"
+                    row {
+                        style: "items-center gap-2"
+                        text .ann_dlg_title { style: "text-sm font-semibold text-foreground flex-1" }
+                        button {
+                            onclick: .AnnCancel
+                            style: "px-2 py-1 text-sm text-muted-foreground hover:bg-accent rounded transition-colors"
+                            text "✕" {}
+                        }
+                    }
+                    row {
+                        style: "gap-2"
+                        button {
+                            onclick: .AnnKind("highlight")
+                            style: ["px-3 py-1.5 text-sm rounded-lg transition-colors",
+                                if .ann_kind == "highlight" {
+                                    "bg-primary text-primary-foreground"
+                                } else {
+                                    "text-foreground hover:bg-accent"
+                                }]
+                            text "高亮" {}
+                        }
+                        button {
+                            onclick: .AnnKind("comment")
+                            style: ["px-3 py-1.5 text-sm rounded-lg transition-colors",
+                                if .ann_kind == "comment" {
+                                    "bg-primary text-primary-foreground"
+                                } else {
+                                    "text-foreground hover:bg-accent"
+                                }]
+                            text "注释" {}
+                        }
+                        button {
+                            onclick: .AnnKind("bookmark")
+                            style: ["px-3 py-1.5 text-sm rounded-lg transition-colors",
+                                if .ann_kind == "bookmark" {
+                                    "bg-primary text-primary-foreground"
+                                } else {
+                                    "text-foreground hover:bg-accent"
+                                }]
+                            text "书签" {}
+                        }
+                    }
+                    text "摘录（逐字锚；可截取子串）" { style: "text-xs text-muted-foreground" }
+                    input {
+                        value: .ann_quote
+                        oninput: .NoOp
+                        placeholder: "摘录原文"
+                        style: "w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground outline-none focus:border-primary"
+                    }
+                    row {
+                        style: "gap-2 items-center"
+                        text "第" { style: "text-sm text-foreground" }
+                        input {
+                            value: .ann_occ_str
+                            oninput: .NoOp
+                            style: "w-16 px-2 py-1.5 bg-background border border-border rounded-lg text-sm text-foreground outline-none focus:border-primary"
+                        }
+                        text "处（同段重复句序号）" { style: "text-xs text-muted-foreground" }
+                    }
+                    text "批注" { style: "text-xs text-muted-foreground" }
+                    textarea {
+                        value: .ann_comment
+                        oninput: .NoOp
+                        height: 64
+                        placeholder: "写点什么（可空）"
+                        style: "w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground outline-none focus:border-primary"
+                    }
+                    text "标签（逗号分隔）" { style: "text-xs text-muted-foreground" }
+                    input {
+                        value: .ann_tags
+                        oninput: .NoOp
+                        placeholder: "例：重点, 待查"
+                        style: "w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground outline-none focus:border-primary"
+                    }
+                    if .ann_dlg_note != "" {
+                        text .ann_dlg_note { style: "text-xs text-destructive" }
+                    }
+                    button {
+                        onclick: .AnnSubmit
+                        style: "px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                        text "保存注释" {}
                     }
                 }
             }
@@ -327,6 +861,37 @@ widget reading_page {
                     if lh != "" {
                         .line_height = lh
                     }
+                    // READER-002 A：可选排版偏好（缺位 = 默认；枚举外忽略）
+                    var ly str = ""
+                    try {
+                        ly = "" + pr.layout
+                    } catch {
+                        ly = ""
+                    }
+                    if ly == "narrow" {
+                        .layout = "narrow"
+                    }
+                    if ly == "wide" {
+                        .layout = "wide"
+                    }
+                    if ly == "medium" {
+                        .layout = "medium"
+                    }
+                    var th str = ""
+                    try {
+                        th = "" + pr.theme
+                    } catch {
+                        th = ""
+                    }
+                    if th == "sepia" {
+                        .theme = "sepia"
+                    }
+                    if th == "dark" {
+                        .theme = "dark"
+                    }
+                    if th == "light" {
+                        .theme = "light"
+                    }
                 }
                 let toc = parse_lib(Http.get_json("/api/library/books/" + .route_id + "/toc"))
                 if toc != null {
@@ -347,7 +912,10 @@ widget reading_page {
                 if chv != null {
                     .chapter = chv
                 }
-                .paragraphs = split_paragraphs("" + .chapter.body)
+                // READER-002 注释装载规范序列（变更/换章后同式）
+                .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
+                .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
+                .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num)
                 .cur_paragraph = -1
                 .cur_para_text = ""
                 // 恢复段标记：仅当保存章节 == 当前章节；内容锚点逐字验证
@@ -451,6 +1019,13 @@ widget reading_page {
             .font_size = fill_pref(.font_size, "br-font-size", "medium")
             .line_height = fill_pref(.line_height, "br-line-height", "comfy")
             .body_style = body_style_of(.font_size, .line_height)
+            // READER-002 派生样式刷新（SetLayout/SetTheme 同式）
+            .theme_body_cls = theme_body_of(.theme)
+            .theme_hover_cls = theme_hover_of(.theme)
+            .theme_marked_cls = theme_marked_of(.theme)
+            .para_marked_cls = theme_marked_of(.theme) + " border-primary para-marked"
+            .para_idle_cls = "border-transparent " + theme_hover_of(.theme)
+            .layout_col_cls = layout_cls_of(.layout)
             if !.is_real {
                 .loaded = true
                 store.SetProgress(.book_id, .progress_pct)
@@ -468,7 +1043,10 @@ widget reading_page {
                     if chv != null {
                         .chapter = chv
                     }
-                    .paragraphs = split_paragraphs("" + .chapter.body)
+// READER-002 注释装载规范序列（变更/换章后同式）
+                    .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
+                    .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
+                    .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num)
                     .cur_paragraph = -1
                     .cur_para_text = ""
                 } else {
@@ -480,7 +1058,7 @@ widget reading_page {
                 }
                 .progress_label = pct1(.progress_pct) + "%"
                 if .is_real {
-                    let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height)
+                    let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height, .layout, .theme)
                     var save_ok bool = false
                     try {
                         let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl, para_text: "" })
@@ -505,7 +1083,10 @@ widget reading_page {
                     if chv != null {
                         .chapter = chv
                     }
-                    .paragraphs = split_paragraphs("" + .chapter.body)
+// READER-002 注释装载规范序列（变更/换章后同式）
+                    .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
+                    .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
+                    .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num)
                     .cur_paragraph = -1
                     .cur_para_text = ""
                 } else {
@@ -517,7 +1098,7 @@ widget reading_page {
                 }
                 .progress_label = pct1(.progress_pct) + "%"
                 if .is_real {
-                    let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height)
+                    let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height, .layout, .theme)
                     var save_ok bool = false
                     try {
                         let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl, para_text: "" })
@@ -542,7 +1123,10 @@ widget reading_page {
                     if chv != null {
                         .chapter = chv
                     }
-                    .paragraphs = split_paragraphs("" + .chapter.body)
+// READER-002 注释装载规范序列（变更/换章后同式）
+                    .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
+                    .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
+                    .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num)
                     .cur_paragraph = -1
                     .cur_para_text = ""
                 } else {
@@ -554,7 +1138,7 @@ widget reading_page {
                 }
                 .progress_label = pct1(.progress_pct) + "%"
                 if .is_real {
-                    let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height)
+                    let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height, .layout, .theme)
                     var save_ok bool = false
                     try {
                         let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl, para_text: "" })
@@ -585,7 +1169,7 @@ widget reading_page {
                 i = i + 1
             }
             let ph str = para_hash(.cur_para_text)
-            let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, ph, .font_size, .line_height)
+            let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, ph, .font_size, .line_height, .layout, .theme)
             var save_ok bool = false
             try {
                 let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl, para_text: .cur_para_text })
@@ -597,6 +1181,366 @@ widget reading_page {
                 .restored_note = f"已记录位置：第 ${idx} 段"
             } else {
                 .restored_note = "位置保存失败：后端未确认，请重试"
+            }
+        }
+        // ── READER-002 阶段A handlers（T-01/T-03/T-05）──
+        .NoOp -> { }
+        .ToggleSearch -> {
+            .show_search = !.show_search
+            .show_anns = false
+            .show_style = false
+            .search_note = ""
+        }
+        // 搜索：widget 级触发（onenter/按钮），无全局键盘 handler——
+        // 不抢输入框/IME 事件（T-00 裁决）。结果由后端段粒度精确子串
+        // 返回；点击结果走 JumpTo（跨章先换章再锚点定位）。
+        .DoSearch -> {
+            .search_note = "搜索中…"
+            var resp str = ""
+            try {
+                resp = Http.post("/api/library/search", { book_id: .route_id, query: .search_q })
+            } catch {
+                resp = ""
+            }
+            .search_results = []
+            .search_total = 0
+            if resp == "" {
+                .search_note = "搜索失败：后端未响应，请重试"
+            } else {
+                if resp.find("\"ok\":true") < 0 {
+                    var msg str = "搜索被拒绝"
+                    try {
+                        let e = json.parse(resp)
+                        msg = "" + e.message
+                    } catch {
+                        msg = "搜索被拒绝"
+                    }
+                    .search_note = msg
+                } else {
+                    var okp bool = false
+                    var wrap = null
+                    try {
+                        wrap = json.parse(resp)
+                        okp = true
+                    } catch {
+                        okp = false
+                    }
+                    if okp {
+                        .search_results = wrap.results
+                        .search_total = wrap.total
+                        var tt int = wrap.total
+                        if tt == 0 {
+                            .search_note = "无结果（精确子串匹配）"
+                        } else {
+                            .search_note = ""
+                        }
+                    } else {
+                        .search_note = "搜索响应解析失败"
+                    }
+                }
+            }
+        }
+        .ToggleAnns -> {
+            .show_anns = !.show_anns
+            .show_search = false
+            .show_style = false
+            .ann_note = ""
+        }
+        .ToggleStyle -> {
+            .show_style = !.show_style
+            .show_search = false
+            .show_anns = false
+        }
+        // 排版偏好：立即生效 + 随阅读状态持久化（layout/theme 可选键，
+        // 与 001 的 font/line 同一保存面；失败诚实提示，不假保存）。
+        .SetLayout(l str) -> {
+            if l == "narrow" {
+                .layout = "narrow"
+            }
+            if l == "medium" {
+                .layout = "medium"
+            }
+            if l == "wide" {
+                .layout = "wide"
+            }
+            .layout_col_cls = layout_cls_of(.layout)
+            if .is_real {
+                let ph str = para_hash(.cur_para_text)
+                let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, ph, .font_size, .line_height, .layout, .theme)
+                var save_ok bool = false
+                try {
+                    let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl, para_text: .cur_para_text })
+                    if resp.find("\"ok\":true") >= 0 {
+                        save_ok = true
+                    }
+                } catch { }
+                if !save_ok {
+                    .restored_note = "排版保存失败：后端未确认，请重试"
+                }
+            }
+        }
+        .SetTheme(t str) -> {
+            if t == "light" {
+                .theme = "light"
+            }
+            if t == "sepia" {
+                .theme = "sepia"
+            }
+            if t == "dark" {
+                .theme = "dark"
+            }
+            .theme_body_cls = theme_body_of(.theme)
+            .theme_hover_cls = theme_hover_of(.theme)
+            .theme_marked_cls = theme_marked_of(.theme)
+            .para_marked_cls = theme_marked_of(.theme) + " border-primary para-marked"
+            .para_idle_cls = "border-transparent " + theme_hover_of(.theme)
+            if .is_real {
+                let ph str = para_hash(.cur_para_text)
+                let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, ph, .font_size, .line_height, .layout, .theme)
+                var save_ok bool = false
+                try {
+                    let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl, para_text: .cur_para_text })
+                    if resp.find("\"ok\":true") >= 0 {
+                        save_ok = true
+                    }
+                } catch { }
+                if !save_ok {
+                    .restored_note = "排版保存失败：后端未确认，请重试"
+                }
+            }
+        }
+        // 搜索结果/注释回访跳转：同章直接定位；跨章先走章节装载序列再
+        // 定位。定位沿用 PLAN-781 锚柄（scroll_to_child by p<idx>），一次
+        // HTTP 让出等待渲染（与 Init 恢复定位同式）；入队回执非完成证明。
+        .JumpTo(ch int, pi int) -> {
+            .show_search = false
+            .show_anns = false
+            if ch != .chapter_num {
+                if ch >= 1 {
+                    if ch <= .chapter_count {
+                        .chapter_num = ch
+                        router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
+                        let chv = parse_lib(Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string()))
+                        if chv != null {
+                            .chapter = chv
+                        }
+                        .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
+                        .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
+                        .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num)
+                        let total int = .chapter_count
+                        if total > 0 {
+                            .progress_pct = pct_of(.chapter_num, total)
+                        }
+                        .progress_label = pct1(.progress_pct) + "%"
+                    }
+                }
+            }
+            var found bool = false
+            var i int = 0
+            while i < .paragraphs.len() {
+                let p = .paragraphs[i]
+                if p.idx == pi {
+                    found = true
+                    .cur_para_text = "" + p.text
+                    i = .paragraphs.len()
+                }
+                i = i + 1
+            }
+            if found {
+                .cur_paragraph = pi
+                let warm = parse_lib(Http.get_json("/api/library/progress?book_id=" + .route_id))
+                let rr str = scroll_to_child(.rsc, "p" + pi.to_string())
+                if rr.find("error:") == 0 {
+                    .restored_note = "自动定位失败，请手动滚动"
+                } else {
+                    .restored_note = f"已跳转：第 ${ch} 章 ¶${pi}"
+                }
+                let ph str = para_hash(.cur_para_text)
+                let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, ph, .font_size, .line_height, .layout, .theme)
+                try {
+                    Http.post("/api/library/progress", { book_id: .route_id, payload: pl, para_text: .cur_para_text })
+                } catch { }
+            } else {
+                .restored_note = "目标段在本章不存在（内容可能已变化）"
+            }
+        }
+        .AnnDelete(aid str) -> {
+            var resp str = ""
+            try {
+                resp = Http.post("/api/library/annotations", { book_id: .route_id, op: "delete", annotation_id: aid, kind: "", chapter_number: 0, para_idx: 0, occurrence: 0, comment: "", tags_json: "[]", quote: "" })
+            } catch {
+                resp = ""
+            }
+            if resp.find("\"ok\":true") >= 0 {
+                .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
+                .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
+                .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num)
+                .ann_note = "已删除"
+            } else {
+                var msg str = "删除失败"
+                try {
+                    let e = json.parse(resp)
+                    msg = "" + e.message
+                } catch {
+                    msg = "删除失败：后端未响应"
+                }
+                .ann_note = msg
+            }
+        }
+        // 注释对话框：预填整段文本（子串可编辑截取）；出现序默认 1。
+        // 点段=记位置行为不变；＋注释入口在当前段动作行。
+        .OpenAnnDialog(idx int) -> {
+            .ann_dialog = true
+            .ann_edit_id = ""
+            .ann_dlg_title = "添加注释"
+            .ann_ch = .chapter_num
+            .ann_pi = idx
+            var i int = 0
+            while i < .paragraphs.len() {
+                let p = .paragraphs[i]
+                if p.idx == idx {
+                    .ann_quote = "" + p.text
+                    i = .paragraphs.len()
+                }
+                i = i + 1
+            }
+            .ann_occ_str = "1"
+            .ann_comment = ""
+            .ann_tags = ""
+            .ann_kind = "highlight"
+            .ann_dlg_note = ""
+        }
+        .AnnEdit(aid str) -> {
+            var i int = 0
+            while i < .anns.len() {
+                let a = .anns[i]
+                let tid str = "" + a.annotation_id
+                if tid == aid {
+                    .ann_dialog = true
+                    .ann_edit_id = aid
+                    .ann_dlg_title = "编辑注释"
+                    .ann_ch = a.chapter_number
+                    .ann_pi = a.para_idx
+                    .ann_quote = "" + a.quote
+                    .ann_occ_str = "" + a.occurrence
+                    .ann_comment = "" + a.comment
+                    .ann_kind = "" + a.kind
+                    i = .anns.len()
+                }
+                i = i + 1
+            }
+            .ann_tags = ""
+            .ann_dlg_note = ""
+        }
+        .AnnKind(k str) -> {
+            if k == "highlight" {
+                .ann_kind = "highlight"
+            }
+            if k == "comment" {
+                .ann_kind = "comment"
+            }
+            if k == "bookmark" {
+                .ann_kind = "bookmark"
+            }
+        }
+        .AnnCancel -> {
+            .ann_dialog = false
+            .ann_edit_id = ""
+            .ann_dlg_note = ""
+        }
+        // 提交：quote/comment/tags 走顶层字段直传（多字节安全，F-08 同源）；
+        // 锚核验在服务端（quote 非子串/出现序不足诚实拒绝——对话框回显
+        // 错误消息，不假保存）。前置校验失败同样诚实提示。
+        .AnnSubmit -> {
+            let occv int = .ann_occ_str.trim().to_int()
+            var pre_ok bool = true
+            if occv < 1 {
+                pre_ok = false
+                .ann_dlg_note = "出现序需为正整数"
+            }
+            if pre_ok {
+                if .ann_kind != "bookmark" {
+                    if .ann_quote.trim() == "" {
+                        pre_ok = false
+                        .ann_dlg_note = "摘录不能为空（逐字锚必填）"
+                    }
+                }
+            }
+            if pre_ok {
+                let tj str = tags_json_of(.ann_tags)
+                var op str = "create"
+                if .ann_edit_id != "" {
+                    op = "update"
+                }
+                var resp str = ""
+                try {
+                    resp = Http.post("/api/library/annotations", { book_id: .route_id, op: op, annotation_id: .ann_edit_id, kind: .ann_kind, chapter_number: .ann_ch, para_idx: .ann_pi, occurrence: occv, comment: .ann_comment, tags_json: tj, quote: .ann_quote })
+                } catch {
+                    resp = ""
+                }
+                if resp.find("\"ok\":true") >= 0 {
+                    .ann_dialog = false
+                    .ann_edit_id = ""
+                    .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
+                    .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
+                    .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num)
+                    .show_anns = true
+                    .ann_note = "已保存"
+                } else {
+                    var msg str = "保存失败"
+                    try {
+                        let e = json.parse(resp)
+                        msg = "" + e.message
+                    } catch {
+                        msg = "保存失败：后端未响应，请重试"
+                    }
+                    .ann_dlg_note = msg
+                }
+            }
+        }
+        // Markdown 导出（T-05 本地面）：后端生成 <data>/exports/*.md，
+        // 读回校验后返回真实路径；Notes 缺席不阻塞（纯本地交付）。
+        .DoExport -> {
+            .ann_note = "导出中…"
+            var resp str = ""
+            try {
+                resp = Http.post("/api/library/export", { book_id: .route_id })
+            } catch {
+                resp = ""
+            }
+            if resp == "" {
+                .ann_note = "导出失败：后端未响应，请重试"
+            } else {
+                if resp.find("\"ok\":true") < 0 {
+                    var msg str = "导出失败"
+                    try {
+                        let e = json.parse(resp)
+                        msg = "" + e.message
+                    } catch {
+                        msg = "导出失败"
+                    }
+                    .ann_note = msg
+                } else {
+                    var okp bool = false
+                    var wrap = null
+                    try {
+                        wrap = json.parse(resp)
+                        okp = true
+                    } catch {
+                        okp = false
+                    }
+                    if okp {
+                        let pth str = "" + wrap.path
+                        let cnt int = wrap.count
+                        if pth == "" {
+                            .ann_note = "暂无注释可导出"
+                        } else {
+                            .ann_note = f"已导出 ${cnt} 条 → ${pth}"
+                        }
+                    } else {
+                        .ann_note = "导出响应解析失败"
+                    }
+                }
             }
         }
     }
