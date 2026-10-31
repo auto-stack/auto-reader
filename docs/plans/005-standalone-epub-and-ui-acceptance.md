@@ -6,7 +6,7 @@ author: [Codex]
 created_at: 2026-10-31
 updated_at: 2026-10-31
 plan_revision: 1
-current_step: 3
+current_step: 4
 total_steps: 9
 base_branch: main
 base_commit: 964a33fc2fccf00b8e34575fb89badfa6c6c0a9b
@@ -115,7 +115,7 @@ touched_goals: []
 - [x] T-00（owner_stage=work；依赖001/002本地A/003/004实际交付；AC-01..05）：固定当前工具，完成能力/预算决策稿与真实图片/输入链探针，核验旧缺口归因；不等待Notes、Rust或Linux。[✅ 已完成] 决策稿 docs/plans/evidence/005/standalone-decision.md；实测：CLI e7dd7df1（v0.0.20-118 后已升级，本轮重新绑定）/tool 4d2198b8（004 pin 不变）；image.thumb 票据 URI 在 VM HTTP 后端 404 且票据注册表进程局所（split-host 两端均不可消费）→ 改用应用自有稳定 URI（zip.extract_entry 12MiB 闸 + http.file_response GET/HEAD/区间/root 越界 403，纯 .at 无框架前置）；原生 load_image_bytes 相对 /api/* 经 AUTO_HTTP_BASE/PORT 走 HTTP（子进程继承实测源码确认）；扁平化双射转义定案（_→__、/→_）；zip.extract_entry 失败无半写残留（读全后单次 fs::write，源码核实）；旧章正文行字节格式零变更承诺（注释锚/Locator 兼容）；链接 affordance=button chips（text→span 无行内点击公共面，N-002-A-1 保持）；N-003-7 作废为前置事实（vue.rs L10626 image→img、aura_view_builder View::Image 双端在案）。探针日志 D:/autostack/plan-artifacts/plan-005/。
 - [x] T-01（owner_stage=work；依赖T-00；AC-01）：收口正式独立启动与依赖准备，驱动绑定实际CLI/tool/自有PID/数据根，补R-01失败控制。[✅ 已完成] 双 profile 实测：vue+vm（books 200 + 前端 200）、vm+vm 分离模式（books 200 + VM 窗口标题按 pac.at 宣告）；错误 tool = `AUTO_UI_TOOL_BIN` 指向缺失路径 → 具名 discovery 失败 exit 1（无静默回落，实测）；占用端口 = 新实例后端 bind 具名失败（os error 10048），既有实例持续服务不受影响（实测；CLI 进程可能滞留——失败非零门由验收驱动启动 deadline 承担，已在 README 如实登记）；直连 import 缺 `force` 形参 → 400（驱动一律显式传）。README 运行节补运行依赖身份与失败形态。证据 D:/autostack/plan-artifacts/plan-005/t01/。
 - [x] T-02（owner_stage=work；依赖T-00及必要最小前置交付；AC-02）：复用image组件接入真实图像、稳定资源身份与缓存重复返回，建立R-02/R-05反例后修复并回放。[✅ 已完成] 实现：epub.at 双射扁平名（`_`→`__`、`/`→`_`、URL 不安全字符具名转义、未收编字符诚实拒绝 img_name_unsupported）+ 恒全量 images[]（首读/缓存命中/冷重启同 URI，err 项带拒绝码）+ api.at `GET /api/reader/media/:bid/:res`（http.file_response 承载，root=书目章节缓存目录，res 形状白名单双保险）+ reading_page 三态正卫栅格（img/imgerr/text，点段行为不变）。R-02 oracle 实测：碰撞对字节正确（RED/BLUE 不串）、含空格资源 200 正确字节、vite 代理面 200、冷重启 URI+字节逐字一致、Playwright naturalWidth>0×3+src 互异+错误行可见（tests/basic/standalone_ui.spec.ts 1 passed）。R-05 反例实测：>12MiB→img_too_large、缺条目→img_extract_failed（native rc=-1；img_missing 为存在性后守卫）、不支持类型→img_unsupported_type、失败无半写残留（盘面核查 3 文件全为合法提取）。附带修复：EPUB 章标题恒回落"第 N 章"（titles 双管道围栏缺陷，003 只断言 TOC 未覆盖——现章标题=C1 实测）；verify_epub 媒体断言迁移至新 URI 方案并增 err 空串断言，22/22 PASS 回放（EXIT=0）。证据 D:/autostack/plan-artifacts/plan-005/t02/。
-- [ ] T-03（owner_stage=work；依赖T-00；AC-03）：在epub内容/reading_page接入安全链接与回返定位；闭合R-03/R-05。
+- [x] T-03（owner_stage=work；依赖T-00；AC-03）：在epub内容/reading_page接入安全链接与回返定位；闭合R-03/R-05。[✅ 已完成] 实现：epub.at `xhtml_links`（与 xhtml_to_lines 逐 tag 同步进含 img 行占位——行号对齐由目标段逐字断言钉死）+ `<n>.links.json` 旁路缓存（正文 .txt 零变更）+ 章内容相对 href 以**自章 ZIP 目录**为基准（子目录书探针实证 sub/ch3.xhtml、../ch1.xhtml 正确解析）+ spine 全表精确匹配 + 跨章 fragment 经目标章 ids 表（文本扫描取键，"fn1" 不碰 "fn10"）；reading_page 链接 chips（可点击 col 外兄弟面）+ JumpLink（章首 para=-1 语义、无效目标诚实提示不跳转）。R-03 oracle 实测：跨章 fragment 目标段 V-20 正面积入 pane + 原文逐字（standalone_ui 3 passed）；同章锚标记+可见；外部 scheme/缺章/未知 fragment 全部 ch=0 诚实拒绝。附带回避（两个 vue codegen 缺陷，跨仓债登记）：①fn 形参与 model 字段同名 → codegen 误加 .value（merge_marks chapter_src→csrc 改名，mount 即崩实测）；②style 三元 model 引用分支被发空串（段标记类改字面量嵌套三元，6 字面量逐字等价；旧 CLI 曾可用的行为在当前 pinned CLI 下回归）。R-05 回放：verify_epub 22/22、real-book 11/11（含 T-R10 V-20）、smoke 10/10（全新实例隔离目录）。证据 D:/autostack/plan-artifacts/plan-005/t03/。
 - [ ] T-04（owner_stage=work；依赖T-01/02/03；AC-04）：闭合真实原生与Vue的导入/注释/回访/导出/位置保存操作，排除活视图通道失败，保持原有数据/定位回归。
 - [ ] T-05（owner_stage=work；依赖T-04；AC-05）：建立聚合入口，扩展旧EPUB/annotations门并跑R-01..06、必要001/004回归；输出真实覆盖及SD候选。
 - [ ] T-06（owner_stage=work；依赖T-05；AC-01..05）：核对所有必需UI oracle、框架消费和源/工具漂移，更新运行说明并提交execution_done。
