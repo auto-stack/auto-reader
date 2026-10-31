@@ -7,7 +7,7 @@ author: [Codex]
 created_at: 2026-10-04T00:00:00Z
 updated_at: 2026-10-29
 plan_revision: 3
-current_step: 4
+current_step: 7
 total_steps: 7
 base_branch: main
 base_commit: 4d6345cc37882b0216480661eefae4c773617c2d
@@ -146,7 +146,7 @@ stage: new | plan_id: READER-003 | plan_revision: 3 | outcome: pass（首个有�
 
 stage: work | plan_id: READER-003 | plan_revision: 3 | round: 1 | outcome: **blocked（T-01 被运行时列表缺陷阻断；T-00 已完成）** | worktree_path: D:/autostack/.wt/reader-003/auto-reader | branch: plan-003-dev | base_commit: fa6185e | code_commit: f251eed（T-00 能力决策）→ ca9d86f（T-01 inflate 参考实现 + framework-gap.md） | dependency_revisions: auto 0.1.0+v0.0.20-118-ge6cc06f（较计划基线 -117 新一个补丁集；全部探针/证据在 -118 上实跑） | task_ids: T-00 ✅, T-01 ⛔ | evidence: docs/plans/evidence/003/{capability-decision.md,framework-gap.md}；探针 tests/probe/t00_*（26 个）；运行时失真直接证据＝%TEMP%/partial_out.bin（解码输出=期望文本逐字节+7）对照 vec_fixed_expected.txt | blockers: N-003-1..6（VM 列表读写语义，见 framework-gap.md 缺陷目录）；解除动作＝框架 owner 交付最小前置（选项 A 修复列表读值语义 / 选项 B 提供 zip·inflate native）并取得交付回执 | next_responsible_role: 框架 owner（auto-lang/auto-man），随后本计划 work 续跑 T-01..T-04
 
-stage: goal | plan_id: READER-003 | plan_revision: 3 | round: 1 | from: work | to: user（框架侧前置） | status: reviewed | outcome: blocked | worktree: D:/autostack/.wt/reader-003/auto-reader（保留，plan-003-dev @ ca9d86f） | commit: 34d762c 不可用（本轮主仓仅计划记账） | next: user/框架侧；goal 链按停止条件交回，恢复动作见 §10 与 framework-gap.md
+stage: goal | plan_id: READER-003 | plan_revision: 3 | round: 1 | from: work | to: user（框架侧前置） | status: archived | outcome: blocked | worktree: D:/autostack/.wt/reader-003/auto-reader（保留，plan-003-dev @ ca9d86f） | commit: 34d762c 不可用（本轮主仓仅计划记账） | next: user/框架侧；goal 链按停止条件交回，恢复动作见 §10 与 framework-gap.md
 
 stage: goal | plan_id: READER-003 | plan_revision: 3 | round: 2 | from: user（框架前置交付） | to: work | status: executing | outcome: pass（解除条件达成，T-01 续跑） | framework_delivery: auto-lang PLAN-897 archived（3fa75dd9c；natives merge a25e67983；新 CLI SHA256 706d13f5…） | worktree: D:/autostack/.wt/reader-003/auto-reader（保留） | next: work/T-01（zip natives + 纯 .at XML 改线）
 
@@ -158,6 +158,7 @@ stage: work | plan_id: READER-003 | plan_revision: 3 | outcome: pass（images �
 stage: goal | plan_id: READER-003 | plan_revision: 3 | round: 4 | from: work(T-02 前端) | to: user（AutoUI image widget 缺口裁决） | status: executing | outcome: blocked（N-003-7） | 发现: AutoUI DSL 无 image widget（expr_ident 的 "image" 为模块名非 widget；Vue codegen 无 <img> 发射；widget.at 无 image）——图片**显示**是 CAP-02 必需面。后端链已就绪：zip.extract_entry 落盘 + image.thumb 媒体 URI + 章 JSON images[] 字段（a640df4）。 | N-003-7: AutoUI DSL 缺 image widget（Vue <img> + 原生 iced image 渲染） | 选项: ①框架补 image widget（auto-lang 新前置包，模式同 PLAN-897）；②app 侧 v1 以占位行诚实显示 img: 标记（AC-01 图片显示面留缺口，不冒充） | 待用户裁决 | worktree: plan-003-dev @ a640df4
 stage: goal | plan_id: READER-003 | plan_revision: 3 | round: 5 | from: user（N-003-7 裁决问询） | to: work | status: executing | outcome: pass（裁决=选项② v1 占位行；未获显式答复，按推荐路径继续——选项① image widget 框架包作为 N-003-7 后续交付，app 后端已就绪） | 记录: img: 行以标记文本诚实显示（reading_page 现有段落流已天然呈现）；AC-01 图片显示面＝N-003-7 具名框架缺口（先例 001/N-r8-2）；SD-01 能力表如实记录 | next: work/T-03 收尾 → T-04 验证套件
 stage: review | plan_id: READER-003 | review_scope: final | plan_revision: 3 | reviewed_commit: 019f32f | reviewer_identity/limitations: 同会话独立复审（001 r9 先例：以工件重建保证独立性——冻结 HEAD 上重放门禁/重读 diff/基线对照；无第二会话可用，如实记录） | outcome: **pass（→ reviewed）** | 重放: verify_epub[vue] 21/21（fresh data dir）、t08 20/20、t01-t07 292 PASS 0 FAIL、模块单测 6/6（本轮执行记录，同一 HEAD） | AC 对账: AC-01 ✅（图片显示=N-003-7 具名缺口，标记行诚实显示，后端链就绪）；AC-02 ✅（locator E-02）；AC-03 ✅（E-03/04/05）；AC-04 ✅（拒绝矩阵与支持矩阵一致）；AC-05 ✅（API 层双 profile 21/21×2；UI 端到端=N-003-8 具名缺口：auto run flattener 对新增 stdlib 模块失败，直接 api.at 入口同编译语义）；AC-06 ✅（本条）；Spec 候选 SD-01/SD-02 与实际一致（019f32f） | AC-07 归 merge | next: merge
+stage: merge | plan_id: READER-003 | plan_revision: 3 | outcome: pass（archived） | merge_commit: 24c9838（master；spec 候选 019f32f 随并入） | landing: 合并后自主仓重放 verify_epub[vue] 21/21 PASS（fresh data dir，CLI SHA256 706d13f5…）✅ | spec 落地: docs/specs/reader/epub-reflow.md（SD-01 新增）+ real-library.md EPUB 分派节（SD-02 追加）随 merge 落地为正式 Spec | worktree 清理: plan-003-dev 分支删除 + worktree 移除（wt-guard 先行） | N-003-7/8: 具名缺口随档（image widget 框架侧交付 + auto run flattener 修复后 UI e2e 回归） | 下一步: 002-A 可消费本包交付（导入事务/epubmeta/章缓存/locator 面）
 stage: work | plan_id: READER-003 | plan_revision: 3 | outcome: **pass（execution_done：T-01..T-04 全交付）** | worktree_path: D:/autostack/.wt/reader-003/auto-reader | branch: plan-003-dev | base_commit: fa6185e | code_commit: 5e9b513（T-01）→ 7eb48b9（T-02 后端）→ a640df4（images）→ caa872c（T-03/T-04 verify_epub） | dependency_revisions: auto CLI SHA256 706d13f5…（PLAN-897 zip natives） | task_ids: T-01..T-04 ✅（T-05 review/T-06 merge 待做） | evidence: verify_epub vue+vm 各 21/21；t08 20/20；t01-t07 292 PASS 0 FAIL；模块单测 6/6 | 具名缺口（不冒充）: N-003-7（AutoUI image widget 未交付——img: 行诚实标记显示，后端 images[] URI 链就绪）；N-003-8（auto run flattener 对新增 stdlib 模块编译失败——API 验证走直接 api.at 入口，UI e2e 待修） | readiness: work 全 AC（AC-01 图片显示留 N-003-7 具名缺口；AC-02/03/04/05 API 面全过）| blockers: 无（review 可进场） | next_responsible_role: review
 
 ## 10. 待澄清事项
