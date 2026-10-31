@@ -6,7 +6,7 @@ author: [Codex]
 created_at: 2026-10-31
 updated_at: 2026-10-31
 plan_revision: 1
-current_step: 1
+current_step: 2
 total_steps: 9
 base_branch: main
 base_commit: 964a33fc2fccf00b8e34575fb89badfa6c6c0a9b
@@ -113,7 +113,7 @@ touched_goals: []
 ## 8. 执行步骤
 
 - [x] T-00（owner_stage=work；依赖001/002本地A/003/004实际交付；AC-01..05）：固定当前工具，完成能力/预算决策稿与真实图片/输入链探针，核验旧缺口归因；不等待Notes、Rust或Linux。[✅ 已完成] 决策稿 docs/plans/evidence/005/standalone-decision.md；实测：CLI e7dd7df1（v0.0.20-118 后已升级，本轮重新绑定）/tool 4d2198b8（004 pin 不变）；image.thumb 票据 URI 在 VM HTTP 后端 404 且票据注册表进程局所（split-host 两端均不可消费）→ 改用应用自有稳定 URI（zip.extract_entry 12MiB 闸 + http.file_response GET/HEAD/区间/root 越界 403，纯 .at 无框架前置）；原生 load_image_bytes 相对 /api/* 经 AUTO_HTTP_BASE/PORT 走 HTTP（子进程继承实测源码确认）；扁平化双射转义定案（_→__、/→_）；zip.extract_entry 失败无半写残留（读全后单次 fs::write，源码核实）；旧章正文行字节格式零变更承诺（注释锚/Locator 兼容）；链接 affordance=button chips（text→span 无行内点击公共面，N-002-A-1 保持）；N-003-7 作废为前置事实（vue.rs L10626 image→img、aura_view_builder View::Image 双端在案）。探针日志 D:/autostack/plan-artifacts/plan-005/。
-- [ ] T-01（owner_stage=work；依赖T-00；AC-01）：收口正式独立启动与依赖准备，驱动绑定实际CLI/tool/自有PID/数据根，补R-01失败控制。
+- [x] T-01（owner_stage=work；依赖T-00；AC-01）：收口正式独立启动与依赖准备，驱动绑定实际CLI/tool/自有PID/数据根，补R-01失败控制。[✅ 已完成] 双 profile 实测：vue+vm（books 200 + 前端 200）、vm+vm 分离模式（books 200 + VM 窗口标题按 pac.at 宣告）；错误 tool = `AUTO_UI_TOOL_BIN` 指向缺失路径 → 具名 discovery 失败 exit 1（无静默回落，实测）；占用端口 = 新实例后端 bind 具名失败（os error 10048），既有实例持续服务不受影响（实测；CLI 进程可能滞留——失败非零门由验收驱动启动 deadline 承担，已在 README 如实登记）；直连 import 缺 `force` 形参 → 400（驱动一律显式传）。README 运行节补运行依赖身份与失败形态。证据 D:/autostack/plan-artifacts/plan-005/t01/。
 - [ ] T-02（owner_stage=work；依赖T-00及必要最小前置交付；AC-02）：复用image组件接入真实图像、稳定资源身份与缓存重复返回，建立R-02/R-05反例后修复并回放。
 - [ ] T-03（owner_stage=work；依赖T-00；AC-03）：在epub内容/reading_page接入安全链接与回返定位；闭合R-03/R-05。
 - [ ] T-04（owner_stage=work；依赖T-01/02/03；AC-04）：闭合真实原生与Vue的导入/注释/回访/导出/位置保存操作，排除活视图通道失败，保持原有数据/定位回归。

@@ -20,6 +20,16 @@ auto run -r vm --server=vm
 
 前端端口：`17824`（vite 监听 IPv6 回环 `localhost` 可达）。后端端口：`17825`。
 
+**运行依赖身份（READER-005 T-00 冻结，2026-10-31）**：`auto`
+`0.1.0+plan-890-verified-r7-t19-2-gbe740b6`（sha256 `e7dd7df1…dcf8`）与
+`auto-ui-tool`（sha256 `4d2198b8…b47d`）。工具发现序 = `AUTO_UI_TOOL_BIN`
+env 显式路径 → 已安装/配置 tool（协议核验）→ 开发解析（UI owner
+`target/{debug,release}`、与 CLI 邻接目录）；`AUTO_UI_TOOL_BIN` 指向缺失
+路径时启动即具名失败（exit 1，无静默回落——实测）。两个 profile 均不要求
+Rust 后端（`pac.at` 不声明 `api: "rust"`）。后端端口被占用时新实例在日志
+中具名报 bind 失败（os error 10048）但进程可能滞留——验收驱动以启动
+deadline 判失败并以非零码退出，既有实例不受影响（实测）。
+
 数据目录：`AUTO_READER_DATA` 环境变量优先，缺省 `~/.autoreader`。测试/复现请用
 隔离目录：`bash tests/spec/run_fresh_server.sh`。
 
