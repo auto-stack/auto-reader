@@ -258,10 +258,18 @@ T-02 实测）。**直连客户端请求体必须 ASCII 安全（\u 转义）**�
   `tests/review/reader001_r8_native_vm_restore.py` → **16 记录 / 0 fails**
   （boot → 导入 → 保存 → 冷重启 → 导航 → ¶50 正面积可见 + pane 深位 + ¶100 反差）。
 - 干净数据目录启动：`bash tests/spec/run_fresh_server.sh`。
-- 运行时绑定（r9，两个二进制均须含 PLAN-886 诊断面）：`auto` =
-  `0.1.0+v0.0.20-118-ge6cc06f`，SHA256=`C049ABE3385D3E3634301A5DD1EE843E41A4CAACD2DE4214EA8D942EAB43D72E`；
-  `auto-ui-tool`（VM 轨真正执行 handler 合成的进程），SHA256=
-  `C1F54640120A19A9054ABD4B7C732B07F37F687D501A1891A59427DD368E1651`。
+- 运行时绑定（**READER-005 T-00/T-06 重绑定，现行权威**；r9 值只证明其
+  冻结版本）：`auto` = `0.1.0+plan-890-verified-r7-t19-2-gbe740b6`，
+  SHA256=`e7dd7df1be8f4d341a4f356e59dd887efe374245dacff92570e4c63c5246dcf8`；
+  `auto-ui-tool` SHA256=`4d2198b8bceba015c9f46157691fac2380cce720d0a5914fdec03c1cb39db47d`
+  （004 重建后未漂移）。工具发现序 = `AUTO_UI_TOOL_BIN` env → 已安装
+  tool（协议核验）→ 开发解析；错误 tool 启动即具名失败 exit 1。
+- 独立启动（005 R-01 实测）：`auto run --server=vm`（Vue+VM）与
+  `auto run -r vm --server=vm`（VM 全轨分离）双 profile 后端 books 200；
+  占口 = 后端 bind 具名失败（os error 10048）且既有实例不受影响（CLI
+  进程可能滞留——失败非零门由驱动 deadline 承担）。永久聚合门：
+  `python tests/basic/verify_standalone.py --profile vue|vm`
+  （R-01..06，vue 28 checks / vm 27 checks，0 FAIL 基线 2026-11-01）。
 - 原两项显式未验收（10MiB 成功导入、F-12 混排入 pane）**已于 r8/r9 关闭**，
   证据见计划 §9 的 r8/r9 回执；不再保留"未验收"残留表述。
 

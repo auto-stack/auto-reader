@@ -1,6 +1,6 @@
-# reader/epub-reflow（SD-01，READER-003 交付）
+# reader/epub-reflow（SD-01，READER-003 交付；READER-005 图像/链接扩展）
 
-状态：candidate（复审/merge 后落地）· 2026-10-31
+状态：current-state · 2026-11-01（READER-005 r1 merge 沉淀）
 范围：EPUB3 无 DRM 重排版最小 profile 的导入与阅读能力边界。
 
 ## 容器与身份
@@ -26,10 +26,34 @@
   永久缓存；缓存写失败不阻塞阅读。
 - 条目完整性 = inflate 结构完成性（zip native 内部）；**不宣称 CRC-32 级
   校验**（运行时无位运算，逐位模拟成本不成比例——能力边界如实记录）。
-- 图片：`img:` 行由后端 `zip.extract_entry`（12MiB 闸）落盘 +
-  `image.thumb` 媒体 URI，章 JSON `images[]` 字段承载；**显示面 N-003-7
-  具名缺口**（AutoUI 无 image widget）——img: 行以标记文本诚实显示。
+- 图片（READER-005 T-02 交付）：`img:` 行由后端 `zip.extract_entry`
+  （12MiB 闸，rc=-2 超闸/-1 一般失败——读全后单次写，失败无半写残留）
+  提取到 `<managed>.chapters/res_<双射扁平名>`；章 JSON `images[]` 恒全量
+  （首读/缓存命中/冷重启同 URI），每项 `{k, uri, err}`。URI =
+  `/api/reader/media/<book_id>/res_<扁平名>`（应用自有稳定服务面，
+  http.file_response 承载 GET/HEAD/区间/root 越界 403；`image.thumb`
+  票据面进程局所且 VM HTTP 不服务 `/api/__auto/media/*`——已弃用）。
+  扁平名双射转义（`_`→`__`、`/`→`_`、URL 不安全字符具名转义、其余诚实
+  拒绝）——`a/b_c.png` 与 `a_b/c.png` 不同槽不错图。拒绝码：
+  `img_too_large`/`img_extract_failed`（缺条目）`img_missing`（存在性
+  后守卫）/`img_unsupported_type`（png/jpg/jpeg/gif/bmp/webp 之外）/
+  `img_name_unsupported`（非 ASCII 等未收编名——003 诚实失败边界延续）。
+  err 项前端渲染可见错误行，不静默丢；字节级损坏由渲染端错误显示承载
+  （无应用侧解码承诺）。显示面 N-003-7 归因作废（Vue `image`→`<img>`、
+  原生 `View::Image` 双端在案）。
+- 章标题：nav 目录标签（titles 管道围栏 `|t1|t2|`）——005 修复双管道
+  缺陷（此前章标题恒回落"第 N 章"）。
 - 解析/解压失败 → 「内容缺失/章节不存在」占位（不冒充、不回落 Demo）。
+- 书内链接/脚注（READER-005 T-03 交付）：`xhtml_links` 与正文转换逐 tag
+  同步进（含 img 行占位）产出 `{links:[{line,href,label}],ids:{id:line}}`
+  → `<managed>.chapters/<n>.links.json` 边车缓存（正文行字节零变更——
+  注释锚/Locator 兼容）。章内容相对 href 以**自章 ZIP 目录**为基准；
+  目标 = spine 全表精确匹配 → (章号, 行号)；fragment = 块级元素 id →
+  收束行号（跨章经目标章 ids 表）。无 fragment → 章首（para=-1）。
+  诚实拒绝（ch=0，UI 可见提示不跳转）：外部 scheme（epub_href_ok 的
+  `:` 拒绝覆盖 http:/mailto: 等）、越界/缺章、未知 fragment、非 spine
+  资源。前端以链接 chips（可点击 col 外兄弟面）+ JumpLink 承载；
+  Vue 目标段入 pane 正面积（V-20 同源）+ 原文逐字 oracle 实测。
 
 ## 安全与拒绝
 
@@ -47,5 +71,5 @@
   max_bytes 硬闸，错误形态见 docs/specs/auto-vm/zip-natives.md）。
 - 定位复用 Locator v1（chapter_number=spine 序 + paragraph_index +
   para_text 逐字锚）；不宣称 EPUB CFI。
-- 内链接/脚注跳转：归 READER-002-A（v1 段级粒度接缝已留：links 表设计
-  在 capability-decision §CAP-02，未在本轮交付）。
+- 内链接/脚注跳转：READER-005 已交付（见上"书内链接/脚注"）；
+  v1 段级粒度接缝延续（空 label（纯图链接）不收录——能力边界）。

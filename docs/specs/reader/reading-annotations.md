@@ -1,6 +1,6 @@
-# reading-annotations — 本地阅读体验、注释与导出（READER-002 阶段A 现实现规范）
+# reading-annotations — 本地阅读体验、注释与导出（READER-002 阶段A + READER-005 双端 UI 收口）
 
-状态：current-state（阶段A 实际交付面）。来源：READER-002 r3（phase review PASS on 1ea4dfd，phase merge 沉淀）。B 阶段（Notes 真实交接/离线待发/幂等回执）尚未实现，不在此文档宣称。
+状态：current-state（阶段A 实际交付面 + 005 r1 真实 UI 验收扩展）。来源：READER-002 r3（phase review PASS on 1ea4dfd，phase merge 沉淀）；READER-005 r1（final review pass，2026-11-01）。B 阶段（Notes 真实交接/离线待发/幂等回执）尚未实现，不在此文档宣称。
 
 ## 注释锚模型（格式无关）
 
@@ -32,13 +32,44 @@
 - 点段=记位置（001 Locator v1 行为不变）；注释入口在当前段动作行「＋ 注释/书签」。
 - 排版偏好扩展：`layout`（narrow|medium|wide 阅读列宽）与 `theme`（light|sepia|dark 沉浸面底色）随 reading 状态持久化（见 real-library.md SD-02 扩展节）。
 
+## 双端 UI 验收现状（READER-005 r1）
+
+- Vue 轨：注释创建/编辑/删除/回访/导出、搜索、恢复全流程真实 UI 驱动
+  （Playwright ui_checks 11/11 + standalone_ui 3/3 + real-book 11/11）。
+  输入回写 = 真 oninput handler（str 形参——VM 事件通道按 handler 名
+  送达；`NoOp` 会丢值，005 修复）。
+- 原生轨：注释抽屉/编辑对话框真实按压可达（MCP），type_text 经事件通道
+  回写 model（state_changes 证明）；图像/链接/chips 渲染 + 冷重启恢复 +
+  annotation_id 稳定由 `tests/native/test_native_standalone_ui.py`
+  永久承载（37 records）。原生 **UI 写传输**受两项在册框架缺口阻断：
+  ①VM 前端 `Http.post` 记录体缺参（400 missing param，N-r8-1 族）；
+  ②直连多字节请求体劣化（001 在案）——创建/编辑的 UI 面由 Vue 承担，
+  原生以 state_changes（写意图）+ 服务端锚定数据契约 oracle 承载；
+  框架修复后重跑驱动即转正（驱动 GAP 判定内置）。
+- scroll-pane 子树按压失配（004 在案）T-04 定责矩阵收口：同窗同刻
+  chrome/抽屉/TOC 行按压 ok，子树内全失败——工具侧 styled_vtree↔typed
+  view path 分歧（mcp_server.rs find_view_by_path），非 driver/产品。
+
 ## 具名平台缺口（owner 框架侧，不阻塞本规范交付面）
 
-- N-002-A-1：无内联子串样式 span/富文本 widget（两轨同缺，与 N-003-7 同类）——高亮以段级标记+chip 承载，注释身份/回访不受影响。
-- N-002-A-2：原生 VM 轨 text_input IME composition 事件面差异未实测——N-003-8（auto run flattener zip 编译失败）修复后随原生轨 UI e2e 一并实录。
-- N-003-8（003 在案）：`auto run --server=vm` flattener 对 zip 模块编译失败——双端验证绕行为 `auto service --server vm` 直连 + gen/front/vue vite 独立前端（verify_local.py 永久入口承载）。
+- N-002-A-1：无内联子串样式 span/富文本 widget（两轨同缺）——高亮以
+  段级标记+chip 承载，注释身份/回访不受影响。
+- N-002-A-2：原生 VM 轨 text_input IME composition 事件面——005 实测
+  type_text/键入经真 oninput handler 双轨回写正常（SearchInput 等同款）；
+  IME 组合键面差异仍未专项实测。
+- N-003-8（003 在案，**前提已失效**）：`auto run --server=vm` flattener
+  zip 编译失败为陈旧 auto-ui-tool 宿主误判（004 定案）——当前
+  CLI+tool 双 profile 直连正常；verify_local vm 轨的原生 SKIP 前提由
+  005 原生驱动承载转正。
+- N-005-A-1（005 在案）：scroll-pane 子树 MCP 按压 path 分歧（见上）。
+- N-005-A-2（005 在案）：VM 前端 Http.post 记录体缺参 + 多字节直连体
+  劣化（见上）。
+- vue codegen 两缺陷（005 实测，owner=auto-ui）：文件级 fn 形参与 widget
+  model 字段同名 → 形参被误加 `.value`；style 三元 model 引用分支被发
+  空串。应用以改名/字面量嵌套三元等价回避。
 
 ## 永久验证入口
 
-- `python tests/annotations/verify_local.py --profile vue|vm [--auto]`：A-01..04 面（3 格式导入、20+ 注释、重复句 occurrence、诚实拒绝、导出独立解析、损坏诚实、layout/theme 持久、冷重启 annotation_id 稳定、Playwright UI 面）。基线成绩：vue 50/50、vm 49+1SKIP（N-003-8）。
+- `python tests/annotations/verify_local.py --profile vue|vm [--auto]`：A-01..04 面（3 格式导入、20+ 注释、重复句 occurrence、诚实拒绝、导出独立解析、损坏诚实、layout/theme 持久、冷重启 annotation_id 稳定、Playwright UI 面）。基线成绩（005 r1，CLI e7dd7df1/tool 4d2198b8）：vue 50/50、vm 49+原生面由 005 驱动承载。
+- `python tests/native/test_native_standalone_ui.py --auto-bin <auto.exe>`：原生注释抽屉/对话框按压、type_text model 回写、导出/删除数据契约、冷重启恢复（005 交付）。
 - `auto tests/spec/t10_annotations_spec.as`：服务端规格 69 检查（CRUD/occurrence/锚点拒绝/损坏容错/搜索/导出/layout-theme/源改版/CRLF+多字节计数）。
