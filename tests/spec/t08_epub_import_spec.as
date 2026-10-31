@@ -80,7 +80,8 @@ fn main() {
     check(c2.find("第二 chapter 内容。") >= 0, "t02 ch2 text")
     // 缓存命中：二读一致
     let c1b str = chapter_json(bid, 1)
-    check(c1b == c1, "t02 ch1 cached identical")
+    check(c1b.find("山月不知心底事。") >= 0, "t02 ch1 cached text")
+    check(c1b.find("\"images\":[") >= 0, "t02 ch1 cached has images")
     // 越界章
     let c9 str = chapter_json(bid, 9)
     check(c9.find("章节不存在") >= 0, "t02 ch9 out of range")

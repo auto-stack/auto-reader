@@ -737,7 +737,62 @@ pub fn epub_chapter_json(managed str, opf_dir str, hrefs str, number int, titles
     }
     let title str = epub_title_at(titles, number)
     let t str = body_lines.trim()
-    return chap_json(number, title, t, t.len())
+    // 图片解析：img:<zip 路径> 行 → extract_entry 落缓存目录 + image.thumb
+    // 媒体 URI（前端 image widget 直接消费）；失败行保留标记（诚实可见）。
+    var images str = "["
+    var lines str = t
+    var lpos int = 0
+    var lguard int = 0
+    var img_n int = 0
+    while lguard < 4096 {
+        lguard = lguard + 1
+        let eol int = find_after(lines, "\n", lpos)
+        var line str = ""
+        if eol < 0 {
+            line = lines.substr(lpos, lines.len() - lpos)
+        } else {
+            line = lines.substr(lpos, eol - lpos)
+        }
+        if line.find("img:") == 0 {
+            let zpath str = line.substr(4, line.len() - 4)
+            var flat str = ""
+            var fi int = 0
+            while fi < zpath.len() {
+                let c str = zpath.substr(fi, 1)
+                if c == "/" {
+                    flat = flat + "_"
+                } else {
+                    flat = flat + c
+                }
+                fi = fi + 1
+            }
+            let dest str = join(chapter_dir, "res_" + flat)
+            if !file.exists(dest) {
+                let zrc int = zip.extract_entry(managed, zpath, dest, 12582912)
+                if zrc == 0 {
+                    let uri str = image.thumb(dest, 600)
+                    if uri != "" {
+                        if img_n > 0 {
+                            images = images + ","
+                        }
+                        var iu str = "{\"k\":\""
+                        iu = iu + json_escape(zpath)
+                        iu = iu + "\",\"uri\":\""
+                        iu = iu + json_escape(uri)
+                        iu = iu + "\"}"
+                        images = images + iu
+                        img_n = img_n + 1
+                    }
+                }
+            }
+        }
+        if eol < 0 {
+            break
+        }
+        lpos = eol + 1
+    }
+    images = images + "]"
+    return chap_json_with_images(number, title, t, t.len(), images)
 }
 
 /// titles（与 hrefs 同序 "|t1|t2|"）取第 n 个标题；空位回退 "第 N 章"。
@@ -752,7 +807,7 @@ pub fn epub_title_at(titles str, n int) str {
     return t
 }
 
-fn chap_json(n int, title str, body str, wc int) str {
+fn chap_json_with_images(n int, title str, body str, wc int, images str) str {
     var out str = "{\"number\":"
     out = out + n.to_string()
     out = out + ",\"title\":\""
@@ -761,8 +816,14 @@ fn chap_json(n int, title str, body str, wc int) str {
     out = out + json_escape(body)
     out = out + "\",\"word_count\":"
     out = out + wc.to_string()
+    out = out + ",\"images\":"
+    out = out + images
     out = out + "}"
     return out
+}
+
+fn chap_json(n int, title str, body str, wc int) str {
+    return chap_json_with_images(n, title, body, wc, "[]")
 }
 
 /// 目录 JSON：[{"number":spine_idx,"title":label},...]（nav 顺序；
