@@ -1,0 +1,878 @@
+// inflatex.at — READER-003 纯 .at DEFLATE（RFC 1951）解压【参考实现】。
+// 状态（2026-10-31）：**实现完成但被运行时列表缺陷阻断**（READER-003 T-01
+// work 阶段 outcome=blocked）——嵌套解码上下文中列表读值系统性失真（本仓
+// 实测：解码输出 = 期望文本逐字节 +7，见 docs/plans/evidence/003/framework-
+// gap.md）。本文件是框架缺陷修复后的验证基准：在具备可靠列表语义（或
+// zip/inflate native）的运行时上，本实现应直接通过 t00_inflate_probe。
+//
+// 运行时缺陷目录（证据 = tests/probe/t00_*，原始日志 %TEMP%/t00-*.log）：
+//   N-003-1 file.write_bytes 对 List<int>.new([])+push 列表 raise（种子
+//           字面量 + push 可绕）          [probe5 T1/T2]
+//   N-003-2 file.read_bytes 产物 len() 虚报（5 字节报 7）[probe4 S1]
+//   N-003-3 脚本上下文 to_int/var 累加字符串拼接毒化      [probe6-8]
+//   N-003-4 FFI 列表作 fn 参数跨边界后读值失真            [t00_param]
+//   N-003-5 单迭代 ≥3 次计算索引列表读值失真（≤2 安全）   [t00_mr/t00_two]
+//   N-003-6 嵌套解码上下文表读系统性偏移（+7 实证）       [partial_out.bin]
+//
+// 形态纪律（在当前运行时上全部必要；修复后 1-4 可放宽）：
+//   - 列表禁索引赋值；一律 push（恒久）。
+//   - 跨 fn 列表 = 「List 形参 + callee push」（恒久，t00_list_param）。
+//   - 字面量列表禁经 fn 返回（t00_fn_list_probe）。
+//   - 禁「var 赋值 → if 改写 → 同轮消费」（t00_ht_dump 滞后实证）。
+//   - 哈夫曼解码用 puff 形态：每非命中迭代 1 次表读、命中 2 次
+//     （t00_mr/t00_two 实证 ≤2 安全——在 N-003-6 修复前仍不足，见上）。
+//
+// inflate_file 契约：path 字节流 [in_off, in_off+in_len) 为裸 deflate 窗；
+// 解码字节 push 追加到调用方 out。返回 0 | -1 参数 -2 字面量/长度码
+// -3 距离 -4 输出超预算 -5 码长表非法 -6 输入耗尽 -7 LEN/NLEN 不符
+// -8 展开输入非法。
+//
+// 哈夫曼表布局（ht 传入时为 new([0]) 种子表；count[len] @1..15；
+// first_code[len] @16..30；sym_base[len] @31..45（相对 46）；symbols
+// （按 (len,symbol) 排序）@46..）。
+
+/// 长度码 257..285 基值表填充（RFC 1951 §3.2.5，29 项）。
+fn fill_len_base(t List<int>) {
+    t.push(3)
+    t.push(4)
+    t.push(5)
+    t.push(6)
+    t.push(7)
+    t.push(8)
+    t.push(9)
+    t.push(10)
+    t.push(11)
+    t.push(13)
+    t.push(15)
+    t.push(17)
+    t.push(19)
+    t.push(23)
+    t.push(27)
+    t.push(31)
+    t.push(35)
+    t.push(43)
+    t.push(51)
+    t.push(59)
+    t.push(67)
+    t.push(83)
+    t.push(99)
+    t.push(115)
+    t.push(131)
+    t.push(163)
+    t.push(195)
+    t.push(227)
+    t.push(258)
+}
+
+/// 长度码附加位数填充（29 项）。
+fn fill_len_extra(t List<int>) {
+    t.push(0)
+    t.push(0)
+    t.push(0)
+    t.push(0)
+    t.push(0)
+    t.push(0)
+    t.push(0)
+    t.push(0)
+    t.push(1)
+    t.push(1)
+    t.push(1)
+    t.push(1)
+    t.push(2)
+    t.push(2)
+    t.push(2)
+    t.push(2)
+    t.push(3)
+    t.push(3)
+    t.push(3)
+    t.push(3)
+    t.push(4)
+    t.push(4)
+    t.push(4)
+    t.push(4)
+    t.push(5)
+    t.push(5)
+    t.push(5)
+    t.push(5)
+    t.push(0)
+}
+
+/// 距离码 0..29 基值表填充（30 项）。
+fn fill_dist_base(t List<int>) {
+    t.push(1)
+    t.push(2)
+    t.push(3)
+    t.push(4)
+    t.push(5)
+    t.push(7)
+    t.push(9)
+    t.push(13)
+    t.push(17)
+    t.push(25)
+    t.push(33)
+    t.push(49)
+    t.push(65)
+    t.push(97)
+    t.push(129)
+    t.push(193)
+    t.push(257)
+    t.push(385)
+    t.push(513)
+    t.push(769)
+    t.push(1025)
+    t.push(1537)
+    t.push(2049)
+    t.push(3073)
+    t.push(4097)
+    t.push(6145)
+    t.push(8193)
+    t.push(12289)
+    t.push(16385)
+    t.push(24577)
+}
+
+/// 距离码附加位数填充（30 项）。
+fn fill_dist_extra(t List<int>) {
+    t.push(0)
+    t.push(0)
+    t.push(0)
+    t.push(0)
+    t.push(1)
+    t.push(1)
+    t.push(2)
+    t.push(2)
+    t.push(3)
+    t.push(3)
+    t.push(4)
+    t.push(4)
+    t.push(5)
+    t.push(5)
+    t.push(6)
+    t.push(6)
+    t.push(7)
+    t.push(7)
+    t.push(8)
+    t.push(8)
+    t.push(9)
+    t.push(9)
+    t.push(10)
+    t.push(10)
+    t.push(11)
+    t.push(11)
+    t.push(12)
+    t.push(12)
+    t.push(13)
+    t.push(13)
+}
+
+/// 码长字母表读取顺序填充（RFC 1951 §3.2.7，19 项）。
+fn fill_cl_order(t List<int>) {
+    t.push(16)
+    t.push(17)
+    t.push(18)
+    t.push(0)
+    t.push(8)
+    t.push(7)
+    t.push(9)
+    t.push(6)
+    t.push(10)
+    t.push(5)
+    t.push(11)
+    t.push(4)
+    t.push(12)
+    t.push(3)
+    t.push(13)
+    t.push(2)
+    t.push(14)
+    t.push(1)
+    t.push(15)
+}
+
+/// 由码长表构建规范哈夫曼解码表（RFC 1951 §3.2.2，仅 push），追加到 ht
+/// （调用方以 new([0]) 种子）。过订阅返回 -5。
+pub fn build_huffman(lengths List<int>, base int, n int, ht List<int>) int {
+    // counts @1..15：逐位置扫描（禁索引赋值 → push 序）
+    var len_i int = 1
+    while len_i <= 15 {
+        var c int = 0
+        var s int = 0
+        while s < n {
+            if lengths[base + s] == len_i {
+                c = c + 1
+            }
+            s = s + 1
+        }
+        ht.push(c)
+        len_i = len_i + 1
+    }
+    // Kraft 过订阅检查
+    var left int = 1
+    len_i = 1
+    while len_i <= 15 {
+        left = left * 2 - ht[len_i]
+        if left < 0 {
+            return -5
+        }
+        len_i = len_i + 1
+    }
+    // first_code @16..30：code(len) = (code(len-1) + count(len-1)) * 2
+    var code int = 0
+    len_i = 1
+    while len_i <= 15 {
+        code = (code + ht[len_i - 1]) * 2
+        ht.push(code)
+        len_i = len_i + 1
+    }
+    // sym_base @31..45 + symbols @46..：按 (len, symbol) 排序追加
+    var w int = 46
+    len_i = 1
+    while len_i <= 15 {
+        ht.push(w - 46)
+        var s2 int = 0
+        while s2 < n {
+            if lengths[base + s2] == len_i {
+                ht.push(s2)
+                w = w + 1
+            }
+            s2 = s2 + 1
+        }
+        len_i = len_i + 1
+    }
+    return 0
+}
+
+/// 位展开 + 字节落表（helper 帧）：读 FFI 字节并按 LSB-first 展开到 bits
+/// （种子后），原字节顺序落 raws（种子后）。N-003-4：FFI 产物只在本帧
+/// 索引，不跨 fn 传参。
+pub fn expand_stream(path str, in_off int, in_len int, bits List<int>, raws List<int>) int {
+    if in_len <= 0 {
+        return -8
+    }
+    let data []int = file.read_bytes(path)
+    let in_end int = in_off + in_len
+    var bi int = in_off
+    while bi < in_end {
+        let b int = data[bi]
+        let r1 int = b / 2
+        let r2 int = r1 / 2
+        let r3 int = r2 / 2
+        let r4 int = r3 / 2
+        let r5 int = r4 / 2
+        let r6 int = r5 / 2
+        let r7 int = r6 / 2
+        bits.push(b - r1 * 2)
+        bits.push(r1 - r2 * 2)
+        bits.push(r2 - r3 * 2)
+        bits.push(r3 - r4 * 2)
+        bits.push(r4 - r5 * 2)
+        bits.push(r5 - r6 * 2)
+        bits.push(r6 - r7 * 2)
+        bits.push(r7)
+        raws.push(b)
+        bi = bi + 1
+    }
+    return 0
+}
+
+/// 主解压入口。架构（实测裁定）：
+///   a) 位展开：字节窗按 LSB-first 展开为每元素 1 位的 bits 列表（单层
+///      循环 + 全 let 展开），规避 refill 状态机（嵌套环计步失真实证）。
+///   b) 解码：平面游标 bip 读 bits；哈夫曼 puff 形态（非命中 1 读/命中
+///      2 读——t00_two 实证 ≤2 安全）。
+///   c) 表按块在分支内新建；列表 var 禁别名+条件重赋值（t00_alias 形态2）。
+pub fn inflate_file(path str, in_off int, in_len int, max_out int, out List<int>) int {
+    if in_off < 0 {
+        return -1
+    }
+    if in_len <= 0 {
+        return -1
+    }
+    let in_end int = in_off + in_len
+    let bit_n int = in_len * 8
+    var bits = List<int>.new([0])
+    var raws = List<int>.new([0])
+    let xrc int = expand_stream(path, in_off, in_len, bits, raws)
+    if xrc != 0 {
+        return xrc
+    }
+    var bip int = 1
+    var out_n int = 0
+    var final_block int = 0
+    var lbase = List<int>.new([0])
+    fill_len_base(lbase)
+    var lextra = List<int>.new([0])
+    fill_len_extra(lextra)
+    var dbase = List<int>.new([0])
+    fill_dist_base(dbase)
+    var dextra = List<int>.new([0])
+    fill_dist_extra(dextra)
+    // 固定表码长（RFC 1951 §3.2.6）：0-143:8 144-255:9 256-279:7 280-287:8
+    var fixed_lit_lens = List<int>.new([0])
+    var s int = 1
+    while s < 289 {
+        let sym int = s - 1
+        if sym < 144 {
+            fixed_lit_lens.push(8)
+        } else {
+            if sym < 256 {
+                fixed_lit_lens.push(9)
+            } else {
+                if sym < 280 {
+                    fixed_lit_lens.push(7)
+                } else {
+                    fixed_lit_lens.push(8)
+                }
+            }
+        }
+        s = s + 1
+    }
+    var fixed_dist_lens = List<int>.new([0])
+    s = 1
+    while s < 31 {
+        fixed_dist_lens.push(5)
+        s = s + 1
+    }
+    // ── 块循环 ──
+    while final_block == 0 {
+        // 3 位块头（LSB-first：BFINAL, BTYPE[0], BTYPE[1]）
+        if bip >= bit_n {
+            return -6
+        }
+        let hb0 int = bits[bip]
+        bip = bip + 1
+        if bip >= bit_n {
+            return -6
+        }
+        let hb1 int = bits[bip]
+        bip = bip + 1
+        if bip >= bit_n {
+            return -6
+        }
+        let hb2 int = bits[bip]
+        bip = bip + 1
+        final_block = hb0
+        let btype int = hb1 + hb2 * 2
+        if btype > 2 {
+            return -1
+        }
+        if btype == 2 {
+            // ── 动态表（RFC 1951 §3.2.7）──
+            var hv int = 0
+            var mhv int = 1
+            var ehv int = 5
+            while ehv > 0 {
+                if bip >= bit_n {
+                    return -6
+                }
+                let vb int = bits[bip]
+                bip = bip + 1
+                hv = hv + vb * mhv
+                mhv = mhv * 2
+                ehv = ehv - 1
+            }
+            let hlit int = hv + 257
+            hv = 0
+            mhv = 1
+            ehv = 5
+            while ehv > 0 {
+                if bip >= bit_n {
+                    return -6
+                }
+                let vb int = bits[bip]
+                bip = bip + 1
+                hv = hv + vb * mhv
+                mhv = mhv * 2
+                ehv = ehv - 1
+            }
+            let hdist int = hv + 1
+            hv = 0
+            mhv = 1
+            ehv = 4
+            while ehv > 0 {
+                if bip >= bit_n {
+                    return -6
+                }
+                let vb int = bits[bip]
+                bip = bip + 1
+                hv = hv + vb * mhv
+                mhv = mhv * 2
+                ehv = ehv - 1
+            }
+            let hclen int = hv + 4
+            if hlit > 286 {
+                return -5
+            }
+            if hdist > 30 {
+                return -5
+            }
+            var order = List<int>.new([0])
+            fill_cl_order(order)
+            var raw = List<int>.new([0])
+            var oi int = 1
+            while oi < hclen + 1 {
+                hv = 0
+                mhv = 1
+                var e3 int = 3
+                while e3 > 0 {
+                    if bip >= bit_n {
+                        return -6
+                    }
+                    let vb3 int = bits[bip]
+                    bip = bip + 1
+                    hv = hv + vb3 * mhv
+                    mhv = mhv * 2
+                    e3 = e3 - 1
+                }
+                raw.push(hv)
+                oi = oi + 1
+            }
+            // CL 码长按字母表位置重排（禁索引赋值 → 位置重扫）
+            var cl_final = List<int>.new([0])
+            var p int = 0
+            while p < 19 {
+                var found int = 0
+                var j int = 1
+                while j < hclen + 1 {
+                    if order[j] == p {
+                        found = raw[j]
+                    }
+                    j = j + 1
+                }
+                cl_final.push(found)
+                p = p + 1
+            }
+            var cl_ht = List<int>.new([0])
+            let c1 int = build_huffman(cl_final, 1, 19, cl_ht)
+            if c1 != 0 {
+                return -5
+            }
+            let total int = hlit + hdist
+            var lens = List<int>.new([0])
+            var last int = 0
+            while lens.len() < total + 1 {
+                // CL 符号 puff 解码
+                var code int = 0
+                var firstcode int = 0
+                var indexcode int = 0
+                var cl int = 0
+                var sym int = -1
+                while sym < 0 {
+                    if bip >= bit_n {
+                        return -6
+                    }
+                    let bit int = bits[bip]
+                    bip = bip + 1
+                    code = code * 2 + bit
+                    cl = cl + 1
+                    if cl > 15 {
+                        return -5
+                    }
+                    let cnt int = cl_ht[cl]
+                    if code - firstcode < cnt {
+                        sym = cl_ht[46 + indexcode + code - firstcode]
+                    }
+                    indexcode = indexcode + cnt
+                    firstcode = (firstcode + cnt) * 2
+                }
+                if sym < 16 {
+                    lens.push(sym)
+                    last = sym
+                } else {
+                    var rep int = 0
+                    var zeros int = 0
+                    if sym == 16 {
+                        if lens.len() < 2 {
+                            return -5
+                        }
+                        var hv16 int = 0
+                        var m16 int = 1
+                        var e16 int = 2
+                        while e16 > 0 {
+                            if bip >= bit_n {
+                                return -6
+                            }
+                            let vb int = bits[bip]
+                            bip = bip + 1
+                            hv16 = hv16 + vb * m16
+                            m16 = m16 * 2
+                            e16 = e16 - 1
+                        }
+                        rep = hv16 + 3
+                        zeros = 0
+                    } else {
+                        if sym == 17 {
+                            var hv17 int = 0
+                            var m17 int = 1
+                            var e17 int = 3
+                            while e17 > 0 {
+                                if bip >= bit_n {
+                                    return -6
+                                }
+                                let vb int = bits[bip]
+                                bip = bip + 1
+                                hv17 = hv17 + vb * m17
+                                m17 = m17 * 2
+                                e17 = e17 - 1
+                            }
+                            rep = hv17 + 3
+                            zeros = 1
+                        } else {
+                            if sym == 18 {
+                                var hv18 int = 0
+                                var m18 int = 1
+                                var e18 int = 7
+                                while e18 > 0 {
+                                    if bip >= bit_n {
+                                        return -6
+                                    }
+                                    let vb int = bits[bip]
+                                    bip = bip + 1
+                                    hv18 = hv18 + vb * m18
+                                    m18 = m18 * 2
+                                    e18 = e18 - 1
+                                }
+                                rep = hv18 + 11
+                                zeros = 1
+                            } else {
+                                return -5
+                            }
+                        }
+                    }
+                    if lens.len() - 1 + rep > total {
+                        rep = total - (lens.len() - 1)
+                    }
+                    var r int = 0
+                    while r < rep {
+                        if zeros == 1 {
+                            lens.push(0)
+                        } else {
+                            lens.push(last)
+                        }
+                        r = r + 1
+                    }
+                }
+            }
+            // 拆分字面量/距离码长（@1 基）并建表
+            var lit_lens = List<int>.new([0])
+            s = 1
+            while s < hlit + 1 {
+                lit_lens.push(lens[s])
+                s = s + 1
+            }
+            var dst_lens = List<int>.new([0])
+            s = hlit + 1
+            while s < total + 1 {
+                dst_lens.push(lens[s])
+                s = s + 1
+            }
+            var lit_ht = List<int>.new([0])
+            let l1 int = build_huffman(lit_lens, 1, hlit, lit_ht)
+            if l1 != 0 {
+                return -5
+            }
+            var dist_ht = List<int>.new([0])
+            let d1 int = build_huffman(dst_lens, 1, hdist, dist_ht)
+            if d1 != 0 {
+                return -5
+            }
+            // 符号解码主循环（动态表）
+            var block_done int = 0
+            while block_done == 0 {
+                var code int = 0
+                var firstcode int = 0
+                var indexcode int = 0
+                var cl int = 0
+                var sym int = -1
+                while sym < 0 {
+                    if bip >= bit_n {
+                        return -6
+                    }
+                    let bit int = bits[bip]
+                    bip = bip + 1
+                    code = code * 2 + bit
+                    cl = cl + 1
+                    if cl > 15 {
+                        return -2
+                    }
+                    let cnt int = lit_ht[cl]
+                    if code - firstcode < cnt {
+                        sym = lit_ht[46 + indexcode + code - firstcode]
+                    }
+                    indexcode = indexcode + cnt
+                    firstcode = (firstcode + cnt) * 2
+                }
+                if sym < 256 {
+                    if out_n + 1 > max_out {
+                        return -4
+                    }
+                    out.push(sym)
+                    out_n = out_n + 1
+                } else {
+                    if sym == 256 {
+                        block_done = 1
+                    } else {
+                        if sym > 285 {
+                            return -2
+                        }
+                        let li int = sym - 257
+                        // 长度附加位（计数来自 lextra 表）
+                        var hv2 int = 0
+                        var m2 int = 1
+                        var e2 int = lextra[li + 1]
+                        while e2 > 0 {
+                            if bip >= bit_n {
+                                return -6
+                            }
+                            let vb int = bits[bip]
+                            bip = bip + 1
+                            hv2 = hv2 + vb * m2
+                            m2 = m2 * 2
+                            e2 = e2 - 1
+                        }
+                        let mlen int = lbase[li + 1] + hv2
+                        // 距离符号 puff 解码
+                        var code3 int = 0
+                        var first3 int = 0
+                        var index3 int = 0
+                        var cl3 int = 0
+                        var dsym int = -1
+                        while dsym < 0 {
+                            if bip >= bit_n {
+                                return -6
+                            }
+                            let bit int = bits[bip]
+                            bip = bip + 1
+                            code3 = code3 * 2 + bit
+                            cl3 = cl3 + 1
+                            if cl3 > 15 {
+                                return -3
+                            }
+                            let cnt3 int = dist_ht[cl3]
+                            if code3 - first3 < cnt3 {
+                                dsym = dist_ht[46 + index3 + code3 - first3]
+                            }
+                            index3 = index3 + cnt3
+                            first3 = (first3 + cnt3) * 2
+                        }
+                        if dsym > 29 {
+                            return -3
+                        }
+                        // 距离附加位（计数来自 dextra 表）
+                        var hv3 int = 0
+                        var m3 int = 1
+                        var e3 int = dextra[dsym + 1]
+                        while e3 > 0 {
+                            if bip >= bit_n {
+                                return -6
+                            }
+                            let vb int = bits[bip]
+                            bip = bip + 1
+                            hv3 = hv3 + vb * m3
+                            m3 = m3 * 2
+                            e3 = e3 - 1
+                        }
+                        let dist int = dbase[dsym + 1] + hv3
+                        if dist > out_n {
+                            return -3
+                        }
+                        if out_n + mlen > max_out {
+                            return -4
+                        }
+                        let cpos int = out_n - dist
+                        var c int = 0
+                        while c < mlen {
+                            out.push(out[cpos + c])
+                            c = c + 1
+                        }
+                        out_n = out_n + mlen
+                    }
+                }
+            }
+        }
+        if btype == 1 {
+            var lit_ht = List<int>.new([0])
+            let gf1 int = build_huffman(fixed_lit_lens, 1, 288, lit_ht)
+            if gf1 != 0 {
+                return -5
+            }
+            var dist_ht = List<int>.new([0])
+            let gf2 int = build_huffman(fixed_dist_lens, 1, 30, dist_ht)
+            if gf2 != 0 {
+                return -5
+            }
+            // 符号解码主循环（固定表）——与动态分支逐字相同
+            var block_done int = 0
+            while block_done == 0 {
+                var code int = 0
+                var firstcode int = 0
+                var indexcode int = 0
+                var cl int = 0
+                var sym int = -1
+                while sym < 0 {
+                    if bip >= bit_n {
+                        return -6
+                    }
+                    let bit int = bits[bip]
+                    bip = bip + 1
+                    code = code * 2 + bit
+                    cl = cl + 1
+                    if cl > 15 {
+                        return -2
+                    }
+                    let cnt int = lit_ht[cl]
+                    if code - firstcode < cnt {
+                        sym = lit_ht[46 + indexcode + code - firstcode]
+                    }
+                    indexcode = indexcode + cnt
+                    firstcode = (firstcode + cnt) * 2
+                }
+                if sym < 256 {
+                    if out_n + 1 > max_out {
+                        return -4
+                    }
+                    out.push(sym)
+                    out_n = out_n + 1
+                } else {
+                    if sym == 256 {
+                        block_done = 1
+                    } else {
+                        if sym > 285 {
+                            return -2
+                        }
+                        let li int = sym - 257
+                        var hv2 int = 0
+                        var m2 int = 1
+                        var e2 int = lextra[li + 1]
+                        while e2 > 0 {
+                            if bip >= bit_n {
+                                return -6
+                            }
+                            let vb int = bits[bip]
+                            bip = bip + 1
+                            hv2 = hv2 + vb * m2
+                            m2 = m2 * 2
+                            e2 = e2 - 1
+                        }
+                        let mlen int = lbase[li + 1] + hv2
+                        var code3 int = 0
+                        var first3 int = 0
+                        var index3 int = 0
+                        var cl3 int = 0
+                        var dsym int = -1
+                        while dsym < 0 {
+                            if bip >= bit_n {
+                                return -6
+                            }
+                            let bit int = bits[bip]
+                            bip = bip + 1
+                            code3 = code3 * 2 + bit
+                            cl3 = cl3 + 1
+                            if cl3 > 15 {
+                                return -3
+                            }
+                            let cnt3 int = dist_ht[cl3]
+                            if code3 - first3 < cnt3 {
+                                dsym = dist_ht[46 + index3 + code3 - first3]
+                            }
+                            index3 = index3 + cnt3
+                            first3 = (first3 + cnt3) * 2
+                        }
+                        if dsym > 29 {
+                            return -3
+                        }
+                        var hv3 int = 0
+                        var m3 int = 1
+                        var e3 int = dextra[dsym + 1]
+                        while e3 > 0 {
+                            if bip >= bit_n {
+                                return -6
+                            }
+                            let vb int = bits[bip]
+                            bip = bip + 1
+                            hv3 = hv3 + vb * m3
+                            m3 = m3 * 2
+                            e3 = e3 - 1
+                        }
+                        let dist int = dbase[dsym + 1] + hv3
+                        if dist > out_n {
+                            return -3
+                        }
+                        if out_n + mlen > max_out {
+                            return -4
+                        }
+                        let cpos int = out_n - dist
+                        var c int = 0
+                        while c < mlen {
+                            out.push(out[cpos + c])
+                            c = c + 1
+                        }
+                        out_n = out_n + mlen
+                    }
+                }
+            }
+        }
+        if btype == 0 {
+            // ── 存储块：位对齐 → LEN/NLEN → 拷贝（raws @1 基）──
+            var rem int = bip - (bip / 8) * 8
+            if rem > 0 {
+                bip = bip + 8 - rem
+            }
+            let hdr_b int = bip / 8
+            if bip + 32 > bit_n {
+                return -6
+            }
+            let len_lo int = raws[hdr_b + 1]
+            let len_hi int = raws[hdr_b + 2]
+            let nlen_lo int = raws[hdr_b + 3]
+            let nlen_hi int = raws[hdr_b + 4]
+            let blen int = len_lo + len_hi * 256
+            let nchk int = nlen_lo + nlen_hi * 256
+            if blen + nchk != 65535 {
+                return -7
+            }
+            bip = bip + 32
+            if out_n + blen > max_out {
+                return -4
+            }
+            var cpy int = 0
+            while cpy < blen {
+                if hdr_b + 5 + cpy > in_len {
+                    return -6
+                }
+                out.push(raws[hdr_b + 5 + cpy])
+                out_n = out_n + 1
+                cpy = cpy + 1
+            }
+        }
+    }
+    return 0
+}
+
+/// 模块自检（快速健全性）：固定表 count[7]（期望 24）。
+pub fn selftest_fixed_count7() int {
+    var lens = List<int>.new([0])
+    var s int = 1
+    while s < 289 {
+        let sym int = s - 1
+        if sym < 144 {
+            lens.push(8)
+        } else {
+            if sym < 256 {
+                lens.push(9)
+            } else {
+                if sym < 280 {
+                    lens.push(7)
+                } else {
+                    lens.push(8)
+                }
+            }
+        }
+        s = s + 1
+    }
+    var ht = List<int>.new([0])
+    let st int = build_huffman(lens, 1, 288, ht)
+    if st != 0 {
+        return -1
+    }
+    return ht[7]
+}
