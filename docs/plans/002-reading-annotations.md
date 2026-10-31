@@ -144,7 +144,7 @@ Markdown导出必须含书名、原句、版本/来源身份、章节/资源loca
 - [x] T-07（owner_stage=merge；phase=A；依赖T-06；AC-08阶段面）：完成A适用门/规范/推送/组合pin，记录阶段交付；整Plan保持executing、B未勾选。B等Notes不撤回A成果。[✅ 已完成] [2026-10-31] 阶段交付落地 main=72aac4f（ff-only，rebase 等价 range-diff 4/4 `=`）；SD-01 reading-annotations.md + SD-02 real-library.md 扩展节随 merge 落地为正式 Spec（canonical_verified，hash 见 §9）；整 Plan 保持 executing、B（T-02/T-08..T-10）未勾选。AutoOS pin/推送面：本仓为独立 clone 开发位（app 先提交推送→AutoOS 精确 pin 流程见 README），本轮未执行推送，登记于 §10 待办随 B 或用户指令执行。
 - [x] ~~T-02~~（r4 移除→AutoOS TODO；原 B 任务不执行，编号保留）
 - [x] ~~T-08~~（r4 移除→AutoOS TODO；SD-03 不由本计划交付）
-- [ ] T-09（owner_stage=review；phase=final；r4 范围=A；依赖T-07；AC-07最终面）：最终复审 A 面（AC-01..05+SD-01/02）与已落地 main=72aac4f 一致、无 B 残留宣称；声明上下文限制。
+- [x] T-09（owner_stage=review；phase=final；r4 范围=A；依赖T-07；AC-07最终面）：最终复审 A 面（AC-01..05+SD-01/02）与已落地 main=72aac4f 一致、无 B 残留宣称；声明上下文限制。[✅ 已完成] [2026-10-31] final pass（r4 面）：实现终态 72aac4f 与 phase review 冻结基线一致，证据合法复用；landed Spec 无 B 宣称。见 §9。
 - [ ] T-10（owner_stage=merge；phase=final；依赖T-09；AC-08最终面）：统一门（A 面）、归档 002、worktree/分支清理、retention；app推送/AutoOS精确pin 不在本轮（在案 TODO 登记）。全部必需项真过才归档002。
 
 ## 9. 复审记录
@@ -177,6 +177,8 @@ stage: goal | plan_id: READER-002 | plan_revision: 3 | round: 5 | from: blocked 
 stage: goal | plan_id: READER-002 | plan_revision: 3 | round: 6 | from: waiting | to: waiting | status: executing | outcome: waiting | worktree: D:/autostack/.wt/reader-002/auto-reader（保留） | commit: main=72aac4f（不变） | next: user——用户裁决后等待轮#1：NOTES-002 仍 drafting 0/5；维持等待（用户已明示），Phase B 恢复条件不变
 
 stage: new | plan_id: READER-002 | plan_revision: 4 | outcome: pass（有界修订就绪） | 修订授权：用户 2026-10-31 明示「这个计划002只实现阶段A即可收尾」+ app 间互动整体 TODO（前置①OS 级通讯框架协议②OS 级应用功能包共享机制均未建）；变更=范围/验收（AC-06 移除、SD-03 移出、T-02/T-08 移除、T-09/T-10 面=A），目标（本地阅读体验/注释/导出）与已交付实现不变 | changed_ids: AC-06（removed）、T-02/T-08（removed）、T-09/T-10（范围改A）、SD-03（不由本计划交付）；B-01/B-02（removed） | total_steps 11→9（可执行任务数），current_step 7 不变 | next: review（T-09 最终复审 A 面）
+
+stage: review | review_scope: final（r4 面=A） | reviewer_identity/limitations: 与实现同会话；实现自 1ea4dfd（landed c5d46be→main 72aac4f）后零代码变更（其后仅 docs/plan 提交），验收证据合法复用 phase review 评审者重执行包（verify_local vue 50/50、EPUB 冷重启专探、t10 69/69、t01/t02/t06/t08/verify_epub/auto test 全绿）——未变实现/依赖/验证配置的显式复用 | plan_id: READER-002 | plan_revision: 4 | outcome: pass | worktree_path: D:/autostack/.wt/reader-002/auto-reader | branch: plan-002-dev | reviewed_commit: main=9ee3497（r4 契约）≈72aac4f（实现终态） | base_commit: 30fcfb5 | dependency_revisions: 001 r9、003 r3（均 archived） | spec_inputs: docs/specs/reader/reading-annotations.md a58906d5…、real-library.md 1db535c4…（landed，B 零宣称——grep CaptureEnvelope/request_id/待发送 无命中；仅保留诚实免责「B 尚未实现/导出≠真实接收」） | acceptance_results: AC-01 pass、AC-02 pass、AC-05 pass（复用 phase review 证据，实现不变）；AC-03/04 本地面 pass（同）；AC-06 removed（r4）；AC-07 修订面核 pass；AC-08 归档条件=T-10 | pending_closeout_gates: T-10（归档+worktree 清理+retention；app 推送/AutoOS pin 按在案 TODO 登记未执行） | findings: 无新 finding（R-002-A-1 low 维持在案，随未来计划） | evidence: 本收据+phase review 收据（3cc9d92）+r4 修订提交（9ee3497） | next: merge（T-10 归档收尾）
 
 ## 10. 待澄清事项
 
