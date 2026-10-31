@@ -7,7 +7,7 @@ author: [Codex]
 created_at: 2026-10-04T00:00:00Z
 updated_at: 2026-10-29
 plan_revision: 3
-current_step: 0
+current_step: 1
 total_steps: 7
 base_branch: main
 base_commit: 4d6345cc37882b0216480661eefae4c773617c2d
@@ -130,8 +130,8 @@ EPUB持久身份以原始二进制内容证明/摘要＋格式版本区分，T-0
 
 ## 8. 执行步骤
 
-- [ ] T-00（owner_stage=work；依赖001实际交付；AC-01..05）：冻结CAP-01..04与最小profile；验证候选ZIP/XML/二进制/图像/原生入口，输出capability-decision.md；必要缺项具名立最小owner前置，不依赖完整002。
-- [ ] T-01（owner_stage=work；依赖T-00与实际具名前置交付；AC-01/03/04）：实现EPUB容器/package/spine/nav/资源adapter与受管导入提交、旧库格式兼容；数据先验证再发布，不改原件。
+- [x] T-00（owner_stage=work；依赖001实际交付；AC-01..05）：冻结CAP-01..04与最小profile；验证候选ZIP/XML/二进制/图像/原生入口，输出capability-decision.md；必要缺项具名立最小owner前置，不依赖完整002。[✅ 2026-10-31] capability-decision.md 已产出（commit f251eed）：真sha256/字节读写字节精确/file.copy/image.thumb 可用；zip/xml native 不存在→纯.at 栈；惰性按章解压架构（导入期结构校验、首读期解压）；预算冻结。探针 t00_epub_cap_probe{,2..10}.as。
+- [ ] T-01（owner_stage=work；依赖T-00与实际具名前置交付；AC-01/03/04）：实现EPUB容器/package/spine/nav/资源adapter与受管导入提交、旧库格式兼容；数据先验证再发布，不改原件。[⛔ 2026-10-31 blocked] 纯.at DEFLATE 参考实现（src/back/inflatex.at，commit ca9d86f）在当前 CLI（v0.0.20-118）被运行时列表缺陷阻断（N-003-1..6：FFI 列表跨fn失真/单迭代≥3次计算索引读失真/嵌套解码表读+7系统性偏移等，证据 docs/plans/evidence/003/framework-gap.md + tests/probe/t00_*）。解除条件＝框架 owner 交付最小前置（修复列表读值语义 或 提供 zip/inflate native），见 framework-gap.md 选项 A/B。
 - [ ] T-02（owner_stage=work；依赖T-01；AC-01/02/05）：接共用最小内容模型、真实目录/图片/内链与基本字号，扩充兼容locator和持久恢复；不实现002注释系统。
 - [ ] T-03（owner_stage=work；依赖T-01及T-00预算决策；AC-03/04）：完成规范化路径、禁止活动内容/外部实体/远程加载、实际解压/图像预算与失败回滚/可重试状态。
 - [ ] T-04（owner_stage=work；依赖T-02/T-03；AC-01..05）：制作永久fixture/双端入口并跑E-01..06及受影响旧库回归，准备SD-01/02，提交实现/证据摘要后execution_done；本轮不执行。
@@ -144,8 +144,16 @@ r3变更授权与归属：原r2保留于 `4d6345cc37882b0216480661eefae4c773617c
 
 stage: new | plan_id: READER-003 | plan_revision: 3 | outcome: pass（首个有界能力调查就绪，非EPUB功能通过） | next: work/T-00（仅在另行进入执行时）。7项任务全未勾选，本轮无实现/构建/运行验收。
 
+stage: work | plan_id: READER-003 | plan_revision: 3 | round: 1 | outcome: **blocked（T-01 被运行时列表缺陷阻断；T-00 已完成）** | worktree_path: D:/autostack/.wt/reader-003/auto-reader | branch: plan-003-dev | base_commit: fa6185e | code_commit: f251eed（T-00 能力决策）→ ca9d86f（T-01 inflate 参考实现 + framework-gap.md） | dependency_revisions: auto 0.1.0+v0.0.20-118-ge6cc06f（较计划基线 -117 新一个补丁集；全部探针/证据在 -118 上实跑） | task_ids: T-00 ✅, T-01 ⛔ | evidence: docs/plans/evidence/003/{capability-decision.md,framework-gap.md}；探针 tests/probe/t00_*（26 个）；运行时失真直接证据＝%TEMP%/partial_out.bin（解码输出=期望文本逐字节+7）对照 vec_fixed_expected.txt | blockers: N-003-1..6（VM 列表读写语义，见 framework-gap.md 缺陷目录）；解除动作＝框架 owner 交付最小前置（选项 A 修复列表读值语义 / 选项 B 提供 zip·inflate native）并取得交付回执 | next_responsible_role: 框架 owner（auto-lang/auto-man），随后本计划 work 续跑 T-01..T-04
+
+stage: goal | plan_id: READER-003 | plan_revision: 3 | round: 1 | from: work | to: user（框架侧前置） | status: executing | outcome: blocked | worktree: D:/autostack/.wt/reader-003/auto-reader（保留，plan-003-dev @ ca9d86f） | commit: 34d762c 不可用（本轮主仓仅计划记账） | next: user/框架侧；goal 链按停止条件交回，恢复动作见 §10 与 framework-gap.md
+
 ## 10. 待澄清事项
+
+**⛔ 当前阻断（2026-10-31，T-01 work 阶段）**：纯 .at DEFLATE 解压被运行时列表缺陷阻断（N-003-1..6，证据与最小复现见 docs/plans/evidence/003/framework-gap.md；最直接证据＝解码输出与期望文本逐字节 +7 位移）。**解除动作（具名）**：框架 owner（auto-lang/auto-man）按 framework-gap.md「最小修复选项」交付其一——A：修复 VM 列表读值失真（convert.rs Vec<i32> push_to_stack 路径嫌疑）使 src/back/inflatex.at 参考实现通过 t00_inflate_probe；或 B：提供 zip/inflate native。取得交付回执后本计划按 CAP-01 路由恢复 T-01..T-04，目标/AC/范围不变。在回执前本计划不推进实现、不以 fixture 注入或降低验收替代。
 
 产品优先级与不等待完整002已获用户确认，无需重复确认。T-00负责确定真实依赖/许可、二进制身份、内容/locator schema、资源预算及原生导入/导航可驱动性；这些不确定性不能留到写完解析器后再假设。若需要超出最小profile或变更旧库兼容承诺，先提出具体修订，不自行扩面。
 
 本轮文档预检：直接依赖仅001，CAP门有具名owner与首探针；任务/AC/规范增量、源码hash及链接检查通过；未实现EPUB、未运行应用功能测试。
+
+2026-10-31 T-00 补充裁定（冻结于 capability-decision.md）：真 sha256（hash.file_sha256/sha256）可用→EPUB 书版本身份用 sha256（TXT/MD 的 ph1 语义不动）；字节读写带规避可用；zip/xml native 不存在→纯 .at ZIP/inflate/XML；图像走 image.thumb 媒体 URI 双端同源；惰性按章解压（导入期结构校验、首读期解压+逐条目完整性）；条目完整性以 inflate 结构完成性为准（CRC-32 因无位运算逐位模拟异或成本不成比例，SD-01 如实记录弱化）。运行时 CLI 由 -117 漂移到 -118，按「假设变更即重跑」全部证据在 -118 重建。
