@@ -67,13 +67,17 @@ fn para_hash(text str) str {
     return "sig1:" + text.len().to_string() + ":" + lines.len().to_string()
 }
 
-/// 正文 → 段落数组 [{idx, text, key}]（去空行；idx = 原行号；key = 稳定
-/// 子锚点 key，scroll-anchor 寻址用——pane 内唯一，跨章节同构）。
+/// 正文 → 段落数组 [{idx, text, key, mark_n, mark_bad, kind, img_uri,
+/// img_err}]（去空行；idx = 原行号；key = 稳定子锚点 key，scroll-anchor
+/// 寻址用——pane 内唯一，跨章节同构）。READER-005 T-02：img: 行不再以
+/// 标记文本呈现——kind="img"（uri 就绪）/ "imgerr"（诚实错误，拒绝码
+/// 可见）/ "text"；段序号与行号口径不变（注释锚/Locator 兼容）。
 /// READER-002：并入本章注释标记数 mark_n 与需重定位位 mark_bad
 /// （quote 非空且在本段出现序不足 = bad——与后端核验同式，展示面诚实
-/// 预判，终判在服务端）。入参全标量（anns_resp 为注释 GET 原文，函数内
-/// 解析——规避 List/struct 作 fn 参数的双轨缺陷面）。
-fn merge_marks(body str, anns_resp str, ch int) List {
+/// 预判，终判在服务端）。入参全标量（anns_resp 为注释 GET 原文，
+/// chapter_src 为章 JSON 原文——images[] 单源，函数内解析——规避
+/// List/struct 作 fn 参数的双轨缺陷面）。
+fn merge_marks(body str, anns_resp str, ch int, chapter_src str) List {
     let lines = body.split("\n")
     var out List = []
     var anns = json.parse("[]")
@@ -89,6 +93,23 @@ fn merge_marks(body str, anns_resp str, ch int) List {
             }
             if okp {
                 anns = wrap.annotations
+            }
+        }
+    }
+    // 章图身份表（后端 images[] 单源：{k,uri,err}）
+    var imgs = json.parse("[]")
+    if chapter_src != "" {
+        if chapter_src.find("\"images\":[") >= 0 {
+            var okc bool = false
+            var cw = null
+            try {
+                cw = json.parse(chapter_src)
+                okc = true
+            } catch {
+                okc = false
+            }
+            if okc {
+                imgs = cw.images
             }
         }
     }
@@ -116,7 +137,25 @@ fn merge_marks(body str, anns_resp str, ch int) List {
                 }
             }
             let k str = "p" + i.to_string()
-            out.push({ idx: i, text: t, key: k, mark_n: n, mark_bad: bad })
+            var kind str = "text"
+            var img_uri str = ""
+            var img_err str = ""
+            if t.find("img:") == 0 {
+                let zp str = t.substr(4, t.len() - 4)
+                for g in imgs {
+                    let gk str = "" + g.k
+                    if gk == zp {
+                        img_uri = "" + g.uri
+                        img_err = "" + g.err
+                    }
+                }
+                if img_uri != "" {
+                    kind = "img"
+                } else {
+                    kind = "imgerr"
+                }
+            }
+            out.push({ idx: i, text: t, key: k, mark_n: n, mark_bad: bad, kind: kind, img_uri: img_uri, img_err: img_err })
         }
         i = i + 1
     }
@@ -671,7 +710,25 @@ widget reading_page {
                                                         text "需重定位" { style: "text-xs text-destructive shrink-0" }
                                                     }
                                                 }
-                                                text p.text { style: .body_style }
+                                                // T-02 三态正卫栅格：图片就绪 /
+                                                // 诚实错误（拒绝码+路径可见）/
+                                                // 正文文本。点段=记位置行为不变。
+                                                if p.kind == "img" {
+                                                    image (src: p.img_uri, alt: "插图", fit: "contain") {
+                                                        style: "max-w-full rounded-lg border border-border my-2"
+                                                    }
+                                                }
+                                                if p.kind == "imgerr" {
+                                                    col {
+                                                        style: "items-start gap-1 my-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/40"
+                                                        text "⚠ 插图不可用" { style: "text-sm text-destructive" }
+                                                        text p.img_err { style: "text-xs text-destructive/80 font-mono" }
+                                                        text p.text { style: "text-xs text-muted-foreground/60 font-mono" }
+                                                    }
+                                                }
+                                                if p.kind == "text" {
+                                                    text p.text { style: .body_style }
+                                                }
                                             }
                                             // 当前段注释动作行（＋ 注释入口；
                                             // 不改变点段=记位置的既有行为）
@@ -907,14 +964,15 @@ widget reading_page {
                     .chapter_num = .chapter_count
                 }
                 router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
-                let chv = parse_lib(Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string()))
+                let craw str = Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string())
+                let chv = parse_lib(craw)
                 if chv != null {
                     .chapter = chv
                 }
                 // READER-002 注释装载规范序列（变更/换章后同式）
                 .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
                 .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
-                .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num)
+                .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num, craw)
                 .cur_paragraph = -1
                 .cur_para_text = ""
                 // 恢复段标记：仅当保存章节 == 当前章节；内容锚点逐字验证
@@ -1034,21 +1092,22 @@ widget reading_page {
         .ToggleToc -> { .show_toc = !.show_toc }
         .SelectChapter(n int) -> {
             .show_toc = false
-            if n != .chapter_num {
-                .chapter_num = n
-                router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
-                if .is_real {
-                    let chv = parse_lib(Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string()))
-                    if chv != null {
-                        .chapter = chv
-                    }
+                if n != .chapter_num {
+                    .chapter_num = n
+                    router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
+                    if .is_real {
+                        let craw str = Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string())
+                        let chv = parse_lib(craw)
+                        if chv != null {
+                            .chapter = chv
+                        }
 // READER-002 注释装载规范序列（变更/换章后同式）
-                    .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
-                    .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
-                    .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num)
-                    .cur_paragraph = -1
-                    .cur_para_text = ""
-                } else {
+                        .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
+                        .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
+                        .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num, craw)
+                        .cur_paragraph = -1
+                        .cur_para_text = ""
+                    } else {
                     .chapter = Http.get_json("/api/chapters?book_id=" + .book_id.to_string() + "&number=" + .chapter_num.to_string())
                 }
                 let total int = .chapter_count
@@ -1078,14 +1137,15 @@ widget reading_page {
                 .chapter_num = .chapter_num - 1
                 router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
                 if .is_real {
-                    let chv = parse_lib(Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string()))
+                    let craw str = Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string())
+                    let chv = parse_lib(craw)
                     if chv != null {
                         .chapter = chv
                     }
 // READER-002 注释装载规范序列（变更/换章后同式）
                     .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
                     .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
-                    .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num)
+                    .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num, craw)
                     .cur_paragraph = -1
                     .cur_para_text = ""
                 } else {
@@ -1118,14 +1178,15 @@ widget reading_page {
                 .chapter_num = .chapter_num + 1
                 router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
                 if .is_real {
-                    let chv = parse_lib(Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string()))
+                    let craw str = Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string())
+                    let chv = parse_lib(craw)
                     if chv != null {
                         .chapter = chv
                     }
 // READER-002 注释装载规范序列（变更/换章后同式）
                     .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
                     .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
-                    .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num)
+                    .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num, craw)
                     .cur_paragraph = -1
                     .cur_para_text = ""
                 } else {
@@ -1319,13 +1380,14 @@ widget reading_page {
                     if ch <= .chapter_count {
                         .chapter_num = ch
                         router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
-                        let chv = parse_lib(Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string()))
+                        let craw str = Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string())
+                        let chv = parse_lib(craw)
                         if chv != null {
                             .chapter = chv
                         }
                         .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
                         .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
-                        .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num)
+                        .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num, craw)
                         let total int = .chapter_count
                         if total > 0 {
                             .progress_pct = pct_of(.chapter_num, total)

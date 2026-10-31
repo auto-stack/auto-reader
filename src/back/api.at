@@ -25,7 +25,8 @@ pub type Chapter = {
 }
 
 use db
-use library: BookRecord, ImportOutcome, TocEntry, RemoveResult
+use library: BookRecord, ImportOutcome, TocEntry, RemoveResult, book_json, data_dir
+use epub: epub_img_type_of
 use importers: ChapterRec
 use annotations
 
@@ -176,4 +177,88 @@ pub fn library_search(book_id str, query str) str {
 #[api(method = "POST", path = "/api/library/export")]
 pub fn library_export(book_id str) str {
     return db.library_export_annotations(book_id)
+}
+
+// ═══════════════════════════════════════════════════════════
+// READER-005 T-02：EPUB 章图稳定字节服务。URI = /api/reader/media/
+// <book_id>/res_<双射扁平名>（epub.at epub_chapter_json 产出）；文件体
+// 由 VM 缺省 HTTP transport 承载（http.file_response：GET/HEAD、单区间、
+// 条件请求；root 越界 .. /绝对路径/盘符/UNC 403）。root 只由书目记录
+// 派生（受管副本章节缓存目录），:res 段另过形状白名单（res_ 前缀 +
+// [A-Za-z0-9.-]）——双保险，不具跨书/逃逸可达性。
+// ═══════════════════════════════════════════════════════════
+
+/// GET /api/reader/media/:bid/:res — 章图原始字节（不支持形态 → 404）。
+#[api(method = "GET", path = "/api/reader/media/:bid/:res")]
+pub fn reader_media(bid str, res str) FileResponse {
+    // 形状白名单：res_ 前缀 + 安全字母集（双射扁平名保证）。
+    var ok bool = true
+    if res.len() < 5 {
+        ok = false
+    }
+    if ok {
+        if res.substr(0, 4) != "res_" {
+            ok = false
+        }
+    }
+    if ok {
+        var i int = 0
+        while i < res.len() {
+            let c str = res.substr(i, 1)
+            var known bool = false
+            if "0123456789".find(c) >= 0 {
+                known = true
+            }
+            if "abcdefghijklmnopqrstuvwxyz".find(c) >= 0 {
+                known = true
+            }
+            if "ABCDEFGHIJKLMNOPQRSTUVWXYZ".find(c) >= 0 {
+                known = true
+            }
+            if c == "." {
+                known = true
+            }
+            if c == "-" {
+                known = true
+            }
+            if c == "_" {
+                known = true
+            }
+            if !known {
+                ok = false
+                i = res.len()
+            }
+            i = i + 1
+        }
+    }
+    // root 派生：bid → 书目受管副本 → <managed>.chapters；缺书/格式不符
+    // → 指向必然不存在的名字（传输层 404），不泄露任何状态。
+    var root str = ""
+    var rel str = "__missing__"
+    if ok {
+        let rj str = book_json(bid)
+        if rj != "" {
+            let r = json.parse(rj)
+            let fmt str = "" + r.format
+            if fmt == "epub" {
+                let mp str = "" + r.managed_path
+                if mp != "" {
+                    root = mp + ".chapters"
+                    rel = res
+                }
+            }
+        }
+    }
+    if root == "" {
+        let dd str = data_dir()
+        root = dd
+        rel = "__missing__"
+    }
+    // content type 按扩展名（扁平名保序原扩展名）。
+    var opts str = "{}"
+    let ct str = epub_img_type_of(res)
+    if ct != "" {
+        opts = "{\"content_type\":\"" + ct + "\"}"
+    }
+    return http.file_response(root, rel, opts)
 }

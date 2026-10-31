@@ -192,14 +192,17 @@ def main():
               "E-01 toc entry 1")
         check(len(tarr) > 1 and tarr[1].get("number") == 2, "E-01 toc entry 2")
 
-        # 章文本 + 图片标记 + images 媒体 URI
+        # 章文本 + 图片标记 + images 媒体 URI（READER-005 T-02：URI = 应用
+        # 自有稳定服务面 /api/reader/media/<book_id>/res_<双射扁平名>，旧
+        # image.thumb 票据面（/api/__auto/media，进程局所 404）退役）
         c1 = http("GET", f"/api/library/chapter?book_id={bid}&number=1")
         check("山月不知心底事。" in c1.get("body", ""), "E-01 ch1 text")
         check("img:OEBPS/images/cover.png" in c1.get("body", ""), "E-01 ch1 img marker")
         imgs = c1.get("images", [])
         check(isinstance(imgs, list) and len(imgs) == 1
-              and imgs[0].get("uri", "").startswith("/api/__auto/media/"),
+              and imgs[0].get("uri", "").startswith(f"/api/reader/media/{bid}/res_"),
               "E-01 ch1 images media uri")
+        check(imgs and imgs[0].get("err", "x") == "", "E-01 ch1 image no err")
         c2 = http("GET", f"/api/library/chapter?book_id={bid}&number=2")
         check("第二 chapter 内容。" in c2.get("body", ""), "E-01 ch2 text")
 
