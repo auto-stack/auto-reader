@@ -9,7 +9,7 @@
 | 1 | 真实TXT/Markdown书库、内容锚点与重启恢复 | [READER-001](plans/archive/001-real-library.md) | archived/r9，32/32；最终复审055a5a6、实现268c7d4、合入后landing PASS。这里同步既有证据，本轮未重跑验收 |
 | 2（当前优先） | 最小EPUB3重排版导入、目录/图片/内部链接、基本字号与离线位置恢复 | [READER-003 r3](plans/003-epub-reflow.md)；依赖已交付001＋T-00确认的必要ZIP/XML/二进制/渲染/真实输入能力 | drafting，0/7；不等完整002或Notes；先做有界能力与资源预算调查 |
 | 3 | 本地阅读体验、搜索、书签/高亮/注释、准确回访与Markdown导出 | [READER-002 r3 阶段A](plans/002-reading-annotations.md)；消费001/003已交付内容与locator接口 | drafting，本地阶段可独立验收/阶段交付，不等Notes运行或接收服务 |
-| 4 | Notes真实交接、离线待发送、幂等重试与耐久回执 | [READER-002 r3 阶段B](plans/002-reading-annotations.md)；A已交付＋[NOTES-002](D:/autostack/auto-notes/docs/plans/002-quick-card-assets.md)真实接收能力 | 等待接收端实际交付；只导出文件/mock不算真实联动完成 |
+| 4（TODO） | （AutoOS TODO）app 间互动：Reader→Notes 摘录交接 | 前置未建：①OS 级 APP 间通讯框架协议 ②OS 级应用功能包共享机制（2026-10-31 用户裁决整体 TODO）。未来形态：笔记记录与分享做成 OS 级能力服务，AutoNotes 主入口，各 app 按积木集成——届时另立计划消费 | READER-002 以阶段A收尾（r4），本行整体 TODO |
 
 依赖图为 `001 → 003 → 002-A → 002-B`，Notes接收能力只进入B。003自己交付最小内容adapter、基本阅读与EPUB位置；002消费同一模型，不反向要求003先等注释或Notes。003旧合同的高亮恢复要求移入002-A，仍需验收，不当成已经实现或被删除。
 

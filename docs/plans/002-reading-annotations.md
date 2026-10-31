@@ -5,16 +5,16 @@ status: drafting
 feature_name: "本地阅读体验、摘录与分阶段Notes联动"
 author: [Codex]
 created_at: 2026-10-04T00:00:00Z
-updated_at: 2026-10-29
-plan_revision: 3
+updated_at: 2026-10-31
+plan_revision: 4
 current_step: 7
-total_steps: 11
+total_steps: 9
 base_branch: main
 base_commit: 4d6345cc37882b0216480661eefae4c773617c2d
 source_import_commit: 25d28c481aa7bcf375f0d21f04e4af7b6f624d58
 depends_on: ["READER-001", "READER-003"]
 supersedes_spec_components: ["docs/specs/reader/real-library.md"]
-new_spec_components: ["docs/specs/reader/reading-annotations.md", "docs/specs/reader/notes-capture.md"]
+new_spec_components: ["docs/specs/reader/reading-annotations.md"]
 touched_goals: ["auto-reader/first-real-release"]
 ---
 
@@ -23,6 +23,8 @@ touched_goals: ["auto-reader/first-real-release"]
 ## 0. 变更摘要
 
 r3保留阅读增强/摘录/知识交接方向，改为003最小EPUB先行、002-A本地增强与摘录独立交付、002-B随后接Notes。003不依赖本计划；本计划消费003已交付的内容/资源/定位接口，避免两份Plan各写一套EPUB定位。
+
+r4（2026-10-31 用户裁决）：**本计划以阶段A收尾**。AutoOS 的 app 间互动依赖两个尚不存在的前提——①OS 级 APP 间通讯框架协议；②OS 级应用功能包共享机制——用户判定该能力整体移入 AutoOS TODO，本计划移除阶段B（T-02/T-08 移除；AC-06/B 面移除；SD-03 notes-capture 不由本计划交付）。终审与归档面向阶段A实际交付（AC-01..05 本地面 + SD-01/02，均已落地 main=72aac4f）。未来形态备忘：笔记记录与分享可能做成 **OS 级能力服务**（AutoNotes 为主要入口，Reader 等应用按积木方式集成进各自界面/工作流）——届时另立计划消费该服务。r3 原文见 Git 历史。
 
 阶段A可单独review并按批准阶段交付，Notes不可用不阻塞A；B未完成时整份002保持executing，不把Phase A通过当整Plan完成或归档。001继续归档，不因新增增强需求重开。
 
@@ -77,7 +79,7 @@ Auto/AutoUI纯.at＋003已验证的内容/locator接口；UI两端沿001的Vue�
 | 阶段 | 就绪条件 | 可交付边界 | 不等待什么 |
 |---|---|---|---|
 | A 本地阅读/注释 | 001和003实际交付，固定真实内容与locator接口；T-00先调查 | 本地偏好/搜索/书签高亮注释、定位回访、Markdown导出、两端体验，可单独review/阶段merge | 不等Notes-002、Notes进程、全局知识系统 |
-| B Notes交接 | A阶段已交付＋NOTES-002真实接收能力/协议与交付回执可消费 | 真实发送、离线待发、耐久收据、重试幂等及正确来源；完成最终review/merge后整份002才归档 | 不默认等Jade或未来broker |
+| ~~B Notes交接~~（r4 移除） | 用户裁决：app 间互动前置（OS 级通讯框架/功能包共享）未建，整体移入 AutoOS TODO | ——（原范围入 TODO 备忘，见 §10） | —— |
 
 推荐排程：003→002-A→002-B。只有B等待Notes；如果B暂时blocked，A交付可继续被使用，不撤回本地成果，也不把B标完成。Notes接收面若由其他实际交付合同承接，T-02记录其等价协议与范围证据，不凭“Notes能新建笔记”推定完整CaptureEnvelope已支持。
 
@@ -113,8 +115,8 @@ Markdown导出必须含书名、原句、版本/来源身份、章节/资源loca
 | A-02 | A / AC-02 / T-03/04 | 20处书签/高亮/注释，重复句与同书改版、中文emoji | 稳定annotation_id与source版本；唯一匹配准确，歧义显示重定位，原摘录/注释不丢 |
 | A-03 | A / AC-03/04本地面 / T-05 | Notes不存在/端口不可达，导出Markdown后独立解析 | 完整原句/书名/版本/章节/locator可核对；本地操作与导出不失败或丢内容；不记作真实接收成功 |
 | A-04 | A / AC-01/02/05 / T-04 | 不可写/坏本地注释状态、UI操作失败、正常/硬退出重开 | 无虚假saved、不清草稿或覆盖旧注释；恢复条件后下次写/回访可成功；两端真实操作 |
-| B-01 | B / AC-06 / T-02/08 | 真Notes接收实例、同request_id重试及同文新request_id | 正文/出处准确落盘，重试同对象，新意图新对象，重启接收端后对象/收据仍可读；mock结果另列 |
-| B-02 | B / AC-04/06 / T-08 | Notes停机→记录待发→Reader重启→恢复接收/失败回执/队列边界 | 待发内容和request_id保留，失败可见且不误清空，恢复重试不重复接收；本地A能力仍正常 |
+| ~~B-01~~（r4 移除） | —— | —— | —— |
+| ~~B-02~~（r4 移除） | —— | —— | —— |
 
 拟新增 `tests/annotations/verify_local.py --profile vue|vm`（T-04/T-05制作）和 `tests/integration/verify_notes_capture.py`（T-08制作）；这些不是当前已有入口。实际Notes接口/fixture/服务启动参数在T-02用交付合同冻结，不编造端点。阶段A验收与B真实集成结果分别记录；复用未变证据须绑定同实现/依赖/配置/输入，不能用旧TXT样例代替新增EPUB注释或真实接收。
 
@@ -127,9 +129,9 @@ Markdown导出必须含书名、原句、版本/来源身份、章节/资源loca
 | AC-03 | work | A导出＋B来源传递：原句/书名/版本/章节/locator准确；A文件由独立解析核对，B由真实Notes持久对象核对，二者不得混称 |
 | AC-04 | work | A本地导出独立＋B离线待发送：Notes未运行时本地功能正常，待发送内容跨退出/重启保留；配置/fixture/真实接收分账，未发送不假称成功 |
 | AC-05 | work | A：宽窄布局可读，搜索/选区/注释不误触键盘/IME；Vue和原生VM各有真实操作、错误及恢复证据，不能以API代替 |
-| AC-06 | work | B：消费实际Notes交付接收面，同request_id重试只一对象、同文新意图可新建；确认后双方重启读回正文/出处/收据一致，无必需集成门pending |
-| AC-07 | review | A阶段只签AC-01/02/05和AC-03/04本地部分的phase review；最终必须再核全AC-01..06/SD与依赖/失败控制。阶段pass不等于整Plan reviewed |
-| AC-08 | merge | A scoped门通过后可阶段交付并保留002 executing/B未勾选；B最终门后才整Plan归档、Spec/ledger/精确pin/健康/总表收尾；独立clone留main、子模块detached |
+| ~~AC-06~~（r4 移除→AutoOS TODO） | 移除理由：app 间互动前置能力未建（用户裁决 2026-10-31）；原 B 验收随本行 Git 历史保存，届时另立计划 |
+| AC-07 | review | 阶段A phase review 已过（3cc9d92）；r4 最终复审核 **AC-01..05（A 面）+ SD-01/02** 与已落地实现（main=72aac4f）一致、无 B 残留宣称 |
+| AC-08 | merge | r4：阶段A已 scoped 交付（72aac4f）+ r4 最终复审通过后，整Plan**归档收尾**（Spec 已沉淀、精确 pin/总表按在案 TODO 登记未执行项）；独立clone留main、子模块detached |
 
 ## 8. 执行步骤
 
@@ -140,10 +142,10 @@ Markdown导出必须含书名、原句、版本/来源身份、章节/资源loca
 - [x]  T-04（owner_stage=work；phase=A；依赖T-03/T-05；AC-01..05本地面）：建立永久本地双端入口并跑A-01..04，准备A的SD-01/02；只提交A实现/摘要，申请phase review，整体不因A结束就execution_done。[✅ 已完成] [2026-10-31] 永久入口 tests/annotations/verify_local.py --profile vue|vm。vue 50/50（含 Playwright UI 面 11/11）；vm 49+1 SKIP（N-003-8 在案缺口，auto service 绕行已录）；回归 auto test 7/7、t01/t02/t06 0 fail、t08 all-pass、verify_epub 21/21。期间修复两处实现缺陷：occurrence 计数改滑窗（t10 S11 回归钉死）；vue codegen 形参/模型同名 .value 中毒（改名规避）。SD-01/02 候选文本由 T-06 按 SD 规程撰写。提交 1ea4dfd。
 - [x] T-06（owner_stage=review；phase=A；依赖T-04；AC-07阶段面）：固定A提交做phase review，范围仅A本地AC/SD，B必需项明确未验；无pass不阶段merge。[✅ 已完成] [2026-10-31] phase review PASS on 1ea4dfd（评审者重执行 verify_local vue 50/50 + EPUB 冷重启专探 PASS；R-002-A-1 low 文案随手修项记档）；见 §9。
 - [x] T-07（owner_stage=merge；phase=A；依赖T-06；AC-08阶段面）：完成A适用门/规范/推送/组合pin，记录阶段交付；整Plan保持executing、B未勾选。B等Notes不撤回A成果。[✅ 已完成] [2026-10-31] 阶段交付落地 main=72aac4f（ff-only，rebase 等价 range-diff 4/4 `=`）；SD-01 reading-annotations.md + SD-02 real-library.md 扩展节随 merge 落地为正式 Spec（canonical_verified，hash 见 §9）；整 Plan 保持 executing、B（T-02/T-08..T-10）未勾选。AutoOS pin/推送面：本仓为独立 clone 开发位（app 先提交推送→AutoOS 精确 pin 流程见 README），本轮未执行推送，登记于 §10 待办随 B 或用户指令执行。
-- [ ] T-02（owner_stage=work；phase=B；依赖T-07及NOTES-002实际接收交付；AC-03/04/06）：冻结真实协议与回执，做CaptureEnvelope/SourceRef、持久待发和稳定意图ID；不擅自写Notes数据库或假造系统API。
-- [ ] T-08（owner_stage=work；phase=B；依赖T-02；AC-03/04/06）：制作真实Notes集成入口，验证B-01/02与A仍可离线使用，准备SD-03、提交实现，全部work完成后execution_done。
-- [ ] T-09（owner_stage=review；phase=final；依赖T-08；AC-07最终面）：冻结实现/接收依赖最终复审全AC-01..06及SD，复用合法A证据并重验受B影响项；声明上下文限制。
-- [ ] T-10（owner_stage=merge；phase=final；依赖T-09；AC-08最终面）：统一门、B规范/索引/归档、app与AutoOS精确pin/总表收尾；全部必需项真过才归档002。
+- [x] ~~T-02~~（r4 移除→AutoOS TODO；原 B 任务不执行，编号保留）
+- [x] ~~T-08~~（r4 移除→AutoOS TODO；SD-03 不由本计划交付）
+- [ ] T-09（owner_stage=review；phase=final；r4 范围=A；依赖T-07；AC-07最终面）：最终复审 A 面（AC-01..05+SD-01/02）与已落地 main=72aac4f 一致、无 B 残留宣称；声明上下文限制。
+- [ ] T-10（owner_stage=merge；phase=final；依赖T-09；AC-08最终面）：统一门（A 面）、归档 002、worktree/分支清理、retention；app推送/AutoOS精确pin 不在本轮（在案 TODO 登记）。全部必需项真过才归档002。
 
 ## 9. 复审记录
 
@@ -174,10 +176,12 @@ stage: goal | plan_id: READER-002 | plan_revision: 3 | round: 5 | from: blocked 
 
 stage: goal | plan_id: READER-002 | plan_revision: 3 | round: 6 | from: waiting | to: waiting | status: executing | outcome: waiting | worktree: D:/autostack/.wt/reader-002/auto-reader（保留） | commit: main=72aac4f（不变） | next: user——用户裁决后等待轮#1：NOTES-002 仍 drafting 0/5；维持等待（用户已明示），Phase B 恢复条件不变
 
+stage: new | plan_id: READER-002 | plan_revision: 4 | outcome: pass（有界修订就绪） | 修订授权：用户 2026-10-31 明示「这个计划002只实现阶段A即可收尾」+ app 间互动整体 TODO（前置①OS 级通讯框架协议②OS 级应用功能包共享机制均未建）；变更=范围/验收（AC-06 移除、SD-03 移出、T-02/T-08 移除、T-09/T-10 面=A），目标（本地阅读体验/注释/导出）与已交付实现不变 | changed_ids: AC-06（removed）、T-02/T-08（removed）、T-09/T-10（范围改A）、SD-03（不由本计划交付）；B-01/B-02（removed） | total_steps 11→9（可执行任务数），current_step 7 不变 | next: review（T-09 最终复审 A 面）
+
 ## 10. 待澄清事项
 
 优先003、本地A与Notes-B分阶段已获用户确认，无产品优先级问题待重复确认。T-00解决A的真实选区/模型/预算，T-02根据已交付Notes合同冻结传输/回执与队列资源边界；接收依赖未交付时B保持等待，不能让它拖住003或A，也不能用mock降级整体002完成标准。
 
 本轮文档预检：结构/任务唯一性、AC归属、阶段依赖无环、源码hash与链接检查通过；001/Spec/ledger及已有截图原样保留；未运行应用功能测试。
 
-2026-10-31 阶段交付后状态：A（T-00..T-07）已交付落地 main=72aac4f 并沉淀 SD-01/02；B（T-02/T-08/T-09/T-10）等 NOTES-002 真实接收能力（auto-notes 002 现 drafting）——等待中，不被 A 或 mock 关闭。待办随 B：①R-002-A-1 文案随手修；②app 推送+AutoOS 精确 pin（本阶段未执行推送）；③N-003-8 修复后原生轨 UI e2e 回归；④最终归档时 worktree guard 清理（gen pnpm 链接按守护指引只删链接本体）。
+2026-10-31 r4 用户裁决：**002 以阶段A收尾**。app 间互动整体移入 AutoOS TODO（前置=①OS 级 APP 间通讯框架协议、②OS 级应用功能包共享机制，均未建）。未来形态备忘：笔记记录与分享可能做成 OS 级能力服务，AutoNotes 为主要入口，Reader 等应用按积木方式集成——届时另立计划。本仓 TODO 登记=roadmap 顺序4 行改 TODO；AutoOS 总表登记属 AutoOS 仓权限，不在本仓代执行。收尾待办：①R-002-A-1 文案随未来计划修；②app 推送+AutoOS 精确 pin（归档收尾时按在案 TODO 登记未执行）；③N-003-8 修复后原生轨 UI e2e 回归。
