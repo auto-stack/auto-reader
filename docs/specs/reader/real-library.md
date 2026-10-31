@@ -276,3 +276,9 @@ T-02 实测）。**直连客户端请求体必须 ASCII 安全（\u 转义）**�
   `<book_id>.meta.json` 章 meta 索引路径）；移除/恢复语义共用。
 - 阅读状态（Locator v1 + settings）对 EPUB 章节同样生效：章节号=spine
   序、段落=章文本行、para_text 逐字锚；E-02 已实证（verify_epub）。
+
+## 阅读状态扩展（READER-002 阶段A，向后兼容）
+
+- Locator v1 + settings 基础上，reading 状态新增**可选键** `layout`（narrow|medium|wide，阅读列宽）与 `theme`（light|sepia|dark，阅读沉浸面底色）：词法门（jsonx.known_state_key）按 str 判别+重复拒绝；写侧出现才枚举校验并写入 canonical 态，**缺位不写键**（旧存储形态逐字节兼容，001 回归 t01/t02 绿）；读侧在场才核枚举，坏值拒绝冒充有效状态。
+- 消费面：reading_page 以可选键缺位=默认（medium/light）渲染；保存沿既有 POST /api/library/progress 面（payload 可选键直传）。
+- 注释/书签/搜索/导出的现实现规范见 [reading-annotations.md](reading-annotations.md)（SD-01，阶段A 交付）。
