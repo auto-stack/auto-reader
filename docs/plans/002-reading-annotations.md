@@ -170,6 +170,8 @@ stage: goal | plan_id: READER-002 | plan_revision: 3 | round: 3 | from: waiting 
 
 stage: goal | plan_id: READER-002 | plan_revision: 3 | round: 4 | from: waiting | to: blocked | status: executing | outcome: blocked | worktree: D:/autostack/.wt/reader-002/auto-reader（保留） | commit: main=72aac4f（不变） | next: user——连续三轮等待（rounds 2-4），按上限标记 blocked。确切问题（二选一）：①等 NOTES-002 真实接收能力交付（auto-notes 002 仍 drafting 0/5，updated_at 2026-10-04 未变，本轮复核确认）后恢复 T-02→T-08→T-09→T-10 归档；②或用户明确指示调整 READER-002 B 阶段交付口径（属验收/范围变更，需用户决策并经有界修订）。解除任一后同一目标可恢复
 
+stage: goal | plan_id: READER-002 | plan_revision: 3 | round: 5 | from: blocked | to: waiting | status: executing | outcome: waiting | worktree: D:/autostack/.wt/reader-002/auto-reader（保留） | commit: main=72aac4f（不变） | next: user——**用户已裁决**（AskUserQuestion 应答原文）：「① 继续等 NOTES-002 (Recommended)」=维持现有合同（AC-06 真实接收门），Phase B 待 NOTES-002 交付后恢复 T-02→T-08→T-09 最终复审→T-10 归档；不调整 B 阶段交付口径。等待计数自此用户裁决起重新起算
+
 ## 10. 待澄清事项
 
 优先003、本地A与Notes-B分阶段已获用户确认，无产品优先级问题待重复确认。T-00解决A的真实选区/模型/预算，T-02根据已交付Notes合同冻结传输/回执与队列资源边界；接收依赖未交付时B保持等待，不能让它拖住003或A，也不能用mock降级整体002完成标准。
