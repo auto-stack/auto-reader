@@ -69,8 +69,10 @@ test('R-02 真实图像渲染：解码成功、身份互异、错误诚实可见
   for (let i = 0; i < 3; i++) {
     const src = await imgs.nth(i).getAttribute('src')
     srcs.push(String(src))
-    const nw = await imgs.nth(i).evaluate((el: HTMLImageElement) => el.naturalWidth)
-    expect(nw, `图像 ${i} 必须真实解码（naturalWidth>0）`).toBeGreaterThan(0)
+    // 轮询解码完成（加载竞态不作信号；15s 内未解码 = 真失败）
+    await expect
+      .poll(async () => imgs.nth(i).evaluate((el: HTMLImageElement) => el.naturalWidth), { timeout: 15_000 })
+      .toBeGreaterThan(0)
   }
   // 双射扁平名 → 三 src 互异（同槽错图在此显形）
   expect(new Set(srcs).size, '三张图 src 必须互异').toBe(3)
@@ -81,9 +83,56 @@ test('R-02 真实图像渲染：解码成功、身份互异、错误诚实可见
 
   // 再开同章（前端重载同一路由）— URI 稳定
   await page.reload()
-  await expect(page.locator('img[src*="/api/reader/media/"]')).toHaveCount(3, { timeout: 20_000 })
+  const imgs2 = page.locator('img[src*="/api/reader/media/"]')
+  await expect(imgs2).toHaveCount(3, { timeout: 20_000 })
   for (let i = 0; i < 3; i++) {
-    const nw = await page.locator('img[src*="/api/reader/media/"]').nth(i).evaluate((el: HTMLImageElement) => el.naturalWidth)
-    expect(nw).toBeGreaterThan(0)
+    await expect
+      .poll(async () => imgs2.nth(i).evaluate((el: HTMLImageElement) => el.naturalWidth), { timeout: 15_000 })
+      .toBeGreaterThan(0)
   }
+})
+
+test('R-03 跨章链接跳转：目标段进入 pane 正面积 + 原文准确', async ({ page }) => {
+  test.setTimeout(60_000)
+  const bid = bookIdByTitle('Probe Book 4')
+  expect(bid, '夹具书 Probe Book 4 应已预导入').toBeTruthy()
+  await page.goto(`http://localhost:17824/#/book/${bid}/chapter/1`)
+  await expect(page.locator('h1').first()).toContainText('第一章', { timeout: 20_000 })
+  // 7 个链接 chips（4 合法 + 3 诚实拒绝面）
+  const chips = page.locator('button:has-text("↗")')
+  await expect(chips).toHaveCount(7, { timeout: 20_000 })
+  // 跨章 fragment 跳转：ch2.xhtml#dup
+  await chips.filter({ hasText: '到第二章重复段' }).click()
+  await expect(page.locator('h1').first()).toContainText('第二章', { timeout: 20_000 })
+  const target = page.locator('.para-marked')
+  await expect(target).toContainText('重复段落文本目标', { timeout: 10_000 })
+  // V-20 正面积交集（目标段真实进入阅读 pane，非仅章节计数变化）
+  await expect
+    .poll(async () => {
+      const box = await target.boundingBox()
+      const pane = await page.locator('[data-scroll-pane="1"]').first().boundingBox()
+      if (!box || !pane) return false
+      const ix = Math.min(box.x + box.width, pane.x + pane.width) - Math.max(box.x, pane.x)
+      const iy = Math.min(box.y + box.height, pane.y + pane.height) - Math.max(box.y, pane.y)
+      return ix > 0 && iy > 0
+    }, { timeout: 15_000 })
+    .toBe(true)
+  // 返回原文准确（逐字，页面可见文本）
+  await expect(page.locator('.para-marked')).toHaveText(/重复段落文本目标（两章同 id 名）。/)
+})
+
+test('R-03 同章锚跳转 + 无效链接诚实拒绝', async ({ page }) => {
+  test.setTimeout(60_000)
+  const bid = bookIdByTitle('Probe Book 4')
+  await page.goto(`http://localhost:17824/#/book/${bid}/chapter/1`)
+  await expect(page.locator('h1').first()).toContainText('第一章', { timeout: 20_000 })
+  const chips = page.locator('button:has-text("↗")')
+  await expect(chips).toHaveCount(7, { timeout: 20_000 })
+  // 同章 fragment 锚：标记段 + 可见
+  await chips.filter({ hasText: '到本章末段' }).click()
+  await expect(page.locator('.para-marked')).toContainText('本章末段（锚目标）', { timeout: 10_000 })
+  // 无效目标：诚实提示，不导航（仍在第一章）
+  await chips.filter({ hasText: '外部' }).click()
+  await expect(page.getByText('链接目标不可用（外部或越界，未执行）')).toBeVisible({ timeout: 10_000 })
+  await expect(page.locator('h1').first()).toContainText('第一章')
 })

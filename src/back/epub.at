@@ -779,6 +779,219 @@ fn xhtml_to_lines(xhtml str, opf_dir str) str {
     return out
 }
 
+// ═══════════════════════════════════════════════════════════
+// READER-005 T-03：书内链接/脚注（正文行字节零变更；链接表旁路缓存）
+// ═══════════════════════════════════════════════════════════
+
+/// 剥内联标签（<sup>/<em> 等嵌套在 <a> 内时取纯文本）。
+fn strip_tags(s str) str {
+    var out str = ""
+    var pos int = 0
+    var guard int = 0
+    while guard < 4096 {
+        guard = guard + 1
+        let lt int = find_after(s, "<", pos)
+        if lt < 0 {
+            out = out + s.substr(pos, s.len() - pos)
+            return out
+        }
+        if lt > pos {
+            out = out + s.substr(pos, lt - pos)
+        }
+        let gt int = find_after(s, ">", lt)
+        if gt < 0 {
+            return out
+        }
+        pos = gt + 1
+    }
+    return out
+}
+
+/// 路径目录部（含尾 "/"；无 "/" → ""）。
+fn epub_dir_of(p str) str {
+    var i int = p.len() - 1
+    while i >= 0 {
+        if p.substr(i, 1) == "/" {
+            return p.substr(0, i + 1)
+        }
+        i = i - 1
+    }
+    return ""
+}
+
+/// XHTML → 链接/锚点表 JSON。与 xhtml_to_lines 逐 tag 同步进（含 img 行
+/// 占位）：nline = 已产出正文行数 = 当前段最终行号（两函数对同一输入必
+/// 须给出同一行号——R-03 以目标段文本逐字断言钉死对齐）。
+/// links: [{line,href,label}]（href 原样，目标解析在章 JSON 构建期）；
+/// ids: {id: line}（块级元素 id → 其内容 flush 行号；嵌套取首个内层
+/// flush 行——div 包多段时锚其首段，能力表记录）。
+/// 空 label（如纯图链接）不收录（v1 边界）。
+fn xhtml_links(xhtml str, base_dir str) str {
+    var body str = xml_text(xhtml, 0, "<body", "</body>")
+    if body == "" {
+        body = xhtml
+    }
+    body = strip_block(body, "<script", "</script>")
+    body = strip_block(body, "<style", "</style>")
+    var links str = "["
+    var lkn int = 0
+    var ids str = "{"
+    var idn int = 0
+    var pending str = ""
+    var nline int = 0
+    var pos int = 0
+    var cur str = ""
+    var guard int = 0
+    while guard < 65536 {
+        guard = guard + 1
+        let lt int = find_after(body, "<", pos)
+        if lt < 0 {
+            break
+        }
+        if lt > pos {
+            cur = cur + decode_entities(body.substr(pos, lt - pos))
+        }
+        let gt int = find_after(body, ">", lt)
+        if gt < 0 {
+            break
+        }
+        let tag str = body.substr(lt, gt - lt + 1)
+        if tag.find("<img") == 0 {
+            // 与 xhtml_to_lines 同形：flush 当前段（可能记 pending id），
+            // 再产出 img: 行占位
+            if cur.trim() != "" {
+                if pending != "" {
+                    if idn > 0 {
+                        ids = ids + ","
+                    }
+                    ids = ids + "\"" + json_escape(pending) + "\":" + nline.to_string()
+                    idn = idn + 1
+                    pending = ""
+                }
+                nline = nline + 1
+                cur = ""
+            }
+            nline = nline + 1
+        } else {
+            if is_block_tag(tag) {
+                if cur.trim() != "" {
+                    if pending != "" {
+                        if idn > 0 {
+                            ids = ids + ","
+                        }
+                        ids = ids + "\"" + json_escape(pending) + "\":" + nline.to_string()
+                        idn = idn + 1
+                        pending = ""
+                    }
+                    nline = nline + 1
+                    cur = ""
+                }
+                if tag.substr(1, 1) != "/" {
+                    // 块级开标签可携带 id（锚点目标）
+                    let idv str = xml_attr(body, pos, tag.substr(1, tag.len() - 2), "id")
+                    if idv != "" {
+                        if pending == "" {
+                            pending = idv
+                        }
+                    }
+                }
+            }
+        }
+        // <a href>：行内不拆段（文本照常入段），仅登记 {line,href,label}
+        var is_a bool = false
+        if tag.len() > 3 {
+            if tag.substr(0, 3) == "<a " {
+                is_a = true
+            }
+        }
+        if tag == "<a>" {
+            is_a = true
+        }
+        if is_a {
+            let href str = xml_attr(body, pos, "a", "href")
+            if href != "" {
+                let ac int = find_after(body, "</a>", gt)
+                if ac >= 0 {
+                    if ac - gt < 4096 {
+                        let raw str = body.substr(gt + 1, ac - gt - 1)
+                        let lbl str = decode_entities(strip_tags(raw)).trim()
+                        if lbl != "" {
+                            if lkn > 0 {
+                                links = links + ","
+                            }
+                            var rec str = "{\"line\":"
+                            rec = rec + nline.to_string()
+                            rec = rec + ",\"href\":\""
+                            rec = rec + json_escape(href)
+                            rec = rec + "\",\"label\":\""
+                            rec = rec + json_escape(lbl)
+                            rec = rec + "\"}"
+                            links = links + rec
+                            lkn = lkn + 1
+                        }
+                    }
+                }
+            }
+        }
+        pos = gt + 1
+    }
+    if pos < body.len() {
+        cur = cur + decode_entities(body.substr(pos, body.len() - pos))
+    }
+    if cur.trim() != "" {
+        if pending != "" {
+            if idn > 0 {
+                ids = ids + ","
+            }
+            ids = ids + "\"" + json_escape(pending) + "\":" + nline.to_string()
+            idn = idn + 1
+            pending = ""
+        }
+        nline = nline + 1
+    }
+    links = links + "]"
+    ids = ids + "}"
+    var out str = "{\"links\":"
+    out = out + links
+    out = out + ",\"ids\":"
+    out = out + ids
+    out = out + "}"
+    return out
+}
+
+/// 第 number 章链接/锚点表（旁路边车 <managed>.chapters/<n>.links.json；
+/// 缺失时按需解压 XHTML 构建——正文 .txt 缓存命中与否无关，12MiB 闸同源；
+/// 写失败不阻塞阅读）。章节内容相对 href 的基准 = 该章所在 ZIP 目录。
+pub fn epub_links_json(managed str, opf_dir str, hrefs str, number int) str {
+    if number < 1 {
+        return "{\"links\":[],\"ids\":{}}"
+    }
+    let chapter_dir str = managed + ".chapters"
+    mkdirs(chapter_dir)
+    let cpath str = join(chapter_dir, number.to_string() + ".links.json")
+    if file.exists(cpath) {
+        let cached str = fs.read_text(cpath)
+        if cached != "" {
+            if cached.find("\"links\":") == 0 {
+                return cached
+            }
+        }
+    }
+    var out str = "{\"links\":[],\"ids\":{}}"
+    let href str = epub_href_at(hrefs, number)
+    if href != "" {
+        let zip_path str = epub_zip_path(opf_dir, href)
+        if zip_path != "" {
+            let xhtml str = zip.read_text(managed, zip_path, 12582912)
+            if xhtml != "" {
+                out = xhtml_links(xhtml, opf_dir + epub_dir_of(href))
+                fs.write_text(cpath, out)
+            }
+        }
+    }
+    return out
+}
+
 fn strip_block(s str, open str, close str) str {
     var out str = ""
     var pos int = 0
@@ -979,7 +1192,120 @@ pub fn epub_chapter_json(bid str, managed str, opf_dir str, hrefs str, number in
         lpos = eol + 1
     }
     images = images + "]"
-    return chap_json_with_images(number, title, t, t.len(), images)
+    // ── T-03 链接目标解析 ──
+    // 自章链接/锚点表（旁路缓存）；内容相对 href 基准 = 自章所在 ZIP 目录
+    // （非 OPF 目录——子目录书会产生错链，T-03 探针覆盖）。
+    let lj str = epub_links_json(managed, opf_dir, hrefs, number)
+    let self_href str = epub_href_at(hrefs, number)
+    let self_dir str = opf_dir + epub_dir_of(self_href)
+    var lres str = "["
+    var ln2 int = 0
+    var lpok bool = false
+    var lparsed = null
+    try {
+        lparsed = json.parse(lj)
+        lpok = true
+    } catch {
+        lpok = false
+    }
+    if lpok {
+        let larr = lparsed.links
+        for r in larr {
+            let rh str = "" + r.href
+            let rline int = r.line
+            let rlbl str = "" + r.label
+            // href 切分：资源部 + "#fragment"
+            var res str = rh
+            var frag str = ""
+            let hp int = rh.find("#")
+            if hp >= 0 {
+                res = rh.substr(0, hp)
+                frag = rh.substr(hp + 1, rh.len() - hp - 1)
+            }
+            var tch int = 0
+            if res == "" {
+                tch = number
+            } else {
+                let cand str = epub_zip_path(self_dir, res)
+                if cand != "" {
+                    // spine 全表精确匹配（zip 路径口径）
+                    var idx int = 1
+                    var g3 int = 0
+                    while g3 < 4096 {
+                        g3 = g3 + 1
+                        let sp str = epub_href_at(hrefs, idx)
+                        if sp == "" {
+                            g3 = 4096
+                        } else {
+                            if opf_dir + sp == cand {
+                                tch = idx
+                                g3 = 4096
+                            }
+                        }
+                        idx = idx + 1
+                    }
+                }
+            }
+            var tpara int = -1
+            if tch > 0 {
+                if frag != "" {
+                    // fragment → 目标章 ids 表（自章直接查；他章旁路缓存）
+                    var idsrc str = lj
+                    if tch != number {
+                        idsrc = epub_links_json(managed, opf_dir, hrefs, tch)
+                    }
+                    let idline int = json_ids_member(idsrc, frag)
+                    if idline >= 0 {
+                        tpara = idline
+                    } else {
+                        tch = 0
+                        tpara = -1
+                    }
+                }
+            }
+            if ln2 > 0 {
+                lres = lres + ","
+            }
+            var le str = "{\"line\":"
+            le = le + rline.to_string()
+            le = le + ",\"href\":\""
+            le = le + json_escape(rh)
+            le = le + "\",\"label\":\""
+            le = le + json_escape(rlbl)
+            le = le + "\",\"ch\":"
+            le = le + tch.to_string()
+            le = le + ",\"para\":"
+            le = le + tpara.to_string()
+            le = le + "}"
+            lres = lres + le
+            ln2 = ln2 + 1
+        }
+    }
+    lres = lres + "]"
+    return chap_json_full(number, title, t, t.len(), images, lres)
+}
+
+/// ids JSON 文本（{"k":int,...}）成员精确取值（键含引号定界——"fn1" 不碰
+/// "fn10"）；缺失 -1。文本扫描避免对 map 动态键访问的双轨不确定面。
+fn json_ids_member(objjson str, key str) int {
+    let pat str = "\"" + key + "\":"
+    let p int = objjson.find(pat)
+    if p < 0 {
+        return -1
+    }
+    let vs int = p + pat.len()
+    var e int = vs
+    while e < objjson.len() {
+        let c str = objjson.substr(e, 1)
+        if "0123456789".find(c) < 0 {
+            break
+        }
+        e = e + 1
+    }
+    if e == vs {
+        return -1
+    }
+    return objjson.substr(vs, e - vs).to_int()
 }
 
 /// titles（与 hrefs 同序 "|t1|t2|"）取第 n 个标题；空位回退 "第 N 章"。
@@ -994,7 +1320,7 @@ pub fn epub_title_at(titles str, n int) str {
     return t
 }
 
-fn chap_json_with_images(n int, title str, body str, wc int, images str) str {
+fn chap_json_full(n int, title str, body str, wc int, images str, links str) str {
     var out str = "{\"number\":"
     out = out + n.to_string()
     out = out + ",\"title\":\""
@@ -1005,8 +1331,14 @@ fn chap_json_with_images(n int, title str, body str, wc int, images str) str {
     out = out + wc.to_string()
     out = out + ",\"images\":"
     out = out + images
+    out = out + ",\"links\":"
+    out = out + links
     out = out + "}"
     return out
+}
+
+fn chap_json_with_images(n int, title str, body str, wc int, images str) str {
+    return chap_json_full(n, title, body, wc, images, "[]")
 }
 
 fn chap_json(n int, title str, body str, wc int) str {

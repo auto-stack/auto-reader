@@ -74,10 +74,11 @@ fn para_hash(text str) str {
 /// 可见）/ "text"；段序号与行号口径不变（注释锚/Locator 兼容）。
 /// READER-002：并入本章注释标记数 mark_n 与需重定位位 mark_bad
 /// （quote 非空且在本段出现序不足 = bad——与后端核验同式，展示面诚实
-/// 预判，终判在服务端）。入参全标量（anns_resp 为注释 GET 原文，
-/// chapter_src 为章 JSON 原文——images[] 单源，函数内解析——规避
-/// List/struct 作 fn 参数的双轨缺陷面）。
-fn merge_marks(body str, anns_resp str, ch int, chapter_src str) List {
+/// 预判，终判在服务端）。入参全标量（anns_resp 为注释 GET 原文，csrc 为
+/// 章 JSON 原文——images[]/links[] 单源，函数内解析——规避 List/struct 作
+/// fn 参数的双轨缺陷面；参数名避开 model 同名——vue codegen 对同名参数
+/// 误加 .value 致 undefined，T-03 实测）。
+fn merge_marks(body str, anns_resp str, ch int, csrc str) List {
     let lines = body.split("\n")
     var out List = []
     var anns = json.parse("[]")
@@ -96,20 +97,34 @@ fn merge_marks(body str, anns_resp str, ch int, chapter_src str) List {
             }
         }
     }
-    // 章图身份表（后端 images[] 单源：{k,uri,err}）
+    // 章图身份表（后端 images[] 单源：{k,uri,err}）+ 链接表（后端已解析
+    // 目标 ch/para；ch<=0 = 诚实拒绝面，T-03）
     var imgs = json.parse("[]")
-    if chapter_src != "" {
-        if chapter_src.find("\"images\":[") >= 0 {
+    var larr2 = json.parse("[]")
+    if csrc != "" {
+        var need bool = false
+        if csrc.find("\"images\":[") >= 0 {
+            need = true
+        }
+        if csrc.find("\"links\":[") >= 0 {
+            need = true
+        }
+        if need {
             var okc bool = false
             var cw = null
             try {
-                cw = json.parse(chapter_src)
+                cw = json.parse(csrc)
                 okc = true
             } catch {
                 okc = false
             }
             if okc {
-                imgs = cw.images
+                if cw.images != nil {
+                    imgs = cw.images
+                }
+                if cw.links != nil {
+                    larr2 = cw.links
+                }
             }
         }
     }
@@ -155,7 +170,15 @@ fn merge_marks(body str, anns_resp str, ch int, chapter_src str) List {
                     kind = "imgerr"
                 }
             }
-            out.push({ idx: i, text: t, key: k, mark_n: n, mark_bad: bad, kind: kind, img_uri: img_uri, img_err: img_err })
+            // T-03：本行链接 chips（后端已解析目标）
+            var lks List = []
+            for lk in larr2 {
+                let ll int = lk.line
+                if ll == i {
+                    lks.push({ lch: lk.ch, lpara: lk.para, lbl: ("" + lk.label) })
+                }
+            }
+            out.push({ idx: i, text: t, key: k, mark_n: n, mark_bad: bad, kind: kind, img_uri: img_uri, img_err: img_err, lks: lks })
         }
         i = i + 1
     }
@@ -384,7 +407,7 @@ fn tags_json_of(input str) str {
 }
 
 widget reading_page {
-    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int), ToggleSearch, DoSearch, ToggleAnns, ToggleStyle, SetLayout(str), SetTheme(str), JumpTo(int, int), AnnDelete(str), OpenAnnDialog(int), AnnKind(str), AnnSubmit, AnnCancel, DoExport, NoOp }
+    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int), ToggleSearch, DoSearch, ToggleAnns, ToggleStyle, SetLayout(str), SetTheme(str), JumpTo(int, int), JumpLink(int, int), AnnDelete(str), OpenAnnDialog(int), AnnKind(str), AnnSubmit, AnnCancel, DoExport, NoOp }
 
     model {
         var book_id int = 0
@@ -392,6 +415,8 @@ widget reading_page {
         var is_real bool = false
         var chapter_num int = 1
         var chapter = { book_id: 0, number: 1, title: "", body: "", word_count: 0 }
+        // 章 JSON 原文（images[]/links[] 单源输入——注释变更后重建段落复用）
+        var chapter_src str = ""
         var chapters List = []
         var chapter_count int = 1
         var progress_pct int = 0
@@ -694,11 +719,32 @@ widget reading_page {
                                             style: "items-stretch gap-0"
                                             col {
                                                 onclick: .TapParagraph(p.idx)
+                                                // 当前段标记类：字面量嵌套三元栅格
+                                                //（style 三元分支只吃字符串字面量
+                                                //——model 引用分支被 vue codegen
+                                                //静默发空串，T-03 实测；语义与
+                                                //para_marked_cls/para_idle_cls 逐字等价）
                                                 style: ["px-3 py-2 rounded-lg cursor-pointer transition-colors border-l-4",
                                                     if p.idx == .cur_paragraph {
-                                                        .para_marked_cls
+                                                        if .theme == "sepia" {
+                                                            "bg-[#eadfbd] border-primary para-marked"
+                                                        } else {
+                                                            if .theme == "dark" {
+                                                                "bg-[#2a3140] border-primary para-marked"
+                                                            } else {
+                                                                "bg-primary/10 border-primary para-marked"
+                                                            }
+                                                        }
                                                     } else {
-                                                        .para_idle_cls
+                                                        if .theme == "sepia" {
+                                                            "border-transparent hover:bg-[#eadfbd]"
+                                                        } else {
+                                                            if .theme == "dark" {
+                                                                "border-transparent hover:bg-[#2a3140]"
+                                                            } else {
+                                                                "border-transparent hover:bg-muted"
+                                                            }
+                                                        }
                                                     }]
                                                 row {
                                                     style: "items-center gap-2"
@@ -728,6 +774,21 @@ widget reading_page {
                                                 }
                                                 if p.kind == "text" {
                                                     text p.text { style: .body_style }
+                                                }
+                                            }
+                                            // T-03：链接 chips（可点击 col 之外的
+                                            // 兄弟面——不冒泡触发 TapParagraph；
+                                            // 无效目标点击给诚实提示不跳转）
+                                            if p.lks.len() > 0 {
+                                                row {
+                                                    style: "flex-wrap gap-1 px-3 py-1"
+                                                    for lk in p.lks {
+                                                        button {
+                                                            onclick: .JumpLink(lk.lch, lk.lpara)
+                                                            style: "px-2 py-0.5 text-xs bg-primary/10 text-primary rounded border border-primary/30 hover:bg-primary/20 transition-colors"
+                                                            text f"↗ ${lk.lbl}" {}
+                                                        }
+                                                    }
                                                 }
                                             }
                                             // 当前段注释动作行（＋ 注释入口；
@@ -969,6 +1030,7 @@ widget reading_page {
                 if chv != null {
                     .chapter = chv
                 }
+                .chapter_src = craw
                 // READER-002 注释装载规范序列（变更/换章后同式）
                 .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
                 .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
@@ -1101,6 +1163,7 @@ widget reading_page {
                         if chv != null {
                             .chapter = chv
                         }
+                        .chapter_src = craw
 // READER-002 注释装载规范序列（变更/换章后同式）
                         .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
                         .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
@@ -1142,6 +1205,7 @@ widget reading_page {
                     if chv != null {
                         .chapter = chv
                     }
+                    .chapter_src = craw
 // READER-002 注释装载规范序列（变更/换章后同式）
                     .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
                     .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
@@ -1183,6 +1247,7 @@ widget reading_page {
                     if chv != null {
                         .chapter = chv
                     }
+                    .chapter_src = craw
 // READER-002 注释装载规范序列（变更/换章后同式）
                     .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
                     .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
@@ -1385,6 +1450,7 @@ widget reading_page {
                         if chv != null {
                             .chapter = chv
                         }
+                        .chapter_src = craw
                         .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
                         .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
                         .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num, craw)
@@ -1425,6 +1491,70 @@ widget reading_page {
                 .restored_note = "目标段在本章不存在（内容可能已变化）"
             }
         }
+        // T-03：链接 chips 跳转（书内目标复用 JumpTo 序列；无效目标诚实
+        // 提示不跳转——外部 scheme/越界/未知 fragment 由后端解析为 ch=0）。
+        // para=-1 = 章首目标（无段锚，不滚动定位）。
+        .JumpLink(lch int, lpara int) -> {
+            if lch < 1 {
+                .restored_note = "链接目标不可用（外部或越界，未执行）"
+            } else {
+                if lch != .chapter_num {
+                    if lch >= 1 {
+                        if lch <= .chapter_count {
+                            .chapter_num = lch
+                            router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
+                            let craw str = Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string())
+                            let chv = parse_lib(craw)
+                            if chv != null {
+                                .chapter = chv
+                            }
+                            .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
+                            .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
+                            .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num, craw)
+                            let total int = .chapter_count
+                            if total > 0 {
+                                .progress_pct = pct_of(.chapter_num, total)
+                            }
+                            .progress_label = pct1(.progress_pct) + "%"
+                        }
+                    }
+                }
+                if lpara >= 0 {
+                    var found bool = false
+                    var i int = 0
+                    while i < .paragraphs.len() {
+                        let p = .paragraphs[i]
+                        if p.idx == lpara {
+                            found = true
+                            .cur_para_text = "" + p.text
+                            i = .paragraphs.len()
+                        }
+                        i = i + 1
+                    }
+                    if found {
+                        .cur_paragraph = lpara
+                        let warm = parse_lib(Http.get_json("/api/library/progress?book_id=" + .route_id))
+                        let rr str = scroll_to_child(.rsc, "p" + lpara.to_string())
+                        if rr.find("error:") == 0 {
+                            .restored_note = "自动定位失败，请手动滚动"
+                        } else {
+                            .restored_note = f"已跳转链接：第 ${lch} 章 ¶${lpara}"
+                        }
+                        let ph str = para_hash(.cur_para_text)
+                        let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, ph, .font_size, .line_height, .layout, .theme)
+                        try {
+                            Http.post("/api/library/progress", { book_id: .route_id, payload: pl, para_text: .cur_para_text })
+                        } catch { }
+                    } else {
+                        .restored_note = "链接目标段在本章不存在（内容可能已变化）"
+                    }
+                } else {
+                    .cur_paragraph = -1
+                    .cur_para_text = ""
+                    .restored_note = f"已跳转链接：第 ${lch} 章章首"
+                }
+            }
+        }
         .AnnDelete(aid str) -> {
             var resp str = ""
             try {
@@ -1435,7 +1565,7 @@ widget reading_page {
             if resp.find("\"ok\":true") >= 0 {
                 .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
                 .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
-                .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num)
+                .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num, .chapter_src)
                 .ann_note = "已删除"
             } else {
                 var msg str = "删除失败"
@@ -1544,7 +1674,7 @@ widget reading_page {
                     .ann_edit_id = ""
                     .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
                     .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
-                    .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num)
+                    .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num, .chapter_src)
                     .show_anns = true
                     .ann_note = "已保存"
                 } else {
