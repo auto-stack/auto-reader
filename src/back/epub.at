@@ -90,7 +90,12 @@ fn xml_text(xml str, from int, open str, close str) str {
     if s < 0 {
         return ""
     }
-    let vs int = s + open.len()
+    // 跳到本标签的 '>' 之后（属性/命名空间后缀在开标签内）
+    let gt int = find_after(xml, ">", s)
+    if gt < 0 {
+        return ""
+    }
+    let vs int = gt + 1
     let ve int = find_after(xml, close, vs)
     if ve < 0 {
         return ""
@@ -413,8 +418,8 @@ pub fn epub_import_json(path str, author str, force bool) str {
                 let hh str = seg.substr(hvs, hve - hvs)
                 if epub_href_ok(hh) != "" {
                     let lbl str = nav.substr(label + 1, ac - label - 1)
-                    var trec str = hh + "\x01"
-                    trec = trec + json_escape(lbl)
+                    var trec str = hh + "`"
+                    trec = trec + lbl
                     trec = trec + "|"
                     toc = toc + trec
                     tcount = tcount + 1
@@ -508,4 +513,311 @@ pub fn epub_import_json(path str, author str, force bool) str {
     okm = okm + json_escape(dup_id)
     okm = okm + "\"}"
     return okm
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// T-02：章读取（惰性解压 + 缓存）与目录
+// 章 XHTML 首读解压 → 文本行（段落/图片标记行）→ 落盘
+// <managed>.chapters/<n>.txt 永久缓存；后续读直接文件。
+// ═══════════════════════════════════════════════════════════
+
+/// hrefs（"|h1|h2|…"）取第 n（1 基）个 href；越界 ""。
+pub fn epub_href_at(hrefs str, n int) str {
+    var idx int = 1
+    var pos int = 1
+    while idx < n {
+        let nxt int = find_after(hrefs, "|", pos)
+        if nxt < 0 {
+            return ""
+        }
+        pos = nxt + 1
+        idx = idx + 1
+    }
+    let end int = find_after(hrefs, "|", pos)
+    if end < 0 {
+        return ""
+    }
+    return hrefs.substr(pos, end - pos)
+}
+
+/// XHTML → 文本行（段落/标题/图片标记行），"\n" 连接。
+/// 图片：<img src> → "img:<zip 内路径>" 行。实体五预定义解码。
+/// script/style 剥离。v1 边界（能力表记录）：行内链接不拆段。
+fn xhtml_to_lines(xhtml str, opf_dir str) str {
+    var body str = xml_text(xhtml, 0, "<body", "</body>")
+    if body == "" {
+        body = xhtml
+    }
+    body = strip_block(body, "<script", "</script>")
+    body = strip_block(body, "<style", "</style>")
+    var out str = ""
+    var pos int = 0
+    var cur str = ""
+    var guard int = 0
+    while guard < 65536 {
+        guard = guard + 1
+        let lt int = find_after(body, "<", pos)
+        if lt < 0 {
+            break
+        }
+        if lt > pos {
+            let seg str = body.substr(pos, lt - pos)
+            cur = cur + decode_entities(seg)
+        }
+        let gt int = find_after(body, ">", lt)
+        if gt < 0 {
+            break
+        }
+        let tag str = body.substr(lt, gt - lt + 1)
+        if tag.find("<img") == 0 {
+            let src str = xml_attr(body, pos, "img", "src")
+            if cur.trim() != "" {
+                out = out + cur.trim()
+                out = out + "\n"
+                cur = ""
+            }
+            let imgpath str = epub_zip_path(opf_dir, src)
+            if imgpath != "" {
+                var il str = "img:"
+                il = il + imgpath
+                out = out + il
+                out = out + "\n"
+            }
+        } else {
+            if is_block_tag(tag) {
+                if cur.trim() != "" {
+                    out = out + cur.trim()
+                    out = out + "\n"
+                    cur = ""
+                }
+            }
+        }
+        pos = gt + 1
+    }
+    if pos < body.len() {
+        cur = cur + decode_entities(body.substr(pos, body.len() - pos))
+    }
+    if cur.trim() != "" {
+        out = out + cur.trim()
+        out = out + "\n"
+    }
+    return out
+}
+
+fn strip_block(s str, open str, close str) str {
+    var out str = ""
+    var pos int = 0
+    var guard int = 0
+    while guard < 4096 {
+        guard = guard + 1
+        let a int = find_after(s, open, pos)
+        if a < 0 {
+            out = out + s.substr(pos, s.len() - pos)
+            return out
+        }
+        out = out + s.substr(pos, a - pos)
+        let b int = find_after(s, close, a)
+        if b < 0 {
+            return out
+        }
+        pos = b + close.len()
+    }
+    return out
+}
+
+fn is_block_tag(tag str) bool {
+    if tag.find("<p") == 0 {
+        return true
+    }
+    if tag.find("</p") == 0 {
+        return true
+    }
+    if tag.find("<h1") == 0 {
+        return true
+    }
+    if tag.find("</h1") == 0 {
+        return true
+    }
+    if tag.find("<h2") == 0 {
+        return true
+    }
+    if tag.find("</h2") == 0 {
+        return true
+    }
+    if tag.find("<h3") == 0 {
+        return true
+    }
+    if tag.find("</h3") == 0 {
+        return true
+    }
+    if tag.find("<h4") == 0 {
+        return true
+    }
+    if tag.find("</h4") == 0 {
+        return true
+    }
+    if tag.find("<h5") == 0 {
+        return true
+    }
+    if tag.find("</h5") == 0 {
+        return true
+    }
+    if tag.find("<h6") == 0 {
+        return true
+    }
+    if tag.find("</h6") == 0 {
+        return true
+    }
+    if tag.find("<li") == 0 {
+        return true
+    }
+    if tag.find("</li") == 0 {
+        return true
+    }
+    if tag.find("<div") == 0 {
+        return true
+    }
+    if tag.find("</div") == 0 {
+        return true
+    }
+    if tag.find("<br") == 0 {
+        return true
+    }
+    if tag.find("<tr") == 0 {
+        return true
+    }
+    return false
+}
+
+fn decode_entities(s str) str {
+    var out str = s
+    out = out.replace("&amp;", "&")
+    out = out.replace("&lt;", "<")
+    out = out.replace("&gt;", ">")
+    out = out.replace("&quot;", "\"")
+    out = out.replace("&apos;", "'")
+    return out
+}
+
+/// 章 JSON：缓存命中读文件；未命中解压转换写缓存（写失败不阻塞阅读）。
+/// 返回 {number,title,body,word_count}；缺章占位 "章节不存在"。
+pub fn epub_chapter_json(managed str, opf_dir str, hrefs str, number int, titles str) str {
+    if number < 1 {
+        return chap_json(number, "章节不存在", "", 0)
+    }
+    let chapter_dir str = managed + ".chapters"
+    mkdirs(chapter_dir)
+    var body_lines str = ""
+    let cn str = number.to_string()
+    let cpath str = join(chapter_dir, cn + ".txt")
+    if file.exists(cpath) {
+        body_lines = fs.read_text(cpath)
+    }
+    if body_lines == "" {
+        let href str = epub_href_at(hrefs, number)
+        if href == "" {
+            return chap_json(number, "章节不存在", "", 0)
+        }
+        let zip_path str = epub_zip_path(opf_dir, href)
+        if zip_path == "" {
+            return chap_json(number, "内容缺失", "", 0)
+        }
+        let xhtml str = zip.read_text(managed, zip_path, 12582912)
+        if xhtml == "" {
+            return chap_json(number, "内容缺失", "", 0)
+        }
+        body_lines = xhtml_to_lines(xhtml, opf_dir)
+        if body_lines != "" {
+            let wrc int = fs.write_text(cpath, body_lines)
+            if wrc != 0 {
+                body_lines = body_lines
+            }
+        }
+    }
+    let title str = epub_title_at(titles, number)
+    let t str = body_lines.trim()
+    return chap_json(number, title, t, t.len())
+}
+
+/// titles（与 hrefs 同序 "|t1|t2|"）取第 n 个标题；空位回退 "第 N 章"。
+pub fn epub_title_at(titles str, n int) str {
+    let t str = epub_href_at(titles, n)
+    if t == "" {
+        var fallback str = "第 "
+        fallback = fallback + n.to_string()
+        fallback = fallback + " 章"
+        return fallback
+    }
+    return t
+}
+
+fn chap_json(n int, title str, body str, wc int) str {
+    var out str = "{\"number\":"
+    out = out + n.to_string()
+    out = out + ",\"title\":\""
+    out = out + json_escape(title)
+    out = out + "\",\"body\":\""
+    out = out + json_escape(body)
+    out = out + "\",\"word_count\":"
+    out = out + wc.to_string()
+    out = out + "}"
+    return out
+}
+
+/// 目录 JSON：[{"number":spine_idx,"title":label},...]（nav 顺序；
+/// href 经 hrefs 定位 spine 序号）。
+pub fn epub_toc_json(hrefs str, toc str) str {
+    var out str = "["
+    var pos int = 1
+    var n int = 0
+    var guard int = 0
+    while guard < 4096 {
+        guard = guard + 1
+        // pos = 当前记录首字节（首管道之后）；s = 记录尾管道
+        let s int = find_after(toc, "|", pos)
+        if s < 0 {
+            break
+        }
+        if s <= pos {
+            pos = pos + 1
+            continue
+        }
+        let rec str = toc.substr(pos, s - pos)
+        pos = s + 1
+        let sep int = rec.find("`")
+        if sep > 0 {
+            let href str = rec.substr(0, sep)
+            let label str = rec.substr(sep + 1, rec.len() - sep - 1)
+            var num int = 0
+            var idx int = 1
+            var g2 int = 0
+            while g2 < 4096 {
+                g2 = g2 + 1
+                let h str = epub_href_at(hrefs, idx)
+                if h == "" {
+                    break
+                }
+                if h == href {
+                    num = idx
+                    g2 = 4096
+                }
+                idx = idx + 1
+            }
+            if num > 0 {
+                if n > 0 {
+                    out = out + ","
+                }
+                var ej str = "{\"number\":"
+                ej = ej + num.to_string()
+                ej = ej + ",\"title\":\""
+                ej = ej + json_escape(label)
+                ej = ej + "\"}"
+                out = out + ej
+                n = n + 1
+            }
+        }
+    }
+    out = out + "]"
+    return out
 }

@@ -5,7 +5,8 @@
 // 运行：auto tests/spec/t08_epub_import_spec.as
 // 判据双门：日志 %TEMP%/t08-spec.log PASS/FAIL 计数 + 进程退出码。
 
-use src.back.epub: epub_import_json
+use src.back.epub: epub_import_json, epub_toc_json
+use src.back.library: toc_json, chapter_json, book_json
 
 fn log_path() str {
     return fs.join(Env.get("TEMP"), "t08-spec.log")
@@ -52,6 +53,46 @@ fn main() {
     // I-03 force 导入独立副本 → ok
     let r3 str = epub_import_json(ep, "", true)
     check(r3.find("\"code\":\"ok\"") >= 0, "i03 force import ok")
+
+    // T-02：目录与章读取
+    var bid str = ""
+    try {
+        let v = json.parse(r1)
+        bid = "" + v.book_id
+    } catch {
+        bid = ""
+    }
+    check(bid != "", "t02 book_id parsed")
+    let toc str = toc_json(bid)
+    log("TOC-RAW")
+    log(toc)
+    log("TOC-DIRECT")
+    log(epub_toc_json("|ch1.xhtml|ch2.xhtml|", "|ch1.xhtml`第一章 山月|ch2.xhtml`第二章 心底事|"))
+    let meta str = book_json(bid)
+    check(toc.find("\"number\":1") >= 0, "t02 toc entry 1")
+    check(toc.find("\"number\":2") >= 0, "t02 toc entry 2")
+    check(toc.find("第一章 山月") >= 0, "t02 toc label c1")
+    let c1 str = chapter_json(bid, 1)
+    check(c1.find("山月不知心底事。") >= 0, "t02 ch1 text")
+    check(c1.find("img:OEBPS/images/cover.png") >= 0, "t02 ch1 img marker")
+    check(c1.find("水调歌头，明月几时有。") >= 0, "t02 ch1 para2")
+    let c2 str = chapter_json(bid, 2)
+    check(c2.find("第二 chapter 内容。") >= 0, "t02 ch2 text")
+    // 缓存命中：二读一致
+    let c1b str = chapter_json(bid, 1)
+    check(c1b == c1, "t02 ch1 cached identical")
+    // 越界章
+    let c9 str = chapter_json(bid, 9)
+    check(c9.find("章节不存在") >= 0, "t02 ch9 out of range")
+    // TXT 旧路不回归
+    let txt str = fs.join(base, "txtbook.txt")
+    file.write_text(txt, "第一章 A
+段落甲。
+
+第二章 B
+段落乙。")
+    let tr str = epub_import_json(txt, "", false)
+    check(tr.find("\"code\":\"epub_invalid\"") >= 0, "t02 txt not epub-dispatched (epub fn rejects)")
 
     // I-04 非 EPUB（ZIP 无 container）→ epub_invalid
     let bad str = fs.join(base, "zipfx.zip")
