@@ -1,12 +1,12 @@
 ---
 plan_id: READER-004
-status: reviewed
+status: archived
 feature_name: Reader验收驱动与夹具归属迁移
 author: [Codex]
 created_at: 2026-10-31
 updated_at: 2026-10-31
 plan_revision: 1
-current_step: 5
+current_step: 6
 total_steps: 6
 supersedes_spec_components: [docs/specs/reader/real-library.md]
 new_spec_components: []
@@ -140,6 +140,13 @@ T-04 证据（2026-10-31，语言分支 codex/reader-004-lang @ 970003151，基 
 2026-10-31 / stage: goal | plan_id: READER-004 | plan_revision: r1 | round: 3 | from: work | to: review | status: execution_done | outcome: pass | worktree: D:/autostack/.wt/reader-004/auto-reader | commit: cd903dd (reader) / 970003151 (lang) | next: review（T-05 final，review_scope=final；T-06 归属 merge）。work 段全链完成：迁移守恒验证 36/36 + 原生 12 required 全过 + 反控正确非零；两修复（身份树适配 N-1、v08 转正 N-2）与语言侧退役（T-04）均已提交并验证。
 
 2026-10-31 / stage: review | review_scope: final | reviewer_identity/limitations: 实现会话本体复审（无独立会话/模型可用）——按技能以盘上工件独立重建结论，不采信执行摘要；此局限显式记录 | plan_id: READER-004 | plan_revision: r1 | outcome: **pass** | worktree: reader D:/autostack/.wt/reader-004/auto-reader (codex/reader-004-dev) + lang D:/autostack/.wt/reader-004/auto-lang (codex/reader-004-lang) | reviewed_commit: reader cd903dd88d7401ff442a342cd6cd6d18413c9df0 (base 38fa8d8) / lang 97000315167549949a9a2531fb1d14aeecfeddfc (base 0e6fbf9b4) | dependency_revisions: auto.exe e7dd7df1 + auto-ui-tool 4d2198b8（双钉口径，导入报告自录）| spec_inputs: reader real-library.md（SD-04 段在 cd903dd 树）；lang 三 spec（SD-01/02/03 在 970003151 树，git show 各计 1 处命中）| acceptance_results: **AC-01 pass**（6×.at fixture + gen_fixtures.py 与 lang 基逐字节同（sha256 对账）；.gitignore 差异=已记录的 manifest.json 边界；导入驱动 diff 仅 docstring/路径/CLI 四类（独立 diff 审计）；原生驱动函数清单守恒，新增仅适配器+process_tree_pids）；**AC-02 pass**（两驱动零 auto-lang/技能目录导入；套件自非 repo cwd=/d/ 运行全绿；退出码语义守恒：3=环境缺、argparse 用法错、0/2/3 合同）；**AC-03 pass**（README 2 新行；语言 SD-01..03 落 HEAD；删除面净，残留仅 781 归档+784/814 附件历史快照+modularity survey 历史记录；policy-json=主检出未提交 WIP 已路由）；**AC-04 pass**（本次复审；原始工件独立对账：import 36/36 且 cli sha 自证、g1-g6 manifests 案例级核对面：11 required+转正 1 全 pass、g2 tree_pids=0 形态合理（v12 就绪前失败不触身份门）、g6 injected_fail 如实 fail）；**AC-05 pending**（merge 所有）。repair 闭环核验：N-1 身份树适配=4 hunk 定位无误+g2 零记录形态自洽；N-2 转正=直证探针+verbatim 首红（身份门拦留档）+8 检查绿 | pending_closeout_gates: merge 收尾（reader registry 行仍 "drafting/尚未实施" 需翻新+归档翻面；lang master 合流+spec 沉淀；plan-artifacts 全 scope 删除（2026-10-31 delete-at-merge）；landing 观察；两树 guard+清理；无统一回归门欠账——计划 §6 明示仅迁移触面且 V-01..05 已全跑）| findings: 无需修复项；4 条非阻塞观察（UI 按压通道缺口已路由框架 owner §10；policy-json WIP 路由；registry 行 merge 翻新；分支基 38fa8d8 重放自用户操演+main +2 纯簿记——merge 合流，证据不受影响）| evidence: 本 receipt 所列全部盘上路径 | next: **merge**（T-06）。
+
+2026-10-31 / stage: merge / PLAN-004:r1 / outcome: **pass** / completion_kind: **delivered**。checkpoint 台账：
+- `prepared`：两树 reviewed 基（cd903dd / 970003151）+ 冻结 delta；lang master 期间推进（plan-900/891/876 落地）与本分支仅 overview.md 非同域交叠。
+- `landed`（reader）：rebase main→**dbcea82**，range-diff 三提交全 `=`（6ecfe64=06cc113、ee5d7a6=3130144、cd903dd=dbcea82）；wt-guard clean；主检出 `git merge --ff-only` → tip=**dbcea825**，main clean。canonical_verified：real-library.md「验收驱动与夹具归属（READER-004）」段在 main（grep=1）。
+- `landed`（lang）：分支已被并发会话侧重放至 master 之上（tip a81f9cc42=master 历史+T-04，range-diff 全 `=`）；wt-guard clean；主检出 ff-only → master tip=**a81f9cc42**；canonical_verified：SD-01/02/03 三 spec 在 master（grep 各=1）；退役路径 tracked 文件净。landing 观察：reader 应用为源码直跑（pac.at+src，无构建产物需刷新）；运行时二进制（auto-man）当日构建晚于本包代码。批量回归：895 后 900（%5==0）落地=到期，用户今日两次明示免除批量（890/895 waiver 在案）且 900 收尾已登记 handover——本包语言侧零 Rust 面，到期状态如实记录、路由 regress 所有者，不擅自启动。
+- `archived`：本文件 git mv → docs/plans/archive/004-reader-test-ownership-migration.md + status: archived + docs/README.md 登记行翻新，随 reader main 提交。
+- `cleaned`：两 worktree（guard clean 后移除）+ 分支删除 + 组目录删除；plan-artifacts/reader-004 全 scope 折叠入本文件后删除（delete-at-merge），registry 刷新；仅 §10 两条 named 路由（框架 UI 按压缺口、policy-json WIP）不入 holds（均非本包未决问题）。
 
 ## 10. 待澄清事项
 
