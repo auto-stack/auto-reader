@@ -1,32 +1,25 @@
 # auto-reader 产品规划与执行入口
 
-更新：2026-10-29。001已交付归档；002/003为r3草案。历史2026-10-04产品设计保留目标态，当前实现以Spec与001最终收据为准。
+更新：2026-10-31。当前后续为005；001/003/002本地A/004交付范围与遗留覆盖见[路线图](roadmap-v0.6.md)，历史产品设计保留目标态。
 
 - [产品设计与UI/UX（目标态）](design/01-product-design.md)
-- [当前路线图：001→003→002-A→002-B](roadmap-v0.6.md)
+- [现实现书库规范](specs/reader/real-library.md) · [EPUB规范](specs/reader/epub-reflow.md) · [本地注释规范](specs/reader/reading-annotations.md)
 - [业界调研](research/20261004-benchmarks.md)
-- [现实现规范](specs/reader/real-library.md)
-- [设计索引](design/00-intro.md)
 
 ## 计划
 
-| 计划 | 当前状态/作用 |
+| 计划 | 当前范围/状态 |
 |---|---|
-| [READER-001：真实导入、书库存储与位置恢复](plans/archive/001-real-library.md) | archived/r9、32/32；最终复审和main landing已有记录，保持归档 |
-| [READER-003：最小重排版EPUB导入与阅读](plans/archive/003-epub-reflow.md) | archived/r3；EPUB最小重排版已交付（merge 24c9838，landing 21/21） |
-| [READER-002：本地体验、摘录与导出](plans/archive/002-reading-annotations.md) | archived/r4、7/9；阶段A交付落地 main=72aac4f（SD-01/02 Spec 在库，verify_local vue 50/50）；B（Notes联动）r4 移除→AutoOS TODO |
-| [READER-004：Reader验收驱动与夹具归属迁移](plans/archive/004-reader-test-ownership-migration.md) | **archived/delivered**（2026-10-31）：两验收驱动与夹具归本仓（tests/native + tests/spec + tests/fixtures），语言仓源位退役（lang a81f9cc42）；10MiB deep oracle 与原生验收入口见测试表 |
+| [001真实导入、书库与恢复](plans/archive/001-real-library.md) | archive/r9、32/32，保持历史 |
+| [003最小EPUB](plans/archive/003-epub-reflow.md) | merge24c9838已有回执；归档frontmatter仍drafting的差异不在本轮改写；图片/链接/UI门由005接续 |
+| [002本地阅读与注释](plans/archive/002-reading-annotations.md) | archived/r4；以本地A收尾，历史计数7/9；Notes交接按用户决定移OS TODO |
+| [004驱动/夹具归属](plans/archive/004-reader-test-ownership-migration.md) | archived/delivered；框架正对照与HTTP保存不能代替所有真实产品操作 |
+| [005真实EPUB阅读与双端收口](plans/005-standalone-epub-and-ui-acceptance.md) | drafting/r1、0/9；先T-00探针，未实施 |
 
-## 执行纪律
+## 工作约定
 
-用户本轮只授权调整计划与跟踪，暂不开始实现。进入work前先读对应Plan、当前Spec、真实HEAD/WIP/工具链；不能看到draft就自动执行所有roadmap。
+计划、实现与顺序复审使用D:/autostack/auto-reader独立clone main；一app一写入者，保留他人WIP，不建junction/symlink、不在OS组合子模块开发。框架缺项核实实际owner后另立最小前置，不沿历史归因重做已有能力。应用逻辑纯.at，测试隔离数据与自有进程。
 
-工作位为 `D:/autostack/auto-reader` 独立clone的main，顺序实现/检查/复审使用同一检出，一app一写入者。不覆盖已有 `src/front/tmp/` 等在途内容，不在AutoOS子模块内同时开发，不建junction/symlink。框架核心改动另在owner的专用worktree执行，实际跨仓依赖按环境变量→兄弟检出→主检出解析。
+本轮只建立/推送计划和导航文档，不实现、不改现实现Spec或旧ledger，也不更新AutoOS子模块。后续单独运行验收后由OS统一计划接收固定SHA。Notes交接与Linux不作为005前置；Linux仍等Nix＋COSMIC基础。
 
-应用逻辑保持纯.at，不手写Rust业务后端、不修改生成Rust。测试使用独立临时数据目录与明确端口，仅关闭本次拥有的进程。当前已验入口为 `auto run --server=vm` 与 `auto run -r vm --server=vm`，17824/17825；其他组合需另有证据。
-
-003 T-00先确认ZIP/XML/二进制、内容/图像/定位与真实输入链，给资源预算和必要owner前置；003的正文/位置由它自身交付。002-A复用003基线，Notes缺席时仍可读、注释和导出；002-B必须消费实际Notes接收，不以fixture顶替。阶段A通过只允许phase交付，002不提前终态归档。
-
-先提交/推送app，再在干净且无人写入的AutoOS子模块更新精确交付SHA，健康检查并提交/推送父仓gitlink。组合子模块保持detached，开发clone留main；文档/计划提交同样登记pin。流程见[App开发与子模块约定](https://github.com/auto-stack/auto-os/blob/main/docs/design/strategy/app-submodule-workflow.md)。
-
-001原文、current-state Spec与ledger本轮不改；拟议新增Spec由对应Plan实施/复审/merge后分阶段沉淀，不把B或EPUB草案写成已实现。
+[运行与测试完整入口](../README.md)

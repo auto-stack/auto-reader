@@ -1,0 +1,132 @@
+---
+plan_id: READER-005
+status: drafting
+feature_name: "EPUB实际阅读与本地能力双端验收收口"
+author: [Codex]
+created_at: 2026-10-31
+updated_at: 2026-10-31
+plan_revision: 1
+current_step: 0
+total_steps: 9
+base_branch: main
+base_commit: 964a33fc2fccf00b8e34575fb89badfa6c6c0a9b
+depends_on: ["READER-001", "READER-003", "READER-002", "READER-004"]
+supersedes_spec_components: ["docs/specs/reader/epub-reflow.md", "docs/specs/reader/reading-annotations.md", "docs/specs/reader/real-library.md"]
+new_spec_components: ["docs/specs/reader/standalone-reading.md"]
+touched_goals: []
+---
+
+# READER-005：EPUB实际阅读与本地能力双端验收收口
+
+## 0. 变更摘要
+
+复用 001 的书库/定位、003 的 EPUB、002 r4 的本地阶段A、004 的迁入验收驱动，补齐真实界面导入、图片、书内链接/脚注、注释回访和恢复。保留四份历史计划及其回执；不重开001，不恢复已由用户后置的 Notes 联动。
+
+## 1. 目标
+
+从本仓独立启动 Vue＋VM HTTP 或原生 VM＋VM HTTP，在真实界面导入支持的无 DRM EPUB3，读图文、跨章/脚注往返、搜索/标记/批注/导出、退出重开并恢复准确内容位置。支持范围与故障边界公开且可复验，不以 `img:` 标记、API 预导入或框架夹具替代必需 UI 操作。
+
+非目标：Rust 后端全映射、PDF/OCR/TTS、DRM、完整浏览器排版/脚本、Notes/跨 app 分享、OS 装配与 Linux。
+
+## 2. 架构方案
+
+开发、内部检查和最终复审顺序使用同一个 `D:/autostack/auto-reader` 独立 clone、`main` 分支；不新建应用 worktree、不在 AutoOS 子模块中实现，一 app 一写入者，复审时暂停实现写入。框架变更必须在实际 owner 仓另走其 Plan/worktree 规约；本计划不自动取得框架源写入权。
+
+用户本轮授权（2026-10-31）：建立后续计划、更新本 app README/roadmap、提交与推送这些文档；**暂不实施，不更新 AutoOS 子模块**。后续实施需另行进入 work。应用验收与交付不以 AutoOS 装配或 Linux 为前置；Linux 仍 `WAIT_DISTRO_M1`。OS 组合版本由未来统一集成计划接收，本计划 merge 只交付 app，不改父仓 gitlink、manifest 或 `.gitmodules`。
+
+实现保持纯 `.at`，复用公开 SDK 与既有测试；不手写业务 Rust、不改生成 Rust/Vue 或临时生成目录来交付修复。`docs/specs/` 是现实现单源；下面的规范增量只是提案，本轮不写 canonical Spec、旧 ledger 或手工索引。原始截图/日志/报告本地保存，Plan 记录命令、退出码、版本/hash 和摘要；不提交新的非 Markdown 证据附件。
+
+继续使用现有 EPUB spine/TOC、受管原件、chapter cache、Locator v1 和 annotation_id；不引入第二套书库/注释格式，不声称自定义定位是 EPUB CFI。优先直接接入现有 AutoUI `image` 组件及媒体服务；只有完整生产路径探针证明不足时，才提实际 owner 的最小框架前置。
+
+## 3. 技术栈
+
+应用 `.at`、既有 ZIP natives/`image.thumb`、AutoUI Vue 与原生渲染、Playwright/MCP。复用 `tests/epub/verify_epub.py`、`tests/annotations/verify_local.py`、`tests/native/test_native_reader_acceptance.py`、001 的真实书与几何门。004 的两份框架正对照夹具保留，只承担其自身边界。
+
+## 4. 需求分析与背景调查
+
+- 已观察：`reading_page.at` 的段内容仍统一 `text p.text`；后端 `epub.at` 输出 images[]，前端未建立图片渲染消费。
+- 已观察：`epub.at` 仅在目标缓存文件不存在时添加图片 URI，命中缓存时 images[] 可能缺项；资源路径扁平化还需排除 `a/b_c.png` 与 `a_b/c.png` 碰撞。纳入首次/再次打开及冷重启同图身份验收。
+- 已观察：当前 auto-ui Vue 发射器把 `image` 映射为 `<img>`，原生 `aura_view_builder` 有 image 分支；auto-photos 使用 `image(src,fit)`。旧 N-003-7“框架无 image widget”的绝对归因不能继续当作前置事实；端到端媒体 URI 可用性尚需 T-00 验证。
+- 004 已纠正 zip 首红为陈旧 auto-ui-tool 编译宿主，固定 CLI＋实际 tool 后复绿；不得据旧 N-003-8 自动再开框架修复。004 的 v08 保存链仍使用 HTTP，段落按压 MCP 活视图失配有记录，不能宣布 Reader 全 UI 闭环已验。
+- 002 r4 已按用户裁决以本地A收尾；Notes 交接为 OS TODO。003 位于 archive 且有 merge 24c9838/landing 回执，但旧 frontmatter 仍 drafting；002 计数仍 7/9。这里只登记历史元数据差异，不改归档或冒称重新验收。
+
+| 源文件 | SHA256（完整值） |
+|---|---|
+| `docs/specs/reader/epub-reflow.md` | `c4efbe7f725de0ce973486751b28e18e7492ce68126375d229dea05cc52111a5` |
+| `docs/specs/reader/reading-annotations.md` | `a58906d5a8fb0a32d00bbe53bea78227d71aebf004e0245fcf1d74f5696b2c88` |
+| `docs/plans/archive/004-reader-test-ownership-migration.md` | `b8e2873e12bb3664eadd89f8503730884332e1ae07a63f745ca782f14a1a2392` |
+| `src/back/epub.at` | `85752de945322df6d32c2f48cd8976f47295164bb7413a9c1d8ced5f4556f833` |
+| `src/front/pages/reading_page.at` | `893ca1b37bd72f4c25a0839bf8d71e88b8e4e27dd2e2dadbd8de7946dac33826` |
+| `tests/epub/verify_epub.py` | `6e6bedab5e8e67618f95f0f0b037bfa2d7ca25c6fbdc1f281cafd503b13a15b5` |
+| `tests/annotations/verify_local.py` | `5f5a2189ca3c1e4d1f7d6b19d33edc465cc59e5ec3beb1366f896514a5f29be4` |
+| `auto-ui` 观察版本 | `d85edbb0988f1cb91e3ec6a7e21ba4d872bdfb02` |
+| `D:/autostack/auto-ui/crates/auto-ui-compiler/src/ui_gen/vue.rs` | `fe786c94219310355b053355534dd91efa11aba04b1899fb27b374acbfd87172` |
+| `D:/autostack/auto-ui/crates/auto-ui-runtime/src/ui/aura_view_builder.rs` | `9d92519c1f9a96387af6a324dbe8f3ede7e8b1c5822fa2045466dc9122557800` |
+| `D:/autostack/auto-ui/crates/auto-ui-tools/src/run_vue.rs` | `0c325ac1272be01c01ea489d64bdaa3584a8d36ff0df80e46b5fe1572821aa84` |
+| `D:/autostack/auto-ui/crates/auto-ui-tools/src/run_vm.rs` | `e058a3e84c21790d73e2e5c1ed338a3e12321bd0d56f348c48d4eaaf01822065` |
+| `auto-photos` 观察版本 | `5eec01b873ba5139ed8b50572f646c12c76c0288` |
+| `D:/autostack/auto-photos/src/front/app.at` | `6e4124e01f56df969881837e23e09f702e157f75b661e56d463f3375633bcc91` |
+
+## 5. 详细设计
+
+1. **T-00 决策稿（新增）** `docs/plans/evidence/005/standalone-decision.md`：固定当前 CLI/tool 二进制 hash 和发现顺序、真实 startup profile、已交付公共图片/媒体 URI 路径、MCP 输入/滚动能力、链接定位与资源预算。正常 app 是探针消费者；框架夹具仅作区分故障的对照。
+2. **图像全路径**：EPUB资源→既有安全路径解析/有界提取→稳定 cache身份→媒体URI→Vue/原生 image。命中缓存也返回可消费 URI；不同资源不能因扁平化同名而错图；缺失/坏图可见错误，保留书与位置。合法图片必须显示实际内容，不能只回元数据或标记行。
+3. **内链/脚注**：解析支持 profile 中的资源 href＋fragment，复用 spine/段 locator，在章内/跨章定位真实目标并能返回原文准确段落。只接受规范化后仍位于该书受管资源内的目标；远程脚本、外部自动加载、逃逸路径不执行。支持的 XHTML 元素/fragment 形态由 T-00 固定，并给真实合法/拒绝对照；不许删去基本跨章/脚注往返来通过。
+4. **实际 UI**：书架添加入口填路径→导入→打开→目录→点击/键入搜索与注释→回访/编辑/删除/导出→正常退出及强制退出后重开。导入/保存用户动作不得由 API 预写代替；HTTP/磁盘仅做独立读回 oracle。当前活视图节点失配须先定位 driver/工具/产品责任，不能永久靠 HTTP 绕过 UI 保存门。
+5. **数据与预算**：保持001/003书库身份与原件、003既有30MiB输入/4096 spine/12MiB单条目限制及TXT/MD兼容；T-00在依赖实现前冻结图片解码像素/总资源预算、拒绝码与取消/失败清理，不以“无限资源”隐式承诺。不得覆盖别的书、旧注释或允许图片缓存逃逸。
+6. **验证接续**：扩展既有 EPUB/annotation 双 profile 驱动以执行真实 UI；拟新增 `tests/basic/verify_standalone.py --profile vue|vm`（T-05 建立）聚合所需项。固定真实工具后重新判断旧 skip 的原因，必需原生任务不可继承 skip。
+
+### 规范增量
+
+| delta_id | add/modify/retire | docs/specs/... target | before/after rule | rationale | acceptance IDs |
+|---|---|---|---|---|---|
+| SD-01 | modify | docs/specs/reader/epub-reflow.md | img标记/链接未交付 → 真实图像与链接往返、cache与预算 | 补基本图文阅读与重复读取 | AC-02/03 |
+| SD-02 | modify | docs/specs/reader/reading-annotations.md | 原生skip历史 → 当前真实UI注释与回访证据，Notes仍不在范围 | 不用API代替用户操作 | AC-04/05 |
+| SD-03 | modify | docs/specs/reader/real-library.md | 增补当前startup/定位恢复/具名边界的实际关闭状态 | 复用001、004而不扩大历史证据 | AC-01/04 |
+| SD-04 | add | docs/specs/reader/standalone-reading.md | 新增支持profile、工具身份与永久用户任务门 | 独立运行可复验 | AC-01..05 |
+
+## 6. 测试设计
+
+以下 R-01..06 都由 work 负责；T-05 使新增聚合命令可运行，复用脚本的旧命令保持可用或提供明确兼容入口。测试使用至少 TXT/MD/EPUB 三书、20条既有注释夹具语义；不把 API 的 profile 标签误计为两端 UI 都执行。
+
+| Case ID | AC / invariant | 入口/输入 | 区分性 oracle / 预期 | 边界 |
+|---|---|---|---|---|
+| R-01 | AC-01 | README正式准备/启动，Vue与原生分别无预跑服务；错误tool/占用端口 | 实际窗口/页面和自有后端；依赖版本清晰，失败非零且不杀既有实例 | 不要求Rust后端 |
+| R-02 | AC-02 | UI导入含PNG/JPEG的真实EPUB；再开同章、冷重启；两同扁平名不同资源 | Vue naturalWidth/实际src成功＋可见图像；原生实际image解码/可见像素或等价可区分证据；资源内容/digest对应，不能只看URI | 支持格式在T-00冻结 |
+| R-03 | AC-03 | UI点章内/跨章/脚注链接后返回；重复段落/相同fragment出现在不同章 | 目标锚点真实进入阅读pane正面积，返回准确原段，非仅chapter计数变化 | 支持的EPUB3子集 |
+| R-04 | AC-04 | 真实UI创建/修改/删除注释、搜索/回访/导出；正常/强杀后重开 | 独立磁盘/HTTP读回正文和annotation_id；恢复目标确实可见；下一次UI编辑可保存；输入法不误触导航 | Notes完全缺席仍通过 |
+| R-05 | AC-02/03/05 | 坏图/越界资源/预算边界/外部href；失败后再读合法书 | 明确拒绝或图像错误态，其他书/原件/注释hash不变，无远程自动请求；缓存可再读 | 沿既有安全边界 |
+| R-06 | AC-05 | 删除真实图片消费、错链锚、遮蔽目标或只预导入等受控反例 | 对应UI断言真实失败，总门非零；还原合法对照通过；无必需skip/零场景 | 反例仅隔离数据/测试树 |
+
+原生夹具 `tests/native/test_native_reader_acceptance.py` 与10MiB deep oracle继续作对应回归；不因本计划补 UI 而重跑无关语言全仓 Cargo。最终review用独立上下文在同一 clone 核对真实app结果和SD候选，不自动创建agent或新会话。
+
+## 7. 验收标准
+
+- AC-01（owner_stage=work）：两个独立 startup profile 从文档可达，CLI/tool身份正确，R-01通过。
+- AC-02（owner_stage=work）：有效图像首次/缓存/冷重启均真实显示，无资源碰撞错图，失败有界且不损坏书，R-02/R-05通过。
+- AC-03（owner_stage=work）：章内、跨章、脚注往返准确可见，非法目标不执行，R-03/R-05通过。
+- AC-04（owner_stage=work）：真实界面导入、搜索、20条注释夹具回访/导出、保存恢复及下一次编辑成立；TXT/MD与既有定位保持，R-04通过。
+- AC-05（owner_stage=work）：永久门聚合R-01..06与受影响旧门，无必需skip/pending/零场景，失败控制非零；SD候选和运行说明对应真实结果。
+- AC-06（owner_stage=review）：冻结提交与工具版本，独立上下文复审AC-01..05和SD-01..04；未满足项不能留到merge掩盖。
+- AC-07（owner_stage=merge）：app Spec按审定增量发布、README/roadmap/新计划归档计数正确、app push可核；不改四份历史归档或OS pin。
+
+## 8. 执行步骤
+
+- [ ] T-00（owner_stage=work；依赖001/002本地A/003/004实际交付；AC-01..05）：固定当前工具，完成能力/预算决策稿与真实图片/输入链探针，核验旧缺口归因；不等待Notes、Rust或Linux。
+- [ ] T-01（owner_stage=work；依赖T-00；AC-01）：收口正式独立启动与依赖准备，驱动绑定实际CLI/tool/自有PID/数据根，补R-01失败控制。
+- [ ] T-02（owner_stage=work；依赖T-00及必要最小前置交付；AC-02）：复用image组件接入真实图像、稳定资源身份与缓存重复返回，建立R-02/R-05反例后修复并回放。
+- [ ] T-03（owner_stage=work；依赖T-00；AC-03）：在epub内容/reading_page接入安全链接与回返定位；闭合R-03/R-05。
+- [ ] T-04（owner_stage=work；依赖T-01/02/03；AC-04）：闭合真实原生与Vue的导入/注释/回访/导出/位置保存操作，排除活视图通道失败，保持原有数据/定位回归。
+- [ ] T-05（owner_stage=work；依赖T-04；AC-05）：建立聚合入口，扩展旧EPUB/annotations门并跑R-01..06、必要001/004回归；输出真实覆盖及SD候选。
+- [ ] T-06（owner_stage=work；依赖T-05；AC-01..05）：核对所有必需UI oracle、框架消费和源/工具漂移，更新运行说明并提交execution_done。
+- [ ] T-07（owner_stage=review；依赖T-06；AC-06）：同clone独立上下文最终复审，不能用004正对照或历史skip顶替实际app。
+- [ ] T-08（owner_stage=merge；依赖T-07 pass；AC-07）：仅本app规范/归档/提交push收尾，保留历史文档，OS集成留独立计划。
+
+## 9. 复审记录
+
+- stage: new | plan_id: READER-005 | plan_revision: 1 | outcome: pass（仅有界 T-00 就绪，产品与双端验收未执行） | next: work/T-00（等待后续实施指令）。
+- 现有归档计划、Spec 与源码保持原样；旧验收只证明其冻结版本与已声明范围。应用提交/push 不升级 AutoOS 组合版本。
+
+## 10. 待澄清事项
+
+本次规划没有待用户重新确认的产品方向。T-00 负责核实技术能力与实际 owner，决策稿必须先闭合再进入依赖实现。若探针显示必须改变目标、降低必需验收或扩大跨仓写入范围，报告具体证据并保留受影响任务未完成；不得用占位、跳过、API 预操作或历史总数替代必需用户任务。

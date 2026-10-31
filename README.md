@@ -2,7 +2,9 @@
 
 图书阅读器，使用 AutoLang / AutoUI 开发的独立应用。
 
-READER-001已交付归档（r9，32/32）：真实TXT/Markdown书库、受管原件、内容锚点与重启恢复。READER-003已交付归档：最小EPUB3导入/目录/章读取（惰性解压+缓存）/图片URI链（显示面留N-003-7具名缺口待框架 image widget）。本地增强/Notes联动由002 r3规划，尚未实现。
+更新：2026-10-31。001真实TXT/Markdown书库与定位已交付；003的最小EPUB数据面已落地；002 r4以本地A（搜索、注释、Markdown导出）收尾；004验收驱动归属迁移已交付。图片目前仍以标记呈现，原生注释门和真实UI保存链仍有覆盖缺口，不能据框架夹具通过声称实际阅读全流程已验。
+
+当前后续 [READER-005：EPUB实际阅读与本地能力双端验收收口](docs/plans/005-standalone-epub-and-ui-acceptance.md) 为 drafting/r1、0/9，**尚未实施**。先核验现有image组件/媒体链与当前CLI＋tool，补图像缓存、书内链接/脚注和真实Vue/原生任务；Notes交接继续留AutoOS TODO。
 
 ## 运行
 
@@ -61,14 +63,14 @@ auto run -r vm --server=vm
 
 AutoOS 通过 [`apps/auto-reader`](https://github.com/auto-stack/auto-os/tree/main/apps/auto-reader) submodule 固定本仓版本；教学 Demo 保留在来源仓。
 
-## 产品规划（2026-10-04）
+## 当前计划与开发
 
-[需求与设计、首版 roadmap、业界调研及前三个实施计划](docs/README.md)。
+- [001：真实书库与定位](docs/plans/archive/001-real-library.md)：archive/r9、32/32，保持历史。
+- [003：最小EPUB数据面](docs/plans/archive/003-epub-reflow.md)：merge 24c9838已有交付回执；图片显示/书内链接与完整UI门留005。
+- [002：本地阅读、注释与导出](docs/plans/archive/002-reading-annotations.md)：r4按用户裁决仅本地A收尾；Notes联动已移OS TODO，不再作为本地交付前置。
+- [004：验收驱动与夹具归属迁移](docs/plans/archive/004-reader-test-ownership-migration.md)：已交付；夹具与HTTP保存链覆盖有明确边界。
+- [005：EPUB实际阅读与双端验收收口](docs/plans/005-standalone-epub-and-ui-acceptance.md)：drafting/r1、0/9，当前下一步为T-00，未开始实现。
 
-当前顺序为 **001（已归档）→003最小EPUB→002-A本地增强与摘录→002-B Notes交接**。003不等待完整002；002-A可独立验收/阶段交付，B等Notes-002真实接收，B未完成不把002整Plan归档。
+[路线图](docs/roadmap-v0.6.md) · [规划入口](docs/README.md)。003旧frontmatter和002历史任务计数存在滞后，以实际交付回执及Spec区分范围，本轮不修改归档。
 
-- [READER-001（archive/r9，32/32）](docs/plans/archive/001-real-library.md)
-- [READER-003：最小重排版EPUB导入与阅读（archive，merge 24c9838）](docs/plans/archive/003-epub-reflow.md)
-- [READER-002：本地阅读体验、摘录与分阶段Notes联动（drafting/r3）](docs/plans/002-reading-annotations.md)
-
-本轮仅修订计划、路线与状态，不启动实现。003所需的基本内容/字号/位置适配在003自身交付；原003高亮恢复要求归入002-A，需求保留。开发使用 `D:/autostack/auto-reader` 独立clone的main，AutoOS子模块仅固定交付版本；先push应用再更新组合pin，独立clone不切detached。Linux支持仍等待Nix＋COSMIC发行版基础。
+开发/计划/顺序复审使用 `D:/autostack/auto-reader` 独立clone main，一app一写入者；AutoOS `apps/auto-reader`仅保留组合pin。本轮只准备并推送计划/README/roadmap，不实现，不更新OS子模块。应用单独运行与验证后由统一集成计划装配；Linux仍等待Nix＋COSMIC发行版基础。
