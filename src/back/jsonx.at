@@ -407,6 +407,12 @@ fn known_state_key(key str) int {
     if key == "line_height" {
         return 1
     }
+    if key == "layout" {
+        return 1
+    }
+    if key == "theme" {
+        return 1
+    }
     if key == "updated_at" {
         return 1
     }
@@ -448,6 +454,8 @@ pub fn valid_state(raw str) str {
     var seen_quote int = 0
     var seen_font int = 0
     var seen_line int = 0
+    var seen_layout int = 0
+    var seen_theme int = 0
     var seen_ua int = 0
     var guard int = 0
     while i < t.len() {
@@ -515,6 +523,12 @@ pub fn valid_state(raw str) str {
             if key == "line_height" {
                 seen = seen_line
             }
+            if key == "layout" {
+                seen = seen_layout
+            }
+            if key == "theme" {
+                seen = seen_theme
+            }
             if key == "updated_at" {
                 seen = seen_ua
             }
@@ -544,6 +558,12 @@ pub fn valid_state(raw str) str {
             }
             if key == "line_height" {
                 seen_line = 1
+            }
+            if key == "layout" {
+                seen_layout = 1
+            }
+            if key == "theme" {
+                seen_theme = 1
             }
             if key == "updated_at" {
                 seen_ua = 1
@@ -998,6 +1018,433 @@ pub fn valid_removed_entry(raw str) str {
     return "removed entry object not closed"
 }
 
+// ---- annotations 文件词法校验（READER-002 T-03 落地面） ----
+// 规则：
+//   顶层必须是对象；version 必须为整数字面量 1；book_id/source_hash 必须
+//   为引号串；updated_at 必须为整数字面量；annotations 必须为数组（可空）。
+//   每条记录（对象）：annotation_id/kind/quote/comment 必须为引号串；
+//   chapter_number/para_idx/occurrence/created_at/updated_at 必须为整数
+//   字面量（span_is_int 口径，与 valid_state 同）；kind ∈
+//   {bookmark,highlight,comment}；tags 必须为引号串数组：元素非空、
+//   每元素 ≤32 字符、数量 ≤10。顶层与记录层已知键重复各自拒绝；
+//   未知键容忍；结构非法/尾随内容拒绝。错误返回非空消息；"" = 合法。
+// 调用方（annotations.at）在 json.parse 之前执行本门——坏文件不冒充
+// 空集合，原样保留供诊断。
+
+/// tags 数组区间校验（引号串元素；上限 10×32；空数组合法）。
+fn valid_ann_tags(t str, start int, end int) str {
+    var j int = skip_ws(t, start + 1)
+    var count int = 0
+    var guard int = 0
+    while j < end {
+        if guard > 128 {
+            return "annotations tags too large"
+        }
+        guard = guard + 1
+        if t.substr(j, 1) == "]" {
+            break
+        }
+        if t.substr(j, 1) == "," {
+            j = skip_ws(t, j + 1)
+            continue
+        }
+        if t.substr(j, 1) != "\"" {
+            return "annotations tags element must be a string"
+        }
+        let se int = scan_string_end(t, j)
+        if se < 0 || se > end {
+            return "annotations tags bad string"
+        }
+        count = count + 1
+        if count > 10 {
+            return "annotations tags too many (<=10)"
+        }
+        if se - j - 2 > 32 {
+            // 引号内字符数（词法长度；转义串按转义形态计——服务端
+            // canonical 形态逐字符转义后不超限，手工超长注入拒绝）。
+            return "annotations tags element too long (<=32)"
+        }
+        j = skip_ws(t, se)
+    }
+    return ""
+}
+
+/// 单条注释记录验证：必需字段齐备 + 类型精确 + 已知键重复拒绝。
+fn valid_ann_record(t str, start int, end int) str {
+    var i int = skip_ws(t, start + 1)
+    var seen_aid int = 0
+    var seen_kind int = 0
+    var seen_ch int = 0
+    var seen_pi int = 0
+    var seen_quote int = 0
+    var seen_occ int = 0
+    var seen_comment int = 0
+    var seen_tags int = 0
+    var seen_ca int = 0
+    var seen_ua int = 0
+    var guard int = 0
+    while i < end {
+        if guard > 512 {
+            return "annotations record too large"
+        }
+        guard = guard + 1
+        if t.substr(i, 1) == "}" {
+            break
+        }
+        if t.substr(i, 1) == "," {
+            i = skip_ws(t, i + 1)
+            if i < end {
+                if t.substr(i, 1) == "}" {
+                    return "annotations record unexpected trailing comma"
+                }
+            }
+            continue
+        }
+        if t.substr(i, 1) != "\"" {
+            return "annotations record expected property name"
+        }
+        let ke int = scan_string_end(t, i)
+        if ke < 0 {
+            return "annotations record bad property name"
+        }
+        let key str = unquote(t.substr(i, ke - i))
+        i = skip_ws(t, ke)
+        if i >= end || t.substr(i, 1) != ":" {
+            return "annotations record expected colon"
+        }
+        i = skip_ws(t, i + 1)
+        let ve int = scan_value_end(t, i, 2)
+        if ve < 0 || ve > end {
+            return "annotations record bad value"
+        }
+        let kind str = value_kind(t, i)
+        var span str = ""
+        if kind == "num" {
+            span = t.substr(i, ve - i)
+        }
+        if key == "annotation_id" {
+            if seen_aid == 1 {
+                return "annotations record duplicate key: annotation_id"
+            }
+            seen_aid = 1
+            if kind != "str" {
+                return "annotations record annotation_id must be a string"
+            }
+        }
+        if key == "kind" {
+            if seen_kind == 1 {
+                return "annotations record duplicate key: kind"
+            }
+            seen_kind = 1
+            if kind != "str" {
+                return "annotations record kind must be a string"
+            }
+            let ks str = unquote(t.substr(i, ve - i))
+            if ks != "bookmark" {
+                if ks != "highlight" {
+                    if ks != "comment" {
+                        return "annotations record kind invalid"
+                    }
+                }
+            }
+        }
+        if key == "chapter_number" {
+            if seen_ch == 1 {
+                return "annotations record duplicate key: chapter_number"
+            }
+            seen_ch = 1
+            if kind != "num" {
+                return "annotations record chapter_number must be a number"
+            }
+            if !span_is_int(span) {
+                return "annotations record chapter_number must be an integer"
+            }
+        }
+        if key == "para_idx" {
+            if seen_pi == 1 {
+                return "annotations record duplicate key: para_idx"
+            }
+            seen_pi = 1
+            if kind != "num" {
+                return "annotations record para_idx must be a number"
+            }
+            if !span_is_int(span) {
+                return "annotations record para_idx must be an integer"
+            }
+        }
+        if key == "quote" {
+            if seen_quote == 1 {
+                return "annotations record duplicate key: quote"
+            }
+            seen_quote = 1
+            if kind != "str" {
+                return "annotations record quote must be a string"
+            }
+            if ve - i - 2 > 2000 {
+                return "annotations record quote too long (<=2000)"
+            }
+        }
+        if key == "occurrence" {
+            if seen_occ == 1 {
+                return "annotations record duplicate key: occurrence"
+            }
+            seen_occ = 1
+            if kind != "num" {
+                return "annotations record occurrence must be a number"
+            }
+            if !span_is_int(span) {
+                return "annotations record occurrence must be an integer"
+            }
+        }
+        if key == "comment" {
+            if seen_comment == 1 {
+                return "annotations record duplicate key: comment"
+            }
+            seen_comment = 1
+            if kind != "str" {
+                return "annotations record comment must be a string"
+            }
+            if ve - i - 2 > 2000 {
+                return "annotations record comment too long (<=2000)"
+            }
+        }
+        if key == "tags" {
+            if seen_tags == 1 {
+                return "annotations record duplicate key: tags"
+            }
+            seen_tags = 1
+            if kind != "arr" {
+                return "annotations record tags must be an array"
+            }
+            let terr str = valid_ann_tags(t, i, ve)
+            if terr != "" {
+                return terr
+            }
+        }
+        if key == "created_at" {
+            if seen_ca == 1 {
+                return "annotations record duplicate key: created_at"
+            }
+            seen_ca = 1
+            if kind != "num" {
+                return "annotations record created_at must be a number"
+            }
+            if !span_is_int(span) {
+                return "annotations record created_at must be an integer"
+            }
+        }
+        if key == "updated_at" {
+            if seen_ua == 1 {
+                return "annotations record duplicate key: updated_at"
+            }
+            seen_ua = 1
+            if kind != "num" {
+                return "annotations record updated_at must be a number"
+            }
+            if !span_is_int(span) {
+                return "annotations record updated_at must be an integer"
+            }
+        }
+        i = skip_ws(t, ve)
+    }
+    if seen_aid == 0 {
+        return "annotations record missing annotation_id"
+    }
+    if seen_kind == 0 {
+        return "annotations record missing kind"
+    }
+    if seen_ch == 0 {
+        return "annotations record missing chapter_number"
+    }
+    if seen_pi == 0 {
+        return "annotations record missing para_idx"
+    }
+    if seen_quote == 0 {
+        return "annotations record missing quote"
+    }
+    if seen_occ == 0 {
+        return "annotations record missing occurrence"
+    }
+    if seen_comment == 0 {
+        return "annotations record missing comment"
+    }
+    if seen_tags == 0 {
+        return "annotations record missing tags"
+    }
+    if seen_ca == 0 {
+        return "annotations record missing created_at"
+    }
+    if seen_ua == 0 {
+        return "annotations record missing updated_at"
+    }
+    return ""
+}
+
+/// annotations 文件词法校验（READER-002 阶段A）。规则见文件头注释。
+/// 返回 "" = 合法；非空 = 错误消息（调用方 refuse-to-load 保留原件）。
+pub fn valid_annotations(raw str) str {
+    let t str = raw.trim()
+    var i int = skip_ws(t, 0)
+    if i >= t.len() || t.substr(i, 1) != "{" {
+        return "annotations must be a JSON object"
+    }
+    i = skip_ws(t, i + 1)
+    var ver_ok int = 0
+    var bid_ok int = 0
+    var hash_ok int = 0
+    var ua_ok int = 0
+    var arr_ok int = 0
+    var arr_start int = -1
+    var arr_end int = -1
+    var guard int = 0
+    while i < t.len() {
+        if guard > 4096 {
+            return "annotations object too large"
+        }
+        guard = guard + 1
+        if t.substr(i, 1) == "}" {
+            i = skip_ws(t, i + 1)
+            if i != t.len() {
+                return "annotations has trailing content"
+            }
+            break
+        }
+        if t.substr(i, 1) == "," {
+            i = skip_ws(t, i + 1)
+            if i < t.len() {
+                if t.substr(i, 1) == "}" {
+                    return "annotations unexpected trailing comma"
+                }
+            }
+            continue
+        }
+        if t.substr(i, 1) != "\"" {
+            return "annotations expected property name"
+        }
+        let ke int = scan_string_end(t, i)
+        if ke < 0 {
+            return "annotations bad property name"
+        }
+        let key str = unquote(t.substr(i, ke - i))
+        i = skip_ws(t, ke)
+        if i >= t.len() || t.substr(i, 1) != ":" {
+            return "annotations expected colon"
+        }
+        i = skip_ws(t, i + 1)
+        let ve int = scan_value_end(t, i, 0)
+        if ve < 0 {
+            return "annotations bad value"
+        }
+        if key == "version" {
+            if ver_ok == 1 {
+                return "annotations duplicate key: version"
+            }
+            let kind str = value_kind(t, i)
+            if kind != "num" {
+                return "annotations version must be a number"
+            }
+            let span str = t.substr(i, ve - i)
+            if !span_is_int(span) {
+                return "annotations version must be the integer 1"
+            }
+            let nv int = span.to_int()
+            if nv != 1 {
+                return "annotations version must be the integer 1"
+            }
+            ver_ok = 1
+        }
+        if key == "book_id" {
+            if bid_ok == 1 {
+                return "annotations duplicate key: book_id"
+            }
+            bid_ok = 1
+            if value_kind(t, i) != "str" {
+                return "annotations book_id must be a string"
+            }
+        }
+        if key == "source_hash" {
+            if hash_ok == 1 {
+                return "annotations duplicate key: source_hash"
+            }
+            hash_ok = 1
+            if value_kind(t, i) != "str" {
+                return "annotations source_hash must be a string"
+            }
+        }
+        if key == "updated_at" {
+            if ua_ok == 1 {
+                return "annotations duplicate key: updated_at"
+            }
+            ua_ok = 1
+            let kind str = value_kind(t, i)
+            if kind != "num" {
+                return "annotations updated_at must be a number"
+            }
+            let span str = t.substr(i, ve - i)
+            if !span_is_int(span) {
+                return "annotations updated_at must be an integer"
+            }
+        }
+        if key == "annotations" {
+            if arr_ok == 1 {
+                return "annotations duplicate key: annotations"
+            }
+            if value_kind(t, i) != "arr" {
+                return "annotations annotations must be an array"
+            }
+            arr_ok = 1
+            arr_start = i
+            arr_end = ve
+        }
+        i = skip_ws(t, ve)
+    }
+    if ver_ok == 0 {
+        return "annotations missing version"
+    }
+    if bid_ok == 0 {
+        return "annotations missing book_id"
+    }
+    if hash_ok == 0 {
+        return "annotations missing source_hash"
+    }
+    if ua_ok == 0 {
+        return "annotations missing updated_at"
+    }
+    if arr_ok == 0 {
+        return "annotations missing annotations array"
+    }
+    // 记录逐条验证（annotations 数组区间内）
+    var j int = skip_ws(t, arr_start + 1)
+    let be int = arr_end
+    var rguard int = 0
+    while j < be {
+        if rguard > 100000 {
+            return "annotations array too large"
+        }
+        rguard = rguard + 1
+        if t.substr(j, 1) == "]" {
+            break
+        }
+        if t.substr(j, 1) == "," {
+            j = skip_ws(t, j + 1)
+            continue
+        }
+        if t.substr(j, 1) != "{" {
+            return "annotations record must be an object"
+        }
+        let re int = scan_value_end(t, j, 1)
+        if re < 0 || re > be {
+            return "annotations bad record"
+        }
+        let rerr str = valid_ann_record(t, j, re)
+        if rerr != "" {
+            return rerr
+        }
+        j = skip_ws(t, re)
+    }
+    return ""
+}
+
 // ---- 同模块单测（自包含零 use——测试装置兼容面） ----
 fn expect(cond bool) {
     if cond {
@@ -1019,6 +1466,10 @@ fn t_valid_state() {
     expect(valid_state("{\"book_id\":\"a\",}") != "")
     expect(valid_state("[]") != "")
     expect(valid_state("{\"book_id\":\"a\"}") == "")
+    // READER-002：layout/theme 可选 str 键（词法判别 + 重复拒绝）
+    expect(valid_state("{\"book_id\":\"a\",\"chapter_number\":1,\"paragraph_index\":-1,\"font_size\":\"medium\",\"line_height\":\"comfy\",\"layout\":\"wide\",\"theme\":\"dark\",\"updated_at\":0}") == "")
+    expect(valid_state("{\"book_id\":\"a\",\"layout\":3}") != "")
+    expect(valid_state("{\"book_id\":\"a\",\"theme\":\"dark\",\"theme\":\"light\"}") != "")
 }
 
 #[test]
@@ -1382,4 +1833,34 @@ fn valid_meta_entry(t str, start int, end int) str {
         return "meta chapter missing word_count"
     }
     return ""
+}
+
+#[test]
+fn t_valid_annotations() {
+    // 合法：空集合
+    expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[]}") == "")
+    // 合法：完整记录
+    expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":5,\"annotations\":[{\"annotation_id\":\"a1\",\"kind\":\"highlight\",\"chapter_number\":1,\"para_idx\":2,\"quote\":\"原文\",\"occurrence\":1,\"comment\":\"批注\",\"tags\":[\"重点\"],\"created_at\":3,\"updated_at\":4}]}") == "")
+    // 合法：空白与键序无关；未知键容忍
+    expect(valid_annotations("{ \"version\" : 1 , \"book_id\" : \"b\" , \"source_hash\" : \"h\" , \"updated_at\" : 0 , \"annotations\" : [ ] , \"extra\":1 }") == "")
+    // 非法：version 非整数字面量 1
+    expect(valid_annotations("{\"version\":2,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[]}") != "")
+    expect(valid_annotations("{\"version\":\"1\",\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[]}") != "")
+    // 非法：缺必需顶层键
+    expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"source_hash\":\"h\",\"annotations\":[]}") != "")
+    expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"updated_at\":0,\"annotations\":[]}") != "")
+    // 非法：annotations 非数组
+    expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":{}}") != "")
+    // 非法：重复键
+    expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"book_id\":\"c\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[]}") != "")
+    // 非法：记录缺字段 / 类型错 / kind 枚举外
+    expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[{\"annotation_id\":\"a\",\"kind\":\"highlight\",\"chapter_number\":1,\"para_idx\":0,\"quote\":\"q\",\"occurrence\":1,\"comment\":\"\",\"tags\":[],\"created_at\":0}]}") != "")
+    expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[{\"annotation_id\":\"a\",\"kind\":\"bad\",\"chapter_number\":1,\"para_idx\":0,\"quote\":\"q\",\"occurrence\":1,\"comment\":\"\",\"tags\":[],\"created_at\":0,\"updated_at\":0}]}") != "")
+    expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[{\"annotation_id\":\"a\",\"kind\":\"bookmark\",\"chapter_number\":1,\"para_idx\":-1,\"quote\":\"\",\"occurrence\":1,\"comment\":\"\",\"tags\":[],\"created_at\":0,\"updated_at\":0}]}") == "")
+    // 非法：tags 元素非串 / 超数量
+    expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[{\"annotation_id\":\"a\",\"kind\":\"bookmark\",\"chapter_number\":1,\"para_idx\":-1,\"quote\":\"\",\"occurrence\":1,\"comment\":\"\",\"tags\":[1],\"created_at\":0,\"updated_at\":0}]}") != "")
+    expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[{\"annotation_id\":\"a\",\"kind\":\"bookmark\",\"chapter_number\":1,\"para_idx\":-1,\"quote\":\"\",\"occurrence\":1,\"comment\":\"\",\"tags\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\",\"10\",\"11\"],\"created_at\":0,\"updated_at\":0}]}") != "")
+    // 非法：结构坏 / 尾随内容
+    expect(valid_annotations("[]") != "")
+    expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[]}x") != "")
 }

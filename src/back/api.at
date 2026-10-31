@@ -27,6 +27,7 @@ pub type Chapter = {
 use db
 use library: BookRecord, ImportOutcome, TocEntry, RemoveResult
 use importers: ChapterRec
+use annotations
 
 /// GET /api/books — list every book in the library.
 #[api(method = "GET", path = "/api/books")]
@@ -139,4 +140,40 @@ pub fn library_get_reading(book_id str) str {
 #[api(method = "POST", path = "/api/library/progress")]
 pub fn library_put_reading(book_id str, payload str, para_text str) str {
     return db.library_put_reading(book_id, payload, para_text)
+}
+
+// ═══════════════════════════════════════════════════════════
+// READER-002 阶段A：注释/书签/高亮、全文搜索、导出（annotations.at 直通，
+// JSON 字符串表面同款——形参名与 body/query 字段一致；用户文本一律顶层
+// 字段直传，VM HTTP 多字节损坏规避与 progress 同源）。
+// ═══════════════════════════════════════════════════════════
+
+/// GET /api/library/annotations — 注释集合 JSON（query: book_id）。
+#[api(method = "GET", path = "/api/library/annotations")]
+pub fn library_annotations(book_id str) str {
+    return db.library_get_annotations(book_id)
+}
+
+/// POST /api/library/annotations — 注释写操作。
+/// body: { book_id, op, annotation_id, kind, chapter_number, para_idx,
+///         occurrence, comment, tags_json, quote }
+/// op=create|update|delete；op=update/delete 时未用锚字段传默认值
+/// （chapter_number=0 等）；tags_json 为字符串数组 JSON 文本。
+#[api(method = "POST", path = "/api/library/annotations")]
+pub fn library_put_annotations(book_id str, op str, annotation_id str, kind str, chapter_number int, para_idx int, occurrence int, comment str, tags_json str, quote str) str {
+    return db.library_put_annotations(book_id, op, annotation_id, kind, chapter_number, para_idx, occurrence, comment, tags_json, quote)
+}
+
+/// POST /api/library/search — 段粒度全文搜索。
+/// body: { book_id, query }
+#[api(method = "POST", path = "/api/library/search")]
+pub fn library_search(book_id str, query str) str {
+    return db.library_search(book_id, query)
+}
+
+/// POST /api/library/export — 注释 Markdown 导出（本地文件交付）。
+/// body: { book_id }
+#[api(method = "POST", path = "/api/library/export")]
+pub fn library_export(book_id str) str {
+    return db.library_export_annotations(book_id)
 }

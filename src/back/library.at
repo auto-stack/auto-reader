@@ -236,7 +236,7 @@ pub fn book_json(book_id str) str {
 /// 读回校验写入（F-03/F-06）：write_text 对目录等失败形态会静默返回 0
 /// （t05 探针实测）——返回码之外必须读回逐字比较。
 /// 返回 0 = 写入且读回逐字一致；非 0 = write_text 返回码或 -1（读回不符）。
-fn verified_write(path str, payload str) int {
+pub fn verified_write(path str, payload str) int {
     let wrc int = fs.write_text(path, payload)
     if wrc != 0 {
         return wrc
@@ -256,7 +256,7 @@ fn verified_write(path str, payload str) int {
 /// 「已验证的暂存-提交-恢复」尽力保证，不冒充断电级原子性（如实记录）。
 /// 返回 0 = 成功；-2 目标是目录；-3 现内容为空/不可读；-4 备份失败；
 /// -5 暂存失败；其余 = write_text/verified_write 返回码。
-fn write_with_backup(path str, payload str) int {
+pub fn write_with_backup(path str, payload str) int {
     if fs.exists(path) {
         if fs.is_dir(path) {
             return -2
@@ -928,6 +928,43 @@ pub fn get_reading_json(book_id str) str {
     } catch {
         ok = false
     }
+    // READER-002 A：可选 layout/theme 枚举核（在场才核；坏值拒绝冒充
+    // 有效状态）。缺位 = 旧态/默认，照常返回（向后兼容）。
+    // v 作用域仅限上方 try——独立二次解析（raw 已过词法门，解析必成）。
+    if ok {
+        var ld str = ""
+        var th str = ""
+        try {
+            let v2 = json.parse(raw)
+            ld = "" + v2.layout
+        } catch {
+            ld = ""
+        }
+        try {
+            let v3 = json.parse(raw)
+            th = "" + v3.theme
+        } catch {
+            th = ""
+        }
+        if ld != "" {
+            if ld != "narrow" {
+                if ld != "medium" {
+                    if ld != "wide" {
+                        ok = false
+                    }
+                }
+            }
+        }
+        if th != "" {
+            if th != "light" {
+                if th != "sepia" {
+                    if th != "dark" {
+                        ok = false
+                    }
+                }
+            }
+        }
+    }
     if !ok {
         return ""
     }
@@ -935,7 +972,7 @@ pub fn get_reading_json(book_id str) str {
 }
 
 /// 错误响应（F-04 起 put 面统一 {"ok":false,"message"} 形态，与成功响应
-/// 同构——错误不再以裸字符串返回）。
+// 同构——错误不再以裸字符串返回）。
 fn reading_err(msg str) str {
     var out str = "{\"ok\":false,\"message\":\""
     out = out + json_escape(msg)
@@ -988,6 +1025,8 @@ pub fn put_reading_json(book_id str, payload str, para_text_in str) str {
     var qp str = ""
     var font str = ""
     var lineh str = ""
+    var layout str = ""
+    var theme str = ""
     var ua int = 0
     var extract_ok bool = true
     try {
@@ -1011,6 +1050,20 @@ pub fn put_reading_json(book_id str, payload str, para_text_in str) str {
         }
         font = "" + parsed.font_size
         lineh = "" + parsed.line_height
+        // READER-002 A：可选排版扩展（缺位 = 维持默认，不写存储态；
+        // 出现则枚举校验——SD-02 向后兼容扩展）。
+        layout = ""
+        theme = ""
+        try {
+            layout = "" + parsed.layout
+        } catch {
+            layout = ""
+        }
+        try {
+            theme = "" + parsed.theme
+        } catch {
+            theme = ""
+        }
         ph = ""
         try {
             ph = "" + parsed.para_hash
@@ -1075,6 +1128,24 @@ pub fn put_reading_json(book_id str, payload str, para_text_in str) str {
     }
     if !line_ok {
         return reading_err("invalid line_height")
+    }
+    if layout != "" {
+        if layout != "narrow" {
+            if layout != "medium" {
+                if layout != "wide" {
+                    return reading_err("invalid layout")
+                }
+            }
+        }
+    }
+    if theme != "" {
+        if theme != "light" {
+            if theme != "sepia" {
+                if theme != "dark" {
+                    return reading_err("invalid theme")
+                }
+            }
+        }
     }
     if ph != "" {
         if !ph.starts_with("sig") {
@@ -1144,7 +1215,18 @@ pub fn put_reading_json(book_id str, payload str, para_text_in str) str {
     stored = stored + json_escape(font)
     stored = stored + "\",\"line_height\":\""
     stored = stored + json_escape(lineh)
-    stored = stored + "\",\"updated_at\":"
+    stored = stored + "\""
+    if layout != "" {
+        stored = stored + ",\"layout\":\""
+        stored = stored + json_escape(layout)
+        stored = stored + "\""
+    }
+    if theme != "" {
+        stored = stored + ",\"theme\":\""
+        stored = stored + json_escape(theme)
+        stored = stored + "\""
+    }
+    stored = stored + ",\"updated_at\":"
     stored = stored + ua.to_string()
     stored = stored + "}"
     // 写协议：备份 → 暂存 → 提交，全部读回校验（F-06 同源）；失败不落盘

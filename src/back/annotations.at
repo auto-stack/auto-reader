@@ -1,0 +1,697 @@
+// annotations.at — READER-002 阶段A：注释/书签/高亮存储、全文搜索与导出。
+// 职责：per-book 注释边车（<data>/annotations/<book_id>.json）、段粒度
+// 全文搜索、带完整出处的 Markdown 导出（T-01/T-03/T-05 数据面）。
+//
+// 沿 library.at 既有纪律（T-00 能力冻结）：
+//   a) 无状态 + JSON 字符串表面；每次公开调用现读、改完即写；
+//      单写入者（同数据目录一个运行时实例）。
+//   b) 只用 a2r/VM 已映射 native：fs.exists/read_text/write_text、
+//      str.uuid、time.now_sec、json.parse；路径与转义用 pathx。
+//   c) struct/List 不作 fn 参数；fn 实参先绑定局部变量；拼接链每步
+//      ≤2 操作数；json.parse 数组用 for-in（F-8）。
+//   d) 写协议沿 put_reading：严格校验 → write_with_backup（备份/暂存/
+//      提交，全读回校验）→ 失败不落盘不损坏上一有效态。
+//   e) 多字节安全：quote/comment 等用户文本一律顶层参数直传（F-08/F-10
+//      同款，框架转义前端零转义）；写侧手工 json_escape。
+//
+// 注释锚模型（T-00 冻结）：格式无关 (book_id, chapter_number, para_idx,
+// quote, occurrence)。quote = 锚段（trim 后行文本）的逐字子串；
+// occurrence = 段内第几次出现（1-based，重叠计数），重复句由此判别。
+// 回访重定位由消费面按同式重算：段落文本变化 → quote 不再命中 →
+// needs_relocate（原摘录保留，绝不静默换锚）。annotation_id 由服务端
+// str.uuid() 分配，创建后不变；update 只允许 kind/comment/tags。
+//
+// 文件形态（服务器拥有）：{"version":1,"book_id":..,"source_hash":..,
+// "updated_at":N,"annotations":[rec...]}，rec 见 rec_json。
+
+use pathx: join, mkdirs, json_escape
+use library: book_json, chapter_json, data_dir, write_with_backup, verified_write
+use jsonx: valid_annotations
+
+// ═══════════════════════════════════════════════════════════
+// 路径与错误面
+// ═══════════════════════════════════════════════════════════
+
+fn ann_dir() str {
+    let dd str = data_dir()
+    return join(dd, "annotations")
+}
+
+fn ann_path(book_id str) str {
+    let rd str = ann_dir()
+    let fname str = book_id + ".json"
+    return join(rd, fname)
+}
+
+/// 错误响应（与 put_reading 的 {"ok":false,"message"} 同构）。
+fn ann_err(msg str) str {
+    var out str = "{\"ok\":false,\"message\":\""
+    out = out + json_escape(msg)
+    out = out + "\"}"
+    return out
+}
+
+// ═══════════════════════════════════════════════════════════
+// 记录序列化（canonical —— 服务器拥有文件形态）
+// ═══════════════════════════════════════════════════════════
+
+fn rec_json(aid str, kind str, ch int, pi int, quote str, occ int, comment str, tags str, ca int, ua int) str {
+    var out str = "{\"annotation_id\":\""
+    out = out + json_escape(aid)
+    out = out + "\",\"kind\":\""
+    out = out + json_escape(kind)
+    out = out + "\",\"chapter_number\":"
+    out = out + ch.to_string()
+    out = out + ",\"para_idx\":"
+    out = out + pi.to_string()
+    out = out + ",\"quote\":\""
+    out = out + json_escape(quote)
+    out = out + "\",\"occurrence\":"
+    out = out + occ.to_string()
+    out = out + ",\"comment\":\""
+    out = out + json_escape(comment)
+    out = out + "\",\"tags\":"
+    out = out + tags
+    out = out + ",\"created_at\":"
+    out = out + ca.to_string()
+    out = out + ",\"updated_at\":"
+    out = out + ua.to_string()
+    out = out + "}"
+    return out
+}
+
+/// 既有记录原样重发（已过词法门；字段直读 — books_json 可靠形态先例）。
+fn reemit(it) str {
+    let fid str = "" + it.annotation_id
+    let fkind str = "" + it.kind
+    let fch int = it.chapter_number
+    let fpi int = it.para_idx
+    let fq str = "" + it.quote
+    let foc int = it.occurrence
+    let fcm str = "" + it.comment
+    let fca int = it.created_at
+    let fua int = it.updated_at
+    var tags str = "[]"
+    var first bool = true
+    for tg in it.tags {
+        let s str = "" + tg
+        if first {
+            tags = "[\""
+            tags = tags + json_escape(s)
+            tags = tags + "\""
+            first = false
+        } else {
+            tags = tags + ",\""
+            tags = tags + json_escape(s)
+            tags = tags + "\""
+        }
+    }
+    if !first {
+        tags = tags + "]"
+    }
+    return rec_json(fid, fkind, fch, fpi, fq, foc, fcm, tags, fca, fua)
+}
+
+// ═══════════════════════════════════════════════════════════
+// 锚点核算（重叠出现计数；find/substr 同源自洽，序数跨轨稳定）
+// ═══════════════════════════════════════════════════════════
+
+fn count_occurrences(hay str, needle str) int {
+    if needle == "" {
+        return 0
+    }
+    var count int = 0
+    var rest str = hay
+    var guard int = 0
+    while guard < 1000 {
+        guard = guard + 1
+        let pos int = rest.find(needle)
+        if pos < 0 {
+            break
+        }
+        count = count + 1
+        if pos + 1 >= rest.len() {
+            break
+        }
+        rest = rest.substr(pos + 1, rest.len() - pos - 1)
+    }
+    return count
+}
+
+/// 锚段行文本（trim 后）；越界/缺内容/空行回 ""（调用方判空报错）。
+fn live_para(book_id str, ch int, pi int) str {
+    let cj str = chapter_json(book_id, ch)
+    let c = json.parse(cj)
+    let ctitle str = "" + c.title
+    if ctitle == "内容缺失" {
+        return ""
+    }
+    if ctitle == "章节不存在" {
+        return ""
+    }
+    let body str = "" + c.body
+    let lines = body.split("\n")
+    if pi >= lines.len() {
+        return ""
+    }
+    let ln str = "" + lines[pi]
+    return ln.trim()
+}
+
+fn kind_ok(kind str) bool {
+    if kind == "bookmark" {
+        return true
+    }
+    if kind == "highlight" {
+        return true
+    }
+    if kind == "comment" {
+        return true
+    }
+    return false
+}
+
+/// tags_json（"[]" 或字符串数组）→ 规范序列化；非法回 ""。
+/// 上限：≤10 个、每个 ≤32 字符、非空串；元素必须为引号串
+/// （词法层判别，int/bool 数字串冒充拒绝由 valid_annotations 承担，
+/// 此处对已解析值再作长度/数量/空串兜底）。
+fn canonical_tags(tags_json str) str {
+    let t str = tags_json.trim()
+    if t == "" {
+        return "[]"
+    }
+    if t.substr(0, 1) != "[" {
+        return ""
+    }
+    var ok bool = true
+    var count int = 0
+    var out str = "["
+    try {
+        let arr = json.parse(t)
+        for item in arr {
+            let s str = "" + item
+            count = count + 1
+            if count > 10 {
+                ok = false
+                break
+            }
+            if s.len() > 32 {
+                ok = false
+                break
+            }
+            if s == "" {
+                ok = false
+                break
+            }
+            if count > 1 {
+                out = out + ","
+            }
+            out = out + "\""
+            out = out + json_escape(s)
+            out = out + "\""
+        }
+    } catch {
+        return ""
+    }
+    if !ok {
+        return ""
+    }
+    out = out + "]"
+    return out
+}
+
+// ═══════════════════════════════════════════════════════════
+// 读取（GET /api/library/annotations）
+// ═══════════════════════════════════════════════════════════
+
+/// 读注释集合。无文件 = 空集合（合法初态）；存在但词法/结构非法或
+/// book_id 不符 = {"ok":false}（坏文件原样保留供诊断，不冒充空集）。
+pub fn get_annotations_json(book_id str) str {
+    if book_id == "" {
+        return ann_err("book_id required")
+    }
+    let ap str = ann_path(book_id)
+    if !fs.exists(ap) {
+        var empty str = "{\"ok\":true,\"book_id\":\""
+        empty = empty + json_escape(book_id)
+        empty = empty + "\",\"source_hash\":\"\",\"annotations\":[]}"
+        return empty
+    }
+    let raw str = fs.read_text(ap)
+    if raw == "" {
+        return ann_err("annotations file unreadable or empty")
+    }
+    let verr str = valid_annotations(raw)
+    if verr != "" {
+        return ann_err(verr)
+    }
+    var parsed = null
+    try {
+        parsed = json.parse(raw)
+    } catch {
+        return ann_err("annotations parse failed")
+    }
+    let t str = "" + parsed.book_id
+    if t != book_id {
+        return ann_err("annotations book_id mismatch")
+    }
+    let arr = parsed.annotations
+    var records str = ""
+    var n int = 0
+    for it in arr {
+        n = n + 1
+        if n > 1 {
+            records = records + ","
+        }
+        records = records + reemit(it)
+    }
+    let src str = "" + parsed.source_hash
+    var out str = "{\"ok\":true,\"book_id\":\""
+    out = out + json_escape(book_id)
+    out = out + "\",\"source_hash\":\""
+    out = out + json_escape(src)
+    out = out + "\",\"annotations\":["
+    out = out + records
+    out = out + "]}"
+    return out
+}
+
+// ═══════════════════════════════════════════════════════════
+// 写入（POST /api/library/annotations，op=create|update|delete）
+// ═══════════════════════════════════════════════════════════
+
+/// 现读文件 → 规范重建（服务器拥有文件形态）→ write_with_backup。
+/// 任一步失败不落盘。现存记录重建时保持原序（追加新记录于尾部）。
+fn rebuild_and_write(book_id str, src_hash str, records str, count int, ua int) str {
+    var stored str = "{\"version\":1,\"book_id\":\""
+    stored = stored + json_escape(book_id)
+    stored = stored + "\",\"source_hash\":\""
+    stored = stored + json_escape(src_hash)
+    stored = stored + "\",\"updated_at\":"
+    stored = stored + ua.to_string()
+    stored = stored + ",\"annotations\":["
+    stored = stored + records
+    stored = stored + "]}"
+    let rd str = ann_dir()
+    let mrc int = mkdirs(rd)
+    if mrc != 0 {
+        return ann_err("annotations dir create failed rc=" + mrc.to_string())
+    }
+    let ap str = ann_path(book_id)
+    let wrc int = write_with_backup(ap, stored)
+    if wrc == -2 {
+        return ann_err("annotations path occupied")
+    }
+    if wrc == -3 {
+        return ann_err("annotations file unreadable (empty) — refusing overwrite")
+    }
+    if wrc == -4 {
+        return ann_err("annotations backup failed — file not modified")
+    }
+    if wrc == -5 {
+        return ann_err("annotations stage failed — file not modified")
+    }
+    if wrc != 0 {
+        return ann_err("annotations write failed rc=" + wrc.to_string())
+    }
+    var ok str = "{\"ok\":true,\"message\":\"\",\"count\":"
+    ok = ok + count.to_string()
+    ok = ok + "}"
+    return ok
+}
+
+pub fn put_annotations_json(book_id str, op str, annotation_id str, kind str, chapter_number int, para_idx int, occurrence int, comment str, tags_json str, quote str) str {
+    if book_id == "" {
+        return ann_err("book_id required")
+    }
+    let rj str = book_json(book_id)
+    if rj == "" {
+        return ann_err("book not found")
+    }
+    let rec = json.parse(rj)
+    let src_hash str = "" + rec.source_hash
+    let ch_total int = rec.chapter_count
+    if op != "create" {
+        if op != "update" {
+            if op != "delete" {
+                return ann_err("op must be create|update|delete")
+            }
+        }
+    }
+    // 现存集合（无文件 = 空集）。
+    var raw str = ""
+    let ap str = ann_path(book_id)
+    if fs.exists(ap) {
+        raw = fs.read_text(ap)
+        if raw == "" {
+            return ann_err("annotations file unreadable")
+        }
+        let verr str = valid_annotations(raw)
+        if verr != "" {
+            return ann_err(verr)
+        }
+    }
+    var items = null
+    if raw != "" {
+        items = json.parse(raw)
+    } else {
+        items = json.parse("{\"annotations\":[]}")
+    }
+    let arr = items.annotations
+    var now int = time.now_sec()
+    if op == "create" {
+        if !kind_ok(kind) {
+            return ann_err("invalid kind")
+        }
+        if chapter_number < 1 {
+            return ann_err("chapter_number must be >= 1")
+        }
+        if chapter_number > ch_total {
+            return ann_err("chapter_number out of range")
+        }
+        var ct str = canonical_tags(tags_json)
+        if ct == "" {
+            return ann_err("tags invalid (array of <=10 strings, each <=32)")
+        }
+        if comment.len() > 2000 {
+            return ann_err("comment too long (<=2000)")
+        }
+        if kind == "bookmark" {
+            if para_idx < -1 {
+                return ann_err("para_idx must be >= -1 for bookmark")
+            }
+            if quote != "" {
+                if para_idx < 0 {
+                    return ann_err("quote anchor requires para_idx >= 0")
+                }
+                let lp str = live_para(book_id, chapter_number, para_idx)
+                if lp == "" {
+                    return ann_err("paragraph unavailable")
+                }
+                let occ_live int = count_occurrences(lp, quote)
+                if occ_live < occurrence {
+                    return ann_err("quote not found in paragraph (occurrence)")
+                }
+            } else {
+                if para_idx >= 0 {
+                    let lp2 str = live_para(book_id, chapter_number, para_idx)
+                    if lp2 == "" {
+                        return ann_err("paragraph unavailable")
+                    }
+                }
+            }
+        } else {
+            // highlight / comment：段级锚必填且逐字可核。
+            if para_idx < 0 {
+                return ann_err("para_idx must be >= 0")
+            }
+            if quote == "" {
+                return ann_err("quote required (verbatim anchor)")
+            }
+            if quote.len() > 2000 {
+                return ann_err("quote too long (<=2000)")
+            }
+            if occurrence < 1 {
+                return ann_err("occurrence must be >= 1")
+            }
+            let lp3 str = live_para(book_id, chapter_number, para_idx)
+            if lp3 == "" {
+                return ann_err("paragraph unavailable")
+            }
+            let occ_live2 int = count_occurrences(lp3, quote)
+            if occ_live2 < occurrence {
+                return ann_err("quote not found in paragraph (occurrence)")
+            }
+        }
+        let aid str = str.uuid()
+        let nr str = rec_json(aid, kind, chapter_number, para_idx, quote, occurrence, comment, ct, now, now)
+        // 原序保留 + 尾部追加：for-in 重建（F-8），每记录一次拼接。
+        var records str = ""
+        var n int = 0
+        for it in arr {
+            n = n + 1
+            if n > 1 {
+                records = records + ","
+            }
+            records = records + reemit(it)
+        }
+        if n > 0 {
+            records = records + ","
+        }
+        records = records + nr
+        return rebuild_and_write(book_id, src_hash, records, n + 1, now)
+    }
+    if op == "update" {
+        if annotation_id == "" {
+            return ann_err("annotation_id required")
+        }
+        if !kind_ok(kind) {
+            return ann_err("invalid kind")
+        }
+        var ct2 str = canonical_tags(tags_json)
+        if ct2 == "" {
+            return ann_err("tags invalid (array of <=10 strings, each <=32)")
+        }
+        if comment.len() > 2000 {
+            return ann_err("comment too long (<=2000)")
+        }
+        var found bool = false
+        var records2 str = ""
+        var n2 int = 0
+        for it in arr {
+            let tid str = "" + it.annotation_id
+            n2 = n2 + 1
+            if n2 > 1 {
+                records2 = records2 + ","
+            }
+            if tid == annotation_id {
+                found = true
+                // 锚字段（chapter/para/quote/occurrence/created_at）不可变；
+                // kind/comment/tags 可变，updated_at 刷新。
+                let ech int = it.chapter_number
+                let epi int = it.para_idx
+                let eq str = "" + it.quote
+                let eoc int = it.occurrence
+                let eca int = it.created_at
+                records2 = records2 + rec_json(tid, kind, ech, epi, eq, eoc, comment, ct2, eca, now)
+            } else {
+                records2 = records2 + reemit(it)
+            }
+        }
+        if !found {
+            return ann_err("annotation not found")
+        }
+        return rebuild_and_write(book_id, src_hash, records2, n2, now)
+    }
+    // op == delete
+    if annotation_id == "" {
+        return ann_err("annotation_id required")
+    }
+    var found3 bool = false
+    var records3 str = ""
+    var n3 int = 0
+    for it in arr {
+        let tid str = "" + it.annotation_id
+        if tid == annotation_id {
+            found3 = true
+        } else {
+            n3 = n3 + 1
+            if n3 > 1 {
+                records3 = records3 + ","
+            }
+            records3 = records3 + reemit(it)
+        }
+    }
+    if !found3 {
+        return ann_err("annotation not found")
+    }
+    return rebuild_and_write(book_id, src_hash, records3, n3, now)
+}
+
+// ═══════════════════════════════════════════════════════════
+// 全文搜索（POST /api/library/search）
+// ═══════════════════════════════════════════════════════════
+
+/// 段粒度精确子串搜索（跨章）。语义冻结（T-00）：exact substring
+/// （不做大小写折叠——VM 无 to_lower 映射，双轨一致性优先）；
+/// para_idx 与前端 split_paragraphs 同口径（原行号；空行不产段但占位）。
+/// 上限：扫描 ≤2000 章、结果 ≤50（truncated 如实标注）。
+pub fn search_book_json(book_id str, query str) str {
+    if book_id == "" {
+        return ann_err("book_id required")
+    }
+    let rj str = book_json(book_id)
+    if rj == "" {
+        return ann_err("book not found")
+    }
+    let q str = query.trim()
+    if q == "" {
+        return ann_err("query required")
+    }
+    if q.len() > 200 {
+        return ann_err("query too long (<=200)")
+    }
+    let rec = json.parse(rj)
+    let ch_total int = rec.chapter_count
+    var scan int = ch_total
+    var truncated bool = false
+    if scan > 2000 {
+        scan = 2000
+        truncated = true
+    }
+    var results str = ""
+    var found int = 0
+    var ch int = 1
+    while ch <= scan {
+        if found >= 50 {
+            truncated = true
+            break
+        }
+        let cj str = chapter_json(book_id, ch)
+        let c = json.parse(cj)
+        let ctitle str = "" + c.title
+        if ctitle != "内容缺失" {
+            if ctitle != "章节不存在" {
+                let body str = "" + c.body
+                let lines = body.split("\n")
+                var i int = 0
+                while i < lines.len() {
+                    let ln str = "" + lines[i]
+                    let live str = ln.trim()
+                    if live != "" {
+                        if live.find(q) >= 0 {
+                            found = found + 1
+                            if found > 1 {
+                                results = results + ","
+                            }
+                            var rj2 str = "{\"chapter_number\":"
+                            rj2 = rj2 + ch.to_string()
+                            rj2 = rj2 + ",\"para_idx\":"
+                            rj2 = rj2 + i.to_string()
+                            rj2 = rj2 + ",\"para_text\":\""
+                            rj2 = rj2 + json_escape(live)
+                            rj2 = rj2 + "\"}"
+                            results = results + rj2
+                            if found >= 50 {
+                                truncated = true
+                            }
+                        }
+                    }
+                    i = i + 1
+                }
+            }
+        }
+        if found >= 50 {
+            break
+        }
+        ch = ch + 1
+    }
+    var out str = "{\"ok\":true,\"results\":["
+    out = out + results
+    out = out + "],\"total\":"
+    out = out + found.to_string()
+    out = out + ",\"truncated\":"
+    if truncated {
+        out = out + "true"
+    } else {
+        out = out + "false"
+    }
+    out = out + "}"
+    return out
+}
+
+// ═══════════════════════════════════════════════════════════
+// Markdown 导出（POST /api/library/export）
+// ═══════════════════════════════════════════════════════════
+
+/// 导出注释为 Markdown 文件（带完整出处）。文件写入 <data>/exports/。
+/// 这是本地离线交付能力，不等同于真实接收端（B 阶段另账）。
+/// 空集合 = ok:true + count:0 + path:""（无文件产生，诚实提示）。
+pub fn export_annotations_json(book_id str) str {
+    if book_id == "" {
+        return ann_err("book_id required")
+    }
+    let rj str = book_json(book_id)
+    if rj == "" {
+        return ann_err("book not found")
+    }
+    let rec = json.parse(rj)
+    let title str = "" + rec.title
+    let author str = "" + rec.author
+    let src_hash str = "" + rec.source_hash
+    let gj str = get_annotations_json(book_id)
+    // 响应恒以 {"ok":... 开头——"ok":true 子串在场 = 读面成功。
+    if gj.find("\"ok\":true") < 0 {
+        return ann_err("annotations unavailable")
+    }
+    let g = json.parse(gj)
+    let arr = g.annotations
+    var count int = 0
+    for it in arr {
+        count = count + 1
+    }
+    if count == 0 {
+        var none str = "{\"ok\":true,\"path\":\"\",\"count\":0,\"message\":\"no annotations\"}"
+        return none
+    }
+    var md str = "# " + title + " — 注释导出\n\n"
+    md = md + "- 作者：" + author + "\n"
+    md = md + "- 书目 ID：" + book_id + "\n"
+    md = md + "- 来源指纹：" + src_hash + "\n"
+    var now int = time.now_sec()
+    md = md + "- 导出时间（epoch 秒）：" + now.to_string() + "\n"
+    md = md + "- 注释数：" + count.to_string() + "\n\n"
+    for it in arr {
+        let fkind str = "" + it.kind
+        let fch int = it.chapter_number
+        let fpi int = it.para_idx
+        let fq str = "" + it.quote
+        let foc int = it.occurrence
+        let fcm str = "" + it.comment
+        let fid str = "" + it.annotation_id
+        md = md + "## " + fkind + " · 第 " + fch.to_string() + " 章 · 第 " + fpi.to_string() + " 段\n\n"
+        if fq != "" {
+            md = md + "> " + fq + "\n\n"
+            if foc > 1 {
+                md = md + "（段内第 " + foc.to_string() + " 次出现）\n\n"
+            }
+        }
+        if fcm != "" {
+            md = md + fcm + "\n\n"
+        }
+        var first bool = true
+        for tg in it.tags {
+            let s str = "" + tg
+            if first {
+                md = md + "标签：" + s
+                first = false
+            } else {
+                md = md + "、" + s
+            }
+        }
+        if !first {
+            md = md + "\n\n"
+        }
+        md = md + "（annotation_id: " + fid + "）\n\n"
+    }
+    let ed str = data_dir()
+    let exp_dir str = join(ed, "exports")
+    let mrc int = mkdirs(exp_dir)
+    if mrc != 0 {
+        return ann_err("exports dir create failed rc=" + mrc.to_string())
+    }
+    let uid str = str.uuid()
+    let fname str = book_id + "-annotations-" + uid.substr(0, 8) + ".md"
+    let fpath str = join(exp_dir, fname)
+    // 读回校验写入（F-03 同源）：write_text 失败形态静默回 0。
+    let wrc int = verified_write(fpath, md)
+    if wrc != 0 {
+        return ann_err("export write failed rc=" + wrc.to_string())
+    }
+    var out str = "{\"ok\":true,\"path\":\""
+    out = out + json_escape(fpath)
+    out = out + "\",\"count\":"
+    out = out + count.to_string()
+    out = out + ",\"message\":\"\"}"
+    return out
+}

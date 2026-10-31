@@ -4,6 +4,7 @@
 
 use api: Book, Chapter
 use library: books_json, book_json, toc_json, chapter_json, import_book_json, remove_book_json, restore_book_json, get_reading_json, put_reading_json
+use annotations: get_annotations_json, put_annotations_json, search_book_json, export_annotations_json
 
 // ═══════════════════════════════════════════════════════════
 // In-memory storage
@@ -213,4 +214,24 @@ pub fn library_get_reading(book_id str) str {
 
 pub fn library_put_reading(book_id str, payload str, para_text str) str {
     return put_reading_json(book_id, payload, para_text)
+}
+
+// ═══════════════════════════════════════════════════════════
+// READER-002 阶段A（annotations.at 直通）
+// ═══════════════════════════════════════════════════════════
+
+pub fn library_get_annotations(book_id str) str {
+    return get_annotations_json(book_id)
+}
+
+pub fn library_put_annotations(book_id str, op str, annotation_id str, kind str, chapter_number int, para_idx int, occurrence int, comment str, tags_json str, quote str) str {
+    return put_annotations_json(book_id, op, annotation_id, kind, chapter_number, para_idx, occurrence, comment, tags_json, quote)
+}
+
+pub fn library_search(book_id str, query str) str {
+    return search_book_json(book_id, query)
+}
+
+pub fn library_export_annotations(book_id str) str {
+    return export_annotations_json(book_id)
 }
