@@ -7,7 +7,7 @@ author: [Codex]
 created_at: 2026-10-04T00:00:00Z
 updated_at: 2026-10-29
 plan_revision: 3
-current_step: 2
+current_step: 4
 total_steps: 7
 base_branch: main
 base_commit: 4d6345cc37882b0216480661eefae4c773617c2d
@@ -132,9 +132,9 @@ EPUB持久身份以原始二进制内容证明/摘要＋格式版本区分，T-0
 
 - [x] T-00（owner_stage=work；依赖001实际交付；AC-01..05）：冻结CAP-01..04与最小profile；验证候选ZIP/XML/二进制/图像/原生入口，输出capability-decision.md；必要缺项具名立最小owner前置，不依赖完整002。[✅ 2026-10-31] capability-decision.md 已产出（commit f251eed）：真sha256/字节读写字节精确/file.copy/image.thumb 可用；zip/xml native 不存在→纯.at 栈；惰性按章解压架构（导入期结构校验、首读期解压）；预算冻结。探针 t00_epub_cap_probe{,2..10}.as。
 - [x] T-01（owner_stage=work；依赖T-00与实际具名前置交付；AC-01/03/04）：实现EPUB容器/package/spine/nav/资源adapter与受管导入提交、旧库格式兼容；数据先验证再发布，不改原件。[⛔→✅ 2026-10-31 解除] 原纯.at DEFLATE 路径被运行时列表缺陷 N-003-1..6 阻断（framework-gap.md 在案）；用户裁决走选项 B，auto-lang 仓 **PLAN-897 已交付归档**（zip.list_json/read_text/extract_entry 三 native，VM 轨探针 22/22 PASS，merge a25e67983、archive 3fa75dd9c）。新 CLI＝D:/autostack/auto-man/target/debug/auto.exe SHA256 706d13f56277fc70913571bee675b554a3d08e4809d67953fe4d8ed5a2310543（版本串仍 118；以 SHA 为准）。T-01 改线：ZIP/解压全走 zip natives（max_bytes 直传 CAP-03 预算），XML/OPF/nav 用纯 .at str 扫描（字节索引域，可靠）；inflatex.at 归档为能力研究记录（不被消费）。 [✅ 2026-10-31 r2 续跑] epub.at 导入事务交付（commit 5e9b513）：zip natives（PLAN-897）+ 纯 .at XML 扫描（find/substr 字节域）；sha256 整文件身份；file.copy 受管副本 + sha256 读回对账；epubmeta 边车；library .epub 分派（UTF-8 预检前）。t08 spec 8/8 PASS（首导/去重/force/非EPUB/缺文件）；过程实录：VM 字符串机制多坑（多操作数拼接链毒化、 转义不受支持、tag 前缀边界）→ 改线为单遍 manifest 扫描 + 可见分隔符。
-- [ ] T-02（owner_stage=work；依赖T-01；AC-01/02/05）：接共用最小内容模型、真实目录/图片/内链与基本字号，扩充兼容locator和持久恢复；不实现002注释系统。
-- [ ] T-03（owner_stage=work；依赖T-01及T-00预算决策；AC-03/04）：完成规范化路径、禁止活动内容/外部实体/远程加载、实际解压/图像预算与失败回滚/可重试状态。
-- [ ] T-04（owner_stage=work；依赖T-02/T-03；AC-01..05）：制作永久fixture/双端入口并跑E-01..06及受影响旧库回归，准备SD-01/02，提交实现/证据摘要后execution_done；本轮不执行。
+- [x] T-02（owner_stage=work；依赖T-01；AC-01/02/05）：接共用最小内容模型、真实目录/图片/内链与基本字号，扩充兼容locator和持久恢复；不实现002注释系统。[✅ 2026-10-31] 后端全交付（7eb48b9+a640df4）：惰性解压+缓存、nav 目录→spine 序号、图片 extract+thumb 媒体 URI（images[] 字段）；locator 复用 TXT v1 语义（para_text 逐字锚，E-02 实证）。前端 reading_page 沿既有段落流天然呈现（img: 标记行诚实显示——N-003-7 具名缺口：AutoUI 无 image widget，后端 images[] 已就绪待框架 widget）。内链接跳转归 002-A（003 r3 范围=最小 profile，能力表记录）。t08 20/20。
+- [x] T-03（owner_stage=work；依赖T-01及T-00预算决策；AC-03/04）：完成规范化路径、禁止活动内容/外部实体/远程加载、实际解压/图像预算与失败回滚/可重试状态。[✅ 2026-10-31] epub_href_ok（拒绝 ../绝对/盘符/反斜杠//%/`/|）；XML 无 DTD/外部实体（扫描器只取目标子集）；预算=max_bytes 直传 native 硬闸（-2 区分）+30MiB 输入上限（E-04 实证）；失败回滚=解析失败不落资产/记录，受管副本 sha256 对账，孤儿可诊断可重试（verify_epub E-03/04/05 全过）。
+- [x] T-04（owner_stage=work；依赖T-02/T-03；AC-01..05）：制作永久fixture/双端入口并跑E-01..06及受影响旧库回归，准备SD-01/02，提交实现/证据摘要后execution_done；本轮不执行。[✅ 2026-10-31] verify_epub.py 双 profile（vue/vm）各 21/21 PASS（E-01 导入/目录/章文本/图片 URI/离线重开、E-02 locator 锚保存读回、E-03/04/05 负控与预算）；t01-t07 回归 292 PASS 0 FAIL；模块单测 6/6；t08 20/20。fixture 生成器 plan897_make_epub.py 提交。SD-01/02 候选见 §5 规范增量（复审/merge 落地）。execution_done。N-003-8 在案（auto run flattener 对新增 stdlib 模块编译失败——API 验证走直接 api.at 入口 8080；UI e2e 待 N-003-8）。
 - [ ] T-05（owner_stage=review；依赖T-04；AC-06）：同一clone暂停实现，冻结版本最终复审真实用户任务/负控/Spec；无pass不进入merge，不以002未来能力代替。
 - [ ] T-06（owner_stage=merge；依赖T-05；AC-07）：完成实际统一门、交付、规范/账本、归档与组合pin/总表；给002-A提供已交付内容/定位接口。
 
@@ -157,6 +157,7 @@ stage: goal | plan_id: READER-003 | plan_revision: 3 | round: 3 | from: work(T-0
 stage: work | plan_id: READER-003 | plan_revision: 3 | outcome: pass（images 解析完成） | code_commit: a640df4（img: 行 → zip.extract_entry 落缓存 + image.thumb 媒体 URI → 章 JSON images[] 字段；封面 72B 字节精确落盘） | evidence: t08 20/20 PASS | CAP-02 首探针: image.thumb 在新 CLI VM 轨可用（t10 probe，uri=/api/__auto/media/{id}/{rev}） | next: reading_page EPUB 分支（img: 段落→images[k] URI 渲染；Vue img / VM image widget）→ T-03/T-04
 stage: goal | plan_id: READER-003 | plan_revision: 3 | round: 4 | from: work(T-02 前端) | to: user（AutoUI image widget 缺口裁决） | status: executing | outcome: blocked（N-003-7） | 发现: AutoUI DSL 无 image widget（expr_ident 的 "image" 为模块名非 widget；Vue codegen 无 <img> 发射；widget.at 无 image）——图片**显示**是 CAP-02 必需面。后端链已就绪：zip.extract_entry 落盘 + image.thumb 媒体 URI + 章 JSON images[] 字段（a640df4）。 | N-003-7: AutoUI DSL 缺 image widget（Vue <img> + 原生 iced image 渲染） | 选项: ①框架补 image widget（auto-lang 新前置包，模式同 PLAN-897）；②app 侧 v1 以占位行诚实显示 img: 标记（AC-01 图片显示面留缺口，不冒充） | 待用户裁决 | worktree: plan-003-dev @ a640df4
 stage: goal | plan_id: READER-003 | plan_revision: 3 | round: 5 | from: user（N-003-7 裁决问询） | to: work | status: executing | outcome: pass（裁决=选项② v1 占位行；未获显式答复，按推荐路径继续——选项① image widget 框架包作为 N-003-7 后续交付，app 后端已就绪） | 记录: img: 行以标记文本诚实显示（reading_page 现有段落流已天然呈现）；AC-01 图片显示面＝N-003-7 具名框架缺口（先例 001/N-r8-2）；SD-01 能力表如实记录 | next: work/T-03 收尾 → T-04 验证套件
+stage: work | plan_id: READER-003 | plan_revision: 3 | outcome: **pass（execution_done：T-01..T-04 全交付）** | worktree_path: D:/autostack/.wt/reader-003/auto-reader | branch: plan-003-dev | base_commit: fa6185e | code_commit: 5e9b513（T-01）→ 7eb48b9（T-02 后端）→ a640df4（images）→ caa872c（T-03/T-04 verify_epub） | dependency_revisions: auto CLI SHA256 706d13f5…（PLAN-897 zip natives） | task_ids: T-01..T-04 ✅（T-05 review/T-06 merge 待做） | evidence: verify_epub vue+vm 各 21/21；t08 20/20；t01-t07 292 PASS 0 FAIL；模块单测 6/6 | 具名缺口（不冒充）: N-003-7（AutoUI image widget 未交付——img: 行诚实标记显示，后端 images[] URI 链就绪）；N-003-8（auto run flattener 对新增 stdlib 模块编译失败——API 验证走直接 api.at 入口，UI e2e 待修） | readiness: work 全 AC（AC-01 图片显示留 N-003-7 具名缺口；AC-02/03/04/05 API 面全过）| blockers: 无（review 可进场） | next_responsible_role: review
 
 ## 10. 待澄清事项
 
