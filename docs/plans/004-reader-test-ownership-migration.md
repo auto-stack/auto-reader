@@ -129,6 +129,8 @@ T-03 首红证据（2026-10-31，非迁移缺陷）：完整导入套件 6 腿 6
 
 2026-10-31 / stage: goal | plan_id: READER-004 | plan_revision: r1 | round: 1 | from: work | to: work | status: executing | outcome: blocked | worktree: D:/autostack/.wt/reader-004/auto-reader | commit: 9bab983 | next: user（解除动作见§10：auto-man 并发会话交付 zip 运行时后重跑 T-03；本目标授权链继续有效，恢复后从 work 段 T-03 进入）
 
+2026-10-31 / stage: goal | plan_id: READER-004 | plan_revision: r1 | round: 2 | from: work | to: work | status: executing | outcome: waiting | worktree: D:/autostack/.wt/reader-004/auto-reader | commit: 9bab983 | next: user。等待轮：复探运行时仍红（同一 11:37 auto.exe + 同一 zip 错误；auto-man WIP/HEAD 无新进展，`~/.auto` 安装面今日未动，lock WIP 未触及 auto-lang-core，语言仓 3 提交纯 docs）；legacy d2b2664 副本配 10-30 auto-ui-tool 仍红（排除 e6cc06f 单点回归假说）。已向用户提供三选项（等 owner 会话 / 授权旧提交构建 / 用户自行处理），未获答复。不做任何源/树写入；恢复后从 work 段 T-03 进入（§10 解除动作不变）。
+
 ## 10. 待澄清事项
 
 用户已指定目标owner为auto-reader；此处不再询问归属选择。待确认上述具体跨仓迁移方案后实施，尤其包含两份驱动及其路径/MCP辅助依赖，而非只移动数据目录。
