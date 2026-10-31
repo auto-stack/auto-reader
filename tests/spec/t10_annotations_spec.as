@@ -253,6 +253,18 @@ fn main() {
     check(u10.find("\"ok\":true") >= 0, "S10 update after source change ok")
     check(get_annotations_json(bid).find("桥边的老树开花了") >= 0, "S10 original quote preserved")
 
+    // ── S11 CRLF + 多字节出现计数（滑窗口径回归）──
+    let book3 str = fs.join(dir, "crlf.txt")
+    fs.write_text(book3, "第一章 起\r\n春天来了。\r\n\r\n桥边的老树开花了，桥边的老树开花了，年年如此。\r\n")
+    let ok3_raw str = import_book_json(book3, "", false)
+    let ok3 = json.parse(ok3_raw)
+    check(ok3.code == "ok", "S11 import crlf ok")
+    let bid3 str = "" + ok3.book_id
+    let c31 str = put_annotations_json(bid3, "create", "", "highlight", 1, 2, 2, "CRLF 第二处", "[]", "桥边的老树开花了")
+    check(c31.find("\"ok\":true") >= 0, "S11 crlf+中文 occ=2 accepted")
+    let c32 str = put_annotations_json(bid3, "create", "", "highlight", 1, 2, 3, "CRLF 第三处", "[]", "桥边的老树开花了")
+    check(c32.find("\"ok\":false") >= 0, "S11 crlf occ=3 rejected")
+
     log("SPEC t10 done fails=" + fails.to_string())
     if fails > 0 {
         hash.file_sha256("__spec_failure__")

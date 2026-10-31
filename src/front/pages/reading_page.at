@@ -127,18 +127,18 @@ fn merge_marks(body str, anns_resp str, ch int) List {
 /// → [{annotation_id, kind, chapter_number, para_idx, quote, occurrence,
 /// comment, bad}]。bad 仅对当前章核对（quote 出现序不足 = 需重定位；
 /// 其他章未核 = 不显示徽标，不做未证断言）。入参全标量。
-fn enrich_ann(ann_resp str, body str, ch int) List {
+fn enrich_ann(ann_src str, body str, ch int) List {
     var out List = []
-    if ann_resp == "" {
+    if ann_src == "" {
         return out
     }
-    if ann_resp.find("\"annotations\":[") < 0 {
+    if ann_src.find("\"annotations\":[") < 0 {
         return out
     }
     var okp bool = false
     var wrap = null
     try {
-        wrap = json.parse(ann_resp)
+        wrap = json.parse(ann_src)
         okp = true
     } catch {
         okp = false
@@ -251,11 +251,11 @@ fn body_style_of(font str, line str) str {
 }
 
 /// READER-002：阅读列宽（宽窄布局）。缺省 medium=max-w-2xl（001 原状）。
-fn layout_cls_of(layout str) str {
-    if layout == "narrow" {
+fn layout_cls_of(ly str) str {
+    if ly == "narrow" {
         return "max-w-xl"
     }
-    if layout == "wide" {
+    if ly == "wide" {
         return "max-w-4xl"
     }
     return "max-w-2xl"
@@ -263,32 +263,32 @@ fn layout_cls_of(layout str) str {
 
 /// READER-002：阅读主题（亮/米/暗）。作用于正文容器底色与文字色；
 /// 页框（顶/底栏）保持应用主题——本地阅读偏好只覆盖沉浸面。
-fn theme_body_of(theme str) str {
-    if theme == "sepia" {
+fn theme_body_of(th str) str {
+    if th == "sepia" {
         return "bg-[#f4ecd8] text-[#5b4636]"
     }
-    if theme == "dark" {
+    if th == "dark" {
         return "bg-[#1f2430] text-[#d6dae2]"
     }
     return "bg-background text-foreground"
 }
 
 /// 主题下段落悬停/标记的次级样式（与 theme_body_of 同枚举）。
-fn theme_hover_of(theme str) str {
-    if theme == "sepia" {
+fn theme_hover_of(th str) str {
+    if th == "sepia" {
         return "hover:bg-[#eadfbd]"
     }
-    if theme == "dark" {
+    if th == "dark" {
         return "hover:bg-[#2a3140]"
     }
     return "hover:bg-muted"
 }
 
-fn theme_marked_of(theme str) str {
-    if theme == "sepia" {
+fn theme_marked_of(th str) str {
+    if th == "sepia" {
         return "bg-[#eadfbd]"
     }
-    if theme == "dark" {
+    if th == "dark" {
         return "bg-[#2a3140]"
     }
     return "bg-primary/10"
@@ -296,28 +296,27 @@ fn theme_marked_of(theme str) str {
 
 /// 段内出现计数（重叠口径，与后端 count_occurrences 同式——UI 侧
 /// 「第 N 处」候选与锚点预判；终判在服务端）。
+/// 段内出现计数（重叠口径，与后端 count_occurrences 同式——滑窗
+/// substr 逐位比较，find 偏移不喂 substr，多字节口径错位防御）。
 fn count_sub(hay str, needle str) int {
     if needle == "" {
         return 0
     }
+    let hl int = hay.len()
+    let nl int = needle.len()
+    if nl > hl {
+        return 0
+    }
     var count int = 0
-    var rest str = hay
-    var guard int = 0
-    while guard < 1000 {
-        guard = guard + 1
-        let pos int = rest.find(needle)
-        if pos < 0 {
-            break
+    var i int = 0
+    while i + nl <= hl {
+        if hay.substr(i, nl) == needle {
+            count = count + 1
         }
-        count = count + 1
-        if pos + 1 >= rest.len() {
-            break
-        }
-        rest = rest.substr(pos + 1, rest.len() - pos - 1)
+        i = i + 1
     }
     return count
 }
-
 /// 标签输入消毒 + 规范 JSON 数组（"a, b" → ["a","b"]；空 → "[]"）。
 /// 引号/反斜杠剥除（防 JSON 注入——服务端词法门兜底拒绝）。
 fn tags_json_of(input str) str {

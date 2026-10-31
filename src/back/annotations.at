@@ -116,28 +116,28 @@ fn reemit(it) str {
 // 锚点核算（重叠出现计数；find/substr 同源自洽，序数跨轨稳定）
 // ═══════════════════════════════════════════════════════════
 
+/// 出现计数（重叠口径）：滑窗 substr 逐位比较——len/substr 同族自洽，
+/// 不把 find 的偏移喂进 substr（多字节文本字节/字符口径错位防御——
+/// CRLF+中文夹具实测暴露：后缀截断式计数对第二处起锚错位致漏计）。
 fn count_occurrences(hay str, needle str) int {
     if needle == "" {
         return 0
     }
+    let hl int = hay.len()
+    let nl int = needle.len()
+    if nl > hl {
+        return 0
+    }
     var count int = 0
-    var rest str = hay
-    var guard int = 0
-    while guard < 1000 {
-        guard = guard + 1
-        let pos int = rest.find(needle)
-        if pos < 0 {
-            break
+    var i int = 0
+    while i + nl <= hl {
+        if hay.substr(i, nl) == needle {
+            count = count + 1
         }
-        count = count + 1
-        if pos + 1 >= rest.len() {
-            break
-        }
-        rest = rest.substr(pos + 1, rest.len() - pos - 1)
+        i = i + 1
     }
     return count
 }
-
 /// 锚段行文本（trim 后）；越界/缺内容/空行回 ""（调用方判空报错）。
 fn live_para(book_id str, ch int, pi int) str {
     let cj str = chapter_json(book_id, ch)
