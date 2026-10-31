@@ -5,7 +5,7 @@
 #       （迁移语义）、同内容异名去重、同题异容独立档案。
 # T-26（r8）：10MiB 断言改为成功门——AUTO_HTTP_STEP_BUDGET profile
 #       （run_fresh_server.sh，PLAN-781 交付）下导入必须 ok 且内容可读；
-#       全章逐字 deep oracle 由 scripts/tools/test_reader_import_budget.py 承担。
+#       全章逐字 deep oracle 由 tests/spec/test_reader_import_budget.py 承担（READER-004 迁入）。
 # 幂等：生成物首行注入运行级唯一标识（内容去重基于内容）；请求体 ASCII
 # 安全（\u 转义）；空响应幂等重试（T-02 实测缺陷）。
 import json

@@ -265,6 +265,30 @@ T-02 实测）。**直连客户端请求体必须 ASCII 安全（\u 转义）**�
 - 原两项显式未验收（10MiB 成功导入、F-12 混排入 pane）**已于 r8/r9 关闭**，
   证据见计划 §9 的 r8/r9 回执；不再保留"未验收"残留表述。
 
+## 验收驱动与夹具归属（READER-004 交付，应用测试单源）
+
+本仓拥有并维护两组验收资产（原 PLAN-781 交付于 auto-lang `scripts/tools/` 与
+`test/fixtures/`，READER-004 迁入；语言仓源位已退役，不保留双份实现）：
+
+- **10MiB 导入预算驱动** `tests/spec/test_reader_import_budget.py` + 夹具
+  `tests/fixtures/reader-import-budget/`（生成器 `gen_fixtures.py` 确定性重建，
+  大文件与 `manifest.json` 为本地生成产物不入库）。用例 v17_txt/v17_md/
+  v17_cold_restart/v19_low_budget（含 v19_bad_encoding）/v14_dual_instance/
+  v15_boot/w03_corrupt；退出码 0=全过、2=有 FAIL、3=环境不可用。
+- **原生验收驱动（框架正对照）** `tests/native/test_native_reader_acceptance.py`
+  + 夹具 `tests/fixtures/native-reader-acceptance/{save-restore,scroll-geometry}/`
+  （框架 120 行正对照 app，非真实 Reader 源码副本）。默认 required 集含
+  r1_smoke/v07_dual/v12_故障控制/v10_v11_v13_几何/v08_save/v09_cold_restore/
+  v08_reader_current_state/v_anchor_native；`v12_injected_fail` 反控不在默认集。
+- **执行入口与依赖**：两驱动均显式接收 `--auto-bin`（导入驱动亦接受 `AUTO_BIN`
+  环境变量）——auto 二进制属必要运行依赖，不等同依赖语言仓源码；Reader 根与
+  夹具位置按脚本自身位置解析，`--app-dir`/`--reader-dir` 显式覆盖保留，可从
+  任意 cwd 运行。原生驱动的 MCP 请求面（call/snapshot/press/screenshot）由
+  驱动内轻量适配承接，请求/截图/错误信封语义与框架通用客户端一致；不导入
+  auto-lang 源码树或 autoui-verifier 技能目录。
+- 历史合同与证据（PLAN-781 计划/报告、r8/r9 验收记录）留 auto-lang 原仓归档，
+  仅作历史出处；本节为当前唯一权威归属与入口声明。
+
 ## EPUB 分派与共存（SD-02，READER-003 交付）
 
 - `.epub` 扩展名 → EPUB 导入事务（docs/specs/reader/epub-reflow.md）；

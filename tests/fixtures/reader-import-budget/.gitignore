@@ -1,0 +1,8 @@
+book-10mib.txt
+book-10mib.md
+book-small.txt
+book-bad.bin
+book-tiny.txt
+# 确定性生成产物：gen_fixtures.py 按需重建（auto-lang 原仓由全局 *.json 规则
+# 忽略；本仓无该规则，改为显式忽略，保持生成资产不入库的同一边界）。
+manifest.json

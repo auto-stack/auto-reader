@@ -11,8 +11,8 @@
 
 前置：17825 空闲；`auto` 在 PATH。驱动自管服务实例（`auto service --server vm`，
 无 UI），与 run_fresh_server.sh 同一预算 profile。
-注意：781 交付的 test_reader_import_budget.py 在 auto-man CLI 下实例无法就绪
-（登记 N-r8-4），本驱动为等价 deep oracle（业务终审口径）。
+注意：781 交付、READER-004 迁入本仓的 tests/spec/test_reader_import_budget.py
+在 auto-man CLI 下实例无法就绪（登记 N-r8-4），本驱动为等价 deep oracle（业务终审口径）。
 """
 import hashlib
 import json
