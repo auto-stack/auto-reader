@@ -189,76 +189,9 @@ pub fn library_export(book_id str) str {
 // ═══════════════════════════════════════════════════════════
 
 /// GET /api/reader/media/:bid/:res — 章图原始字节（不支持形态 → 404）。
+/// root/形状白名单与 content type 推导在 library.epub_media_response
+/// （db 委托同款分层——codegen db.rs 一致性门要求端点经 db 面）。
 #[api(method = "GET", path = "/api/reader/media/:bid/:res")]
 pub fn reader_media(bid str, res str) FileResponse {
-    // 形状白名单：res_ 前缀 + 安全字母集（双射扁平名保证）。
-    var ok bool = true
-    if res.len() < 5 {
-        ok = false
-    }
-    if ok {
-        if res.substr(0, 4) != "res_" {
-            ok = false
-        }
-    }
-    if ok {
-        var i int = 0
-        while i < res.len() {
-            let c str = res.substr(i, 1)
-            var known bool = false
-            if "0123456789".find(c) >= 0 {
-                known = true
-            }
-            if "abcdefghijklmnopqrstuvwxyz".find(c) >= 0 {
-                known = true
-            }
-            if "ABCDEFGHIJKLMNOPQRSTUVWXYZ".find(c) >= 0 {
-                known = true
-            }
-            if c == "." {
-                known = true
-            }
-            if c == "-" {
-                known = true
-            }
-            if c == "_" {
-                known = true
-            }
-            if !known {
-                ok = false
-                i = res.len()
-            }
-            i = i + 1
-        }
-    }
-    // root 派生：bid → 书目受管副本 → <managed>.chapters；缺书/格式不符
-    // → 指向必然不存在的名字（传输层 404），不泄露任何状态。
-    var root str = ""
-    var rel str = "__missing__"
-    if ok {
-        let rj str = book_json(bid)
-        if rj != "" {
-            let r = json.parse(rj)
-            let fmt str = "" + r.format
-            if fmt == "epub" {
-                let mp str = "" + r.managed_path
-                if mp != "" {
-                    root = mp + ".chapters"
-                    rel = res
-                }
-            }
-        }
-    }
-    if root == "" {
-        let dd str = data_dir()
-        root = dd
-        rel = "__missing__"
-    }
-    // content type 按扩展名（扁平名保序原扩展名）。
-    var opts str = "{}"
-    let ct str = epub_img_type_of(res)
-    if ct != "" {
-        opts = "{\"content_type\":\"" + ct + "\"}"
-    }
-    return http.file_response(root, rel, opts)
+    return db.reader_media(bid, res)
 }

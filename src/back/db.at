@@ -3,7 +3,7 @@
 // NOTE: seed strings ASCII-only (field-splitter limitation, see 017-chat).
 
 use api: Book, Chapter
-use library: books_json, book_json, toc_json, chapter_json, import_book_json, remove_book_json, restore_book_json, get_reading_json, put_reading_json
+use library: books_json, book_json, toc_json, chapter_json, import_book_json, remove_book_json, restore_book_json, get_reading_json, put_reading_json, epub_media_response
 use annotations: get_annotations_json, put_annotations_json, search_book_json, export_annotations_json
 
 // ═══════════════════════════════════════════════════════════
@@ -202,6 +202,11 @@ pub fn library_restore(id str) str {
 
 pub fn library_toc(id str) str {
     return toc_json(id)
+}
+
+/// READER-005 T-02：EPUB 章图字节服务委托（api 层 FileResponse 直通）。
+pub fn reader_media(bid str, res str) FileResponse {
+    return epub_media_response(bid, res)
 }
 
 pub fn library_chapter(book_id str, number int) str {

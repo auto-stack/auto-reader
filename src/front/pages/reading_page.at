@@ -170,15 +170,18 @@ fn merge_marks(body str, anns_resp str, ch int, csrc str) List {
                     kind = "imgerr"
                 }
             }
-            // T-03：本行链接 chips（后端已解析目标）
+            // T-03：本行链接 chips（后端已解析目标）；lk_n 标量计数供
+            // view 守卫（VM 轨模板对动态成员方法求值不可靠——实测回避）
             var lks List = []
+            var lkn int = 0
             for lk in larr2 {
                 let ll int = lk.line
                 if ll == i {
                     lks.push({ lch: lk.ch, lpara: lk.para, lbl: ("" + lk.label) })
+                    lkn = lkn + 1
                 }
             }
-            out.push({ idx: i, text: t, key: k, mark_n: n, mark_bad: bad, kind: kind, img_uri: img_uri, img_err: img_err, lks: lks })
+            out.push({ idx: i, text: t, key: k, mark_n: n, mark_bad: bad, kind: kind, img_uri: img_uri, img_err: img_err, lks: lks, lk_n: lkn })
         }
         i = i + 1
     }
@@ -407,7 +410,7 @@ fn tags_json_of(input str) str {
 }
 
 widget reading_page {
-    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int), ToggleSearch, DoSearch, ToggleAnns, ToggleStyle, SetLayout(str), SetTheme(str), JumpTo(int, int), JumpLink(int, int), AnnDelete(str), OpenAnnDialog(int), AnnKind(str), AnnSubmit, AnnCancel, DoExport, NoOp }
+    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int), ToggleSearch, DoSearch, ToggleAnns, ToggleStyle, SetLayout(str), SetTheme(str), JumpTo(int, int), JumpLink(int, int), SearchInput(str), QuoteInput(str), OccInput(str), CommentInput(str), TagsInput(str), AnnDelete(str), OpenAnnDialog(int), AnnKind(str), AnnSubmit, AnnCancel, DoExport, NoOp }
 
     model {
         var book_id int = 0
@@ -541,7 +544,7 @@ widget reading_page {
                         text "本书内搜索" { style: "text-xs font-semibold text-muted-foreground uppercase tracking-wide px-2 py-1 shrink-0" }
                         input {
                             value: .search_q
-                            oninput: .NoOp
+                            oninput: .SearchInput
                             onenter: .DoSearch
                             placeholder: "输入关键词（精确子串）"
                             style: "w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground outline-none focus:border-primary"
@@ -779,7 +782,7 @@ widget reading_page {
                                             // T-03：链接 chips（可点击 col 之外的
                                             // 兄弟面——不冒泡触发 TapParagraph；
                                             // 无效目标点击给诚实提示不跳转）
-                                            if p.lks.len() > 0 {
+                                            if p.lk_n > 0 {
                                                 row {
                                                     style: "flex-wrap gap-1 px-3 py-1"
                                                     for lk in p.lks {
@@ -871,7 +874,7 @@ widget reading_page {
                     text "摘录（逐字锚；可截取子串）" { style: "text-xs text-muted-foreground" }
                     input {
                         value: .ann_quote
-                        oninput: .NoOp
+                        oninput: .QuoteInput
                         placeholder: "摘录原文"
                         style: "w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground outline-none focus:border-primary"
                     }
@@ -880,7 +883,7 @@ widget reading_page {
                         text "第" { style: "text-sm text-foreground" }
                         input {
                             value: .ann_occ_str
-                            oninput: .NoOp
+                            oninput: .OccInput
                             style: "w-16 px-2 py-1.5 bg-background border border-border rounded-lg text-sm text-foreground outline-none focus:border-primary"
                         }
                         text "处（同段重复句序号）" { style: "text-xs text-muted-foreground" }
@@ -888,7 +891,7 @@ widget reading_page {
                     text "批注" { style: "text-xs text-muted-foreground" }
                     textarea {
                         value: .ann_comment
-                        oninput: .NoOp
+                        oninput: .CommentInput
                         height: 64
                         placeholder: "写点什么（可空）"
                         style: "w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground outline-none focus:border-primary"
@@ -896,7 +899,7 @@ widget reading_page {
                     text "标签（逗号分隔）" { style: "text-xs text-muted-foreground" }
                     input {
                         value: .ann_tags
-                        oninput: .NoOp
+                        oninput: .TagsInput
                         placeholder: "例：重点, 待查"
                         style: "w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground outline-none focus:border-primary"
                     }
@@ -1310,6 +1313,14 @@ widget reading_page {
         }
         // ── READER-002 阶段A handlers（T-01/T-03/T-05）──
         .NoOp -> { }
+        // ── 输入回写（VM 轨 type_text/键入经事件通道按 handler 名送达——
+        // NoOp 丢值，T-04 实测：原生编辑注释提交仍带旧 comment；Vue 轨
+        // 同 handler 语义不变。auto-photos SetSearch 同款约定）──
+        .SearchInput(v str) -> { .search_q = v }
+        .QuoteInput(v str) -> { .ann_quote = v }
+        .OccInput(v str) -> { .ann_occ_str = v }
+        .CommentInput(v str) -> { .ann_comment = v }
+        .TagsInput(v str) -> { .ann_tags = v }
         .ToggleSearch -> {
             .show_search = !.show_search
             .show_anns = false

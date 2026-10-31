@@ -35,7 +35,7 @@ use pathx: join, basename, stem_of, mkdirs, json_escape, normalize
 use hashx: ph1
 use jsonx: valid_index, valid_state, valid_removed_entry
 use importers: parse_book_json, format_of, scan_meta_json
-use epub: epub_import_json, epub_toc_json, epub_chapter_json
+use epub: epub_import_json, epub_toc_json, epub_chapter_json, epub_img_type_of
 
 fn empty_str() str {
     return ""
@@ -583,6 +583,78 @@ pub fn chapter_json(book_id str, number int) str {
 // ═══════════════════════════════════════════════════════════
 // 导入事务
 // ═══════════════════════════════════════════════════════════
+
+/// READER-005 T-02：EPUB 章图字节服务（http.file_response 承载）。
+/// root 只由书目记录派生（受管副本章节缓存目录）；res 形状白名单
+/// （res_ 前缀 + [A-Za-z0-9.-]，双射扁平名保证）；缺书/格式不符/非法名
+/// → 指向必然不存在的名字（传输层 404），不泄露任何状态。
+pub fn epub_media_response(bid str, res str) FileResponse {
+    var ok bool = true
+    if res.len() < 5 {
+        ok = false
+    }
+    if ok {
+        if res.substr(0, 4) != "res_" {
+            ok = false
+        }
+    }
+    if ok {
+        var i int = 0
+        while i < res.len() {
+            let c str = res.substr(i, 1)
+            var known bool = false
+            if "0123456789".find(c) >= 0 {
+                known = true
+            }
+            if "abcdefghijklmnopqrstuvwxyz".find(c) >= 0 {
+                known = true
+            }
+            if "ABCDEFGHIJKLMNOPQRSTUVWXYZ".find(c) >= 0 {
+                known = true
+            }
+            if c == "." {
+                known = true
+            }
+            if c == "-" {
+                known = true
+            }
+            if c == "_" {
+                known = true
+            }
+            if !known {
+                ok = false
+                i = res.len()
+            }
+            i = i + 1
+        }
+    }
+    var root str = ""
+    var rel str = "__missing__"
+    if ok {
+        let rj str = book_json(bid)
+        if rj != "" {
+            let r = json.parse(rj)
+            let fmt str = "" + r.format
+            if fmt == "epub" {
+                let mp str = "" + r.managed_path
+                if mp != "" {
+                    root = mp + ".chapters"
+                    rel = res
+                }
+            }
+        }
+    }
+    if root == "" {
+        root = data_dir()
+        rel = "__missing__"
+    }
+    var opts str = "{}"
+    let ct str = epub_img_type_of(res)
+    if ct != "" {
+        opts = "{\"content_type\":\"" + ct + "\"}"
+    }
+    return http.file_response(root, rel, opts)
+}
 
 /// EPUB 索引边车路径（epub.at 消费）
 
