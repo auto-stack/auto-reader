@@ -1,10 +1,10 @@
 ---
 plan_id: READER-005
-status: drafting
+status: reviewed
 feature_name: "EPUB实际阅读与本地能力双端验收收口"
 author: [Codex]
 created_at: 2026-10-31
-updated_at: 2026-10-31
+updated_at: 2026-11-01
 plan_revision: 1
 current_step: 7
 total_steps: 9
@@ -128,6 +128,7 @@ touched_goals: []
 - 现有归档计划、Spec 与源码保持原样；旧验收只证明其冻结版本与已声明范围。应用提交/push 不升级 AutoOS 组合版本。
 - stage: goal | plan_id: READER-005 | plan_revision: r1 | round: 1 | from: drafting | to: work | status: drafting→executing | outcome: pass | worktree: D:/autostack/auto-reader（main，计划§2 独立 clone 即唯一权威树，无独立 app worktree） | commit: 7231c06+本次T-00提交 | next: work/T-01。授权链：/goal 完成计划005 = work/review/有界修复/merge 全链授权（§4 记录）。
 - stage: work | plan_id: READER-005 | plan_revision: r1 | outcome: pass（execution_done） | worktree_path: D:/autostack/auto-reader | branch: main（计划§2 独立 clone 即权威树） | base_commit: 964a33f（T-00 前）；work 提交链 246cbfd/88332ef/c4b37b4/c8a20a4/5c9e3fe/bbf893d/6aa8a51/ffdefa1/d142a9a/317bb76（本次） | dependency_revisions: CLI e7dd7df1（0.1.0+plan-890-verified-r7-t19-2-gbe740b6）、auto-ui-tool 4d2198b8、auto-ui d85edbb、auto-photos 5eec01b | task_ids: T-00..T-06 全交付 | evidence: docs/plans/evidence/005/standalone-decision.md + §8 各任务行 + D:/autostack/plan-artifacts/plan-005/（gate-vue-4.log 28/0、gate-vm-6.log 27/0） | blockers: 无 open in-contract finding；3 项具名跨仓框架 GAP（scroll-pane 按压 path 分歧 / VM Http.post 记录体缺参+多字节直连劣化 / vue codegen 形参同名与 style 三元 model 引用）——owner=框架仓，复审不得以历史 skip 或 004 正对照顶替实际 app 结果 | next_responsible_role: review（T-07 独立上下文最终复审，同 clone；复审期间实现写入暂停）
+- stage: review | review_scope: final | reviewer_identity/limitations: 实现会话内复审（计划§6 禁止为本复审自动创建新会话/agent）；裁决由工件重构——diff 独立重读 + 冻结树新鲜独立探针（RV-1..4），不依赖执行者摘要 | plan_id: READER-005 | plan_revision: r1（未变更） | outcome: pass（final） | worktree_path: D:/autostack/auto-reader | branch: main | reviewed_commit: b1546d0（HEAD；末次代码变更 6aa8a51，其后全为 docs/tests 提交） | base_commit: 7231c06（work 差异基线；计划 base 964a33f 早于 scoping 提交） | dependency_revisions: CLI e7dd7df1 / auto-ui-tool 4d2198b8 / auto-ui d85edbb / auto-photos 5eec01b（T-06 复核无漂移） | spec_inputs: docs/specs/reader/{epub-reflow,reading-annotations,real-library}.md（c4efbe7f/a58906d5/307行现行版）；SD-01..04 提案与 as-built 行为一致（媒体 URI 方案/链接表/双 profile/永久门）；canonical Spec 零写入（SD 发布归 merge） | acceptance_results: AC-01 pass（T-01+gate R-01）·AC-02 pass（gate R-02/R-05 + 复审独立 RV-1 字节逐字/RV-2 越界全 404）·AC-03 pass（gate R-03 + RV-3 四形态+4 诚实拒绝+行对齐不变量）·AC-04 pass（verify_local vue 50/50+vm 49、原生驱动 37/0+3 具名 GAP、Playwright 24/24；UI 写传输缺口=N-r8-1 族具名跨仓债，Vue 承载全 UI 写验收，原生以 state_changes+服务端锚定 oracle 承载——非本仓可关闭，复审不以此降级）·AC-05 pass（聚合门双 profile 0 FAIL，R-06 双端反例证明区分力，无必需 skip）·AC-06 pass（本复审）·AC-07 pending（merge 专属：SD 发布、README/roadmap 计划表行更新、归档计数、push） | pending_closeout_gates: AC-07 全部；roadmap 005 行仍 drafting/0-9（merge 更新，AC-07 明示归属） | findings: 无 open in-contract finding。记录两项非阻塞事项：①frontmatter status 字段 work 阶段漏更新（drafting→本回执改 reviewed，纯簿记）；②媒体端点 root 越界深防线（file_response 403）未单独探针——白名单层已实测全 404（RV-2），结构性双保险成立，不构成缺口。work 期间场景缺陷修复两项（EPUB 章标题恒回落、titles 双管道；前端纪律回避的两个 codegen 缺陷以字面量/改名等价替换）均绑定探针+回归证据，无验收弱化 | evidence: gate-vue-4.log（28/0）、gate-vm-6.log（27/0）、t07/server.log+复审探针 RV-1..4 输出（本回执内联）、diff 7231c06..b1546d0 独立重读（epub_flat_res 双射性、xhtml_to_lines/xhtml_links 同步进等价、端点三层、输入回写、chips 出列） | next: merge（T-08；授权链 /goal 完成计划005）
 - stage: goal | plan_id: READER-005 | plan_revision: r1 | round: 2 | from: work | to: review | status: executing→execution_done | outcome: pass | worktree: D:/autostack/auto-reader（main） | commit: 3a29835 | next: review/T-07。work 全链（T-00..T-06）交付；复审入口 gate：execution_done + 全部 work 任务 [x] + 无 open in-contract finding。
 
 ## 10. 待澄清事项
