@@ -2,9 +2,9 @@
 
 图书阅读器，使用 AutoLang / AutoUI 开发的独立应用。
 
-更新：2026-10-31。001真实TXT/Markdown书库与定位已交付；003的最小EPUB数据面已落地；002 r4以本地A（搜索、注释、Markdown导出）收尾；004验收驱动归属迁移已交付。图片目前仍以标记呈现，原生注释门和真实UI保存链仍有覆盖缺口，不能据框架夹具通过声称实际阅读全流程已验。
+更新：2026-11-01。001真实TXT/Markdown书库与定位已交付；003的最小EPUB数据面已落地；002 r4以本地A（搜索、注释、Markdown导出）收尾；004验收驱动归属迁移已交付；005 EPUB实际阅读收口已交付（work 阶段完成、待独立复审）——EPUB图片真实显示（应用自有稳定媒体服务 `/api/reader/media/...`，双射扁平名防碰撞、12MiB 提取闸、诚实错误行）、书内链接/脚注/跨章往返（chips + V-20 入 pane 逐字 oracle）、真实 UI 注释/搜索/导出/恢复双端验收（`python tests/basic/verify_standalone.py --profile vue|vm` 聚合门 vue 28/28、vm 27/0）。原生轨 UI 写传输受在册框架缺口阻断（见下），UI 创建/编辑面由 Vue 轨承载；Notes 交接继续留 AutoOS TODO。
 
-当前后续 [READER-005：EPUB实际阅读与本地能力双端验收收口](docs/plans/005-standalone-epub-and-ui-acceptance.md) 为 drafting/r1、0/9，**尚未实施**。先核验现有image组件/媒体链与当前CLI＋tool，补图像缓存、书内链接/脚注和真实Vue/原生任务；Notes交接继续留AutoOS TODO。
+当前后续：独立上下文最终复审（T-07/AC-06）→ merge 归档（T-08/AC-07）。复审不可用 004 正对照或历史 skip 顶替实际 app 结果；原生 UI 写缺口须以复审时点框架状态重判。
 
 ## 运行
 
@@ -59,7 +59,9 @@ deadline 判失败并以非零码退出，既有实例不受影响（实测）�
 | 原生验收（框架正对照） | `python tests/native/test_native_reader_acceptance.py --auto-bin <auto.exe> --app-dir <本仓> --data-dir <隔离父目录> --out-dir <证据目录>`（READER-004 自 auto-lang 迁入；`--case` 可选，缺省 required 集不含 `v12_injected_fail` 反控） | 真实窗口几何（scroll-geometry 夹具）：假几何负例/裁剪/锚点互操作/原生锚点；save-restore 夹具真实保存/冷恢复；双实例隔离/启动失败/端口占用/超时故障控制；pid↔端口身份与进程收割 |
 | 复审回归 | `python tests/review/reader001_repro.py` / `reader001_r3_repro.py` / `reader001_r4_repro.py` / `reader001_r5_repro.py` / `reader001_r6_repro.py` / `reader001_r7_repro.py`（同目录） | 8/12/8/5/24/14 检查全部 PASS（r6 恢复准入 24 项含 i32 边界/小数/未知键正负对照）；目录名须以 `reader001-review-` 开头；旧r2缺参400不代表语义校验 |
 | 原生 VM 验收 | `python tests/review/reader001_r8_native_vm_restore.py` | `-r vm --no-merge` 原生 iced 窗口（AutoUI MCP 通道）：冷重启后恢复定位 ¶50 可见（autoui_visibility 正面积交集）+ pane offset 深位置 + ¶100 反差 |
-| UI（Playwright） | `cd tests && npx playwright test real-book.spec.ts`（11，含 T-R10 V-20 几何门）/ `smoke.spec.ts`（10） | 需同一隔离 `AUTO_READER_DATA`、`PW_CHROMIUM`（指向 ms-playwright 已装全量 chrome——1.62.1 对应 headless_shell-1234 本机缺失且 CDN 不可达，T-09 修订门）；每套件前确认实例为全新启动（长跑实例有在册 N-2 劣化） |
+| UI（Playwright） | `cd tests && npx playwright test real-book.spec.ts`（11，含 T-R10 V-20 几何门）/ `smoke.spec.ts`（10）/ `basic/standalone_ui.spec.ts`（3，005 R-02/R-03 图像+链接 UI oracle） | 需同一隔离 `AUTO_READER_DATA`、`PW_CHROMIUM`（指向 ms-playwright 已装全量 chrome——1.62.1 对应 headless_shell-1234 本机缺失且 CDN 不可达，T-09 修订门）；每套件前确认实例为全新启动（长跑实例有在册 N-2 劣化） |
+| **005 聚合门（永久入口）** | `python tests/basic/verify_standalone.py --profile vue`（28 checks）/ `--profile vm`（27 checks） | 自管生命周期；R-01..06 全覆盖（启动+失败控制、图像字节+UI 解码、链接解析+UI V-20、verify_local 全量、负例+verify_epub、毁损反例→oracle 真实失败→还原对照）；端口预检（17824/17825 必须空闲）；`--auto-bin`/`AUTO_BIN` 绑定 CLI |
+| 原生 005 验收（vm 全轨） | `python tests/native/test_native_standalone_ui.py --auto-bin <auto.exe>`（37 records，3 具名 GAP=在册框架缺口） | split vm+vm 真实窗口：图像截图像素 oracle（红/蓝真解码互异）、chips 渲染、TOC/抽屉真实按压、type_text model 回写、冷重启恢复；scroll-pane 按压失配与 VM Http.post 记录体缺参为**在册框架缺口**（具名 GAP，不计 FAIL）——修复后重跑即转正 |
 
 测试纪律：夹具只进隔离目录；失败检查「输出与退出码」同时成立（`auto test`
 对单文件编译失败曾退出 0——CLI 缺陷已登记，脚本规格以日志 `fails=0` 与
@@ -79,7 +81,7 @@ AutoOS 通过 [`apps/auto-reader`](https://github.com/auto-stack/auto-os/tree/ma
 - [003：最小EPUB数据面](docs/plans/archive/003-epub-reflow.md)：merge 24c9838已有交付回执；图片显示/书内链接与完整UI门留005。
 - [002：本地阅读、注释与导出](docs/plans/archive/002-reading-annotations.md)：r4按用户裁决仅本地A收尾；Notes联动已移OS TODO，不再作为本地交付前置。
 - [004：验收驱动与夹具归属迁移](docs/plans/archive/004-reader-test-ownership-migration.md)：已交付；夹具与HTTP保存链覆盖有明确边界。
-- [005：EPUB实际阅读与双端验收收口](docs/plans/005-standalone-epub-and-ui-acceptance.md)：drafting/r1、0/9，当前下一步为T-00，未开始实现。
+- [005：EPUB实际阅读与双端验收收口](docs/plans/005-standalone-epub-and-ui-acceptance.md)：executing/r1、7/9（T-00..T-06 work 已交付，execution_done 待独立复审 T-07）。
 
 [路线图](docs/roadmap-v0.6.md) · [规划入口](docs/README.md)。003旧frontmatter和002历史任务计数存在滞后，以实际交付回执及Spec区分范围，本轮不修改归档。
 
