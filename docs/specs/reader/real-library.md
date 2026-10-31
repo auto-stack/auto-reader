@@ -264,3 +264,15 @@ T-02 实测）。**直连客户端请求体必须 ASCII 安全（\u 转义）**�
   `C1F54640120A19A9054ABD4B7C732B07F37F687D501A1891A59427DD368E1651`。
 - 原两项显式未验收（10MiB 成功导入、F-12 混排入 pane）**已于 r8/r9 关闭**，
   证据见计划 §9 的 r8/r9 回执；不再保留"未验收"残留表述。
+
+## EPUB 分派与共存（SD-02，READER-003 交付）
+
+- `.epub` 扩展名 → EPUB 导入事务（docs/specs/reader/epub-reflow.md）；
+  分派点在存在性/大小检查之后、UTF-8 预检之前（二进制容器）。
+- EPUB 记录同索引同形态（book_id uuid、format "epub"、import_version 1、
+  source_hash `sha256:<hex>` 前缀区分算法）；TXT/MD 记录的 `ph1` 语义与
+  逐字核对去重不变，两格式互不影响。
+- EPUB 的目录/章读取经 `.epubmeta.json` 边车 + 惰性解压（非 TXT 的
+  `<book_id>.meta.json` 章 meta 索引路径）；移除/恢复语义共用。
+- 阅读状态（Locator v1 + settings）对 EPUB 章节同样生效：章节号=spine
+  序、段落=章文本行、para_text 逐字锚；E-02 已实证（verify_epub）。

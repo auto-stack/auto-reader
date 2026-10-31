@@ -1,0 +1,51 @@
+// byte_module_probe.at — CAP-01 模块上下文复测：read_bytes 元素算术在编译模块
+// （非 .as 脚本）上下文是否干净。#[test] 经 `auto test -d` 运行。
+
+fn log_mod(msg str) {
+    let base str = Env.get("TEMP")
+    let p str = base + "/t00-epub-mod.log"
+    var prev str = ""
+    if file.exists(p) {
+        prev = file.read_text(p)
+    }
+    file.write_text(p, prev + msg + "\n")
+}
+
+/// 读取 s1.bin（72,105,0,255,128）并求和——期望 560。
+pub fn sum_s1() int {
+    let base str = Env.get("TEMP") + "/t00-epub-cap-probe"
+    let p1 str = base + "/s1.bin"
+    let bs []int = file.read_bytes(p1)
+    let sz int = fs.file_size(p1)
+    var acc int = 0
+    var k int = 0
+    while k < sz {
+        acc = acc + bs[k]
+        k = k + 1
+    }
+    return acc
+}
+
+/// 真实 ZIP 首条目 method 字段——期望 8（deflate）。
+pub fn zip_method() int {
+    let base str = Env.get("TEMP") + "/t00-epub-cap-probe"
+    let zp str = base + "/real.zip"
+    let zb []int = file.read_bytes(zp)
+    let m0 int = zb[8]
+    let m1 int = zb[9]
+    return m0 + m1 * 256
+}
+
+#[test]
+fn t_byte_sum_clean_arith() {
+    let s int = sum_s1()
+    log_mod("MOD sum_s1=" + s.to_string() + "（期望 560）")
+    expect(s == 560)
+}
+
+#[test]
+fn t_zip_method_clean_arith() {
+    let m int = zip_method()
+    log_mod("MOD zip_method=" + m.to_string() + "（期望 8）")
+    expect(m == 8)
+}

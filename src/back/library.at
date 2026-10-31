@@ -35,6 +35,7 @@ use pathx: join, basename, stem_of, mkdirs, json_escape, normalize
 use hashx: ph1
 use jsonx: valid_index, valid_state, valid_removed_entry
 use importers: parse_book_json, format_of, scan_meta_json
+use epub: epub_import_json, epub_toc_json, epub_chapter_json
 
 fn empty_str() str {
     return ""
@@ -85,7 +86,7 @@ fn removed_path() str {
     return join(dd, "removed.jsonl")
 }
 
-fn hash_dir_of(source_hash str) str {
+pub fn hash_dir_of(source_hash str) str {
     // ':' 在 Windows 目录名非法 → '-'
     var d str = ""
     var i int = 0
@@ -293,7 +294,7 @@ fn write_with_backup(path str, payload str) int {
 
 /// 索引落盘（含 AC-05 迁移前备份）。payload 为完整 library.json 内容，
 /// 经备份/暂存/提交协议写入（write_with_backup）。
-fn write_library_file(payload str) int {
+pub fn write_library_file(payload str) int {
     let lp str = lib_path()
     let dd str = data_dir()
     let mrc int = mkdirs(dd)
@@ -434,6 +435,17 @@ pub fn toc_json(book_id str) str {
         return "[]"
     }
     let r = json.parse(rj)
+    let fmt str = "" + r.format
+    if fmt == "epub" {
+        let meta str = load_epub_meta(book_id)
+        if meta == "" {
+            return "[]"
+        }
+        let m = json.parse(meta)
+        let hrefs str = "" + m.spine
+        let toc str = "" + m.toc
+        return epub_toc_json(hrefs, toc)
+    }
     let mp str = "" + r.managed_path
     if !fs.exists(mp) {
         return "[]"
@@ -477,6 +489,38 @@ pub fn chapter_json(book_id str, number int) str {
         return chapter_json_raw(number, "内容缺失", "", 0)
     }
     let r = json.parse(rj)
+    let fmt str = "" + r.format
+    if fmt == "epub" {
+        let meta str = load_epub_meta(book_id)
+        if meta == "" {
+            return chapter_json_raw(number, "内容缺失", "", 0)
+        }
+        let m = json.parse(meta)
+        let hrefs str = "" + m.spine
+        let opf_dir str = "" + m.opf_dir
+        var titles str = "|"
+        let tocarr = json.parse("[]")
+        let tocj str = epub_toc_json(hrefs, "" + m.toc)
+        let tarr = json.parse(tocj)
+        var i int = 0
+        for t in tarr {
+            i = i + 1
+        }
+        var k int = 1
+        while k <= i {
+            for t in tarr {
+                if t.number == k {
+                    var tt str = "|"
+                    tt = tt + ("" + t.title)
+                    tt = tt + "|"
+                    titles = titles + tt
+                }
+            }
+            k = k + 1
+        }
+        let mp str = "" + r.managed_path
+        return epub_chapter_json(mp, opf_dir, hrefs, number, titles)
+    }
     let mp str = "" + r.managed_path
     if !fs.exists(mp) {
         return chapter_json_raw(number, "内容缺失", "", 0)
@@ -535,6 +579,34 @@ pub fn chapter_json(book_id str, number int) str {
 // 导入事务
 // ═══════════════════════════════════════════════════════════
 
+/// EPUB 索引边车路径（epub.at 消费）
+
+/// EPUB 索引读取（诚实失败 ""）；供 toc/chapter 分支消费。
+pub fn load_epub_meta(book_id str) str {
+    let dd str = data_dir()
+    let ep str = join(dd, book_id + ".epubmeta.json")
+    if !fs.exists(ep) {
+        return ""
+    }
+    let raw str = fs.read_text(ep)
+    if raw == "" {
+        return ""
+    }
+    if !raw.starts_with("{\"version\":1,\"kind\":\"epub\"") {
+        return ""
+    }
+    return raw
+}
+pub fn write_epub_meta_file(book_id str, payload str) int {
+    let dd str = data_dir()
+    let mrc int = mkdirs(dd)
+    if mrc != 0 {
+        return mrc
+    }
+    let ep str = join(dd, book_id + ".epubmeta.json")
+    return verified_write(ep, payload)
+}
+
 /// 导入结果 JSON：{"code","message","book_id","existing_id"}。
 /// code: ok | duplicate | invalid_path | is_dir | empty_file | decode_error
 /// | io_error。duplicate 时 existing_id 指向已存书目。
@@ -559,6 +631,11 @@ pub fn import_book_json(path str, author str, force bool) str {
     let size int = fs.file_size(p)
     if size <= 0 {
         return "{\"code\":\"empty_file\",\"message\":\"文件为空\",\"book_id\":\"\",\"existing_id\":\"\"}"
+    }
+    // READER-003：.epub → EPUB 导入事务（二进制容器，不做 UTF-8 预检）。
+    let lower_p str = p.lower()
+    if lower_p.ends_with(".epub") {
+        return epub_import_json(p, author, force)
     }
     // 头部 64KB 解码检查（envelope total==-1 = 非法 UTF-8/IO 失败）
     let head_env str = File.read_text_range(p, 0, 65536)

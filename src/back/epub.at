@@ -1,0 +1,884 @@
+// epub.at — READER-003 EPUB 导入事务（zip natives + 纯 .at XML 扫描）。
+// 架构（capability-decision.md 2026-10-31 修订）：
+//   - ZIP/解压走 PLAN-897 zip natives（zip.list_json/read_text）；预算直传：
+//     container/OPF/nav 清单类 4MiB，章 XHTML 12MiB（CAP-03 单条目上限）。
+//   - XML 扫描 = 纯 .at str 操作（find/substr 字节索引，find 保多字节），
+//     只取 container/OPF/nav 所需子集；未支持形态（百分号编码 href、
+//     DTD/实体表）诚实拒绝——能力表（SD-01）如实记录。
+//   - 书版本身份 = hash.file_sha256 整文件真摘要（无 ph1 碰撞面）。
+//   - 惰性按章解压：导入期只做结构性校验（container/OPF/nav + spine 目标
+//     存在），章体首读时解压转换并缓存（epub_chapter_json，T-02 交付）。
+//   - 提交全有或全无：任何解析/预算失败不落受管资产与记录；受管副本写入
+//     后 sha256 读回对账（F-03 的二进制等价物）。
+use pathx: join, mkdirs, json_escape
+use library: books_json, data_dir, record_json, write_library_file, hash_dir_of, write_epub_meta_file
+
+/// 在 xml 中自 from 起查找 needle 首现（字节索引；-1 未命中）。
+/// 用后缀 substr + find 实现（find 自 0 起；OPF/nav 尺寸 KB 级可接受）。
+fn find_after(xml str, needle str, from int) int {
+    if from <= 0 {
+        return xml.find(needle)
+    }
+    if from >= xml.len() {
+        return -1
+    }
+    let tail str = xml.substr(from, xml.len() - from)
+    let p int = tail.find(needle)
+    if p < 0 {
+        return -1
+    }
+    return p + from
+}
+
+/// 标签内属性值：自 from 起 tag_name（形如 "item"）首现的标签体内
+/// attr="value"。未命中 ""。
+fn xml_attr(xml str, from int, tag_name str, attr str) str {
+    // 名称边界守卫："<rootfile" 不得命中 "<rootfiles"——匹配后随字符须为
+    // 空白/'>'/'/'（标签名终止符），否则继续找下一处。
+    let open str = "<" + tag_name
+    var t int = find_after(xml, open, from)
+    var guard int = 0
+    while guard < 4096 {
+        guard = guard + 1
+        if t < 0 {
+            return ""
+        }
+        let nxt int = t + open.len()
+        if nxt >= xml.len() {
+            break
+        }
+        let c str = xml.substr(nxt, 1)
+        if c == " " {
+            break
+        }
+        if c == ">" {
+            break
+        }
+        if c == "/" {
+            break
+        }
+        if c == "	" {
+            break
+        }
+        if c == "
+" {
+            break
+        }
+        t = find_after(xml, open, t + 1)
+    }
+    let gt int = find_after(xml, ">", t)
+    if gt < 0 {
+        return ""
+    }
+    let seg str = xml.substr(t, gt - t)
+    let pat str = attr + "=\""
+    let a int = seg.find(pat)
+    if a < 0 {
+        return ""
+    }
+    let vs int = a + pat.len()
+    let ve int = seg.find("\"", vs)
+    if ve < 0 {
+        return ""
+    }
+    return seg.substr(vs, ve - vs)
+}
+
+/// <open>…</close> 首现文本（自 from 起）。未命中 ""。
+fn xml_text(xml str, from int, open str, close str) str {
+    let s int = find_after(xml, open, from)
+    if s < 0 {
+        return ""
+    }
+    // 跳到本标签的 '>' 之后（属性/命名空间后缀在开标签内）
+    let gt int = find_after(xml, ">", s)
+    if gt < 0 {
+        return ""
+    }
+    let vs int = gt + 1
+    let ve int = find_after(xml, close, vs)
+    if ve < 0 {
+        return ""
+    }
+    return xml.substr(vs, ve - vs)
+}
+
+/// href 安全性（CAP-03/T-03）：非空、无反斜杠、无盘符冒号、无 ".."、
+/// 无 "//"、不以 "/" 起、无百分号（百分号编码 v1 诚实拒绝——能力表记录）。
+/// 通过返回原串，否则 ""。
+pub fn epub_href_ok(href str) str {
+    if href == "" {
+        return ""
+    }
+    if href.find("\\") >= 0 {
+        return ""
+    }
+    if href.find(":") >= 0 {
+        return ""
+    }
+    if href.find("%") >= 0 {
+        return ""
+    }
+    if href.find("`") >= 0 {
+        return ""
+    }
+    if href.find("|") >= 0 {
+        return ""
+    }
+    if href.find("..") >= 0 {
+        return ""
+    }
+    if href.find("//") >= 0 {
+        return ""
+    }
+    if href.substr(0, 1) == "/" {
+        return ""
+    }
+    return href
+}
+
+/// 相对 href → ZIP 内路径（base_dir 为 OPF 目录，含尾 "/" 或 ""）。
+pub fn epub_zip_path(base_dir str, href str) str {
+    let h str = epub_href_ok(href)
+    if h == "" {
+        return ""
+    }
+    return base_dir + h
+}
+
+/// container.xml → rootfile full-path（OPF 路径）。
+pub fn epub_opf_path_from_container(container str) str {
+    let fp str = xml_attr(container, 0, "rootfile", "full-path")
+    return epub_href_ok(fp)
+}
+
+/// manifest 内 properties 含 "nav" 的条目 href（OPF 相对）。
+pub fn epub_nav_href(opf str) str {
+    var from int = 0
+    var guard int = 0
+    while guard < 4096 {
+        guard = guard + 1
+        let t int = find_after(opf, "<item ", from)
+        if t < 0 {
+            return ""
+        }
+        let gt int = find_after(opf, ">", t)
+        if gt < 0 {
+            return ""
+        }
+        let seg str = opf.substr(t, gt - t)
+        if seg.find("properties=\"nav\"") >= 0 {
+            let pat str = "href=\""
+            let a int = seg.find(pat)
+            if a >= 0 {
+                let vs int = a + pat.len()
+                let ve int = seg.find("\"", vs)
+                if ve > vs {
+                    return seg.substr(vs, ve - vs)
+                }
+            }
+        }
+        from = gt
+    }
+    return ""
+}
+
+// ═══════════════════════════════════════════════════════════
+// 导入结果 JSON（与 library.import_book_json 同构）
+// ═══════════════════════════════════════════════════════════
+
+fn epub_err(code str, msg str) str {
+    var m str = "{\"code\":\""
+    m = m + code
+    m = m + "\",\"message\":\""
+    m = m + json_escape(msg)
+    m = m + "\",\"book_id\":\"\",\"existing_id\":\"\"}"
+    return m
+}
+
+/// EPUB 导入主入口。path 已由调用方做存在性/扩展名分派。
+/// 返回与 import_book_json 同构的结果 JSON；错误码以 "epub_" 前缀区分。
+/// library 注入的共享助手以 pub（library 端 pub 化）提供。
+pub fn epub_import_json(path str, author str, force bool) str {
+    let size int = fs.file_size(path)
+    if size <= 0 {
+        return epub_err("epub_invalid", "EPUB 文件为空或不可读")
+    }
+    // CAP-03：输入 ≤ 30 MiB
+    if size > 31457280 {
+        return epub_err("epub_too_large", "EPUB 超过 30MiB 上限")
+    }
+    // 身份：整文件 sha256
+    let sha str = hash.file_sha256(path)
+    let source_hash str = "sha256:" + sha
+    // 去重：同 sha256 = 同内容（密码学摘要即内容证明，无 ph1 碰撞面）
+    let cur str = books_json()
+    if cur == "" {
+        return epub_err("io_error", "书库索引版本不受支持：已保留原文件，需人工迁移")
+    }
+    let parsed = json.parse(cur)
+    let books = parsed.books
+    var dup_id str = ""
+    var dup_title str = ""
+    for b in books {
+        let bsh str = "" + b.source_hash
+        if bsh == source_hash {
+            dup_id = "" + b.book_id
+            dup_title = "" + b.title
+        }
+    }
+    if dup_id != "" {
+        if !force {
+            var dm str = "{\"code\":\"duplicate\",\"message\":\"已存在相同内容的书: "
+            dm = dm + json_escape(dup_title)
+            dm = dm + "\",\"book_id\":\"\",\"existing_id\":\""
+            dm = dm + json_escape(dup_id)
+            dm = dm + "\"}"
+            return dm
+        }
+    }
+    // container.xml → OPF 路径
+    let container str = zip.read_text(path, "META-INF/container.xml", 4194304)
+    if container == "" {
+        return epub_err("epub_invalid", "缺少 META-INF/container.xml（不是合法 EPUB 容器）")
+    }
+    let opf_path str = epub_opf_path_from_container(container)
+    if opf_path == "" {
+        return epub_err("epub_invalid", "container.xml 未声明有效的 rootfile")
+    }
+    // OPF：元数据 + manifest + spine（结构校验 = 导入期全部必需面）
+    let opf str = zip.read_text(path, opf_path, 4194304)
+    if opf == "" {
+        return epub_err("epub_invalid", "OPF 包文档缺失或超预算: " + opf_path)
+    }
+    let title str = xml_text(opf, 0, "<dc:title", "</dc:title>")
+    if title == "" {
+        return epub_err("epub_invalid", "OPF 缺少 dc:title")
+    }
+    let creator str = xml_text(opf, 0, "<dc:creator", "</dc:creator>")
+    // spine idref 序列（数量 = 章数）
+    // spine idref 集合（"|id1|id2|…"，首尾管道便于 find 精确命中）
+    var spine_refs str = "|"
+    var spine_n int = 0
+    var from int = 0
+    var spine_end int = find_after(opf, "</spine>", 0)
+    if spine_end < 0 {
+        return epub_err("epub_invalid", "OPF 缺少 spine")
+    }
+    var guard int = 0
+    while guard < 4096 {
+        guard = guard + 1
+        if from >= spine_end {
+            break
+        }
+        let t int = find_after(opf, "<itemref", from)
+        if t < 0 {
+            break
+        }
+        if t >= spine_end {
+            break
+        }
+        let gt int = find_after(opf, ">", t)
+        if gt < 0 {
+            break
+        }
+        let seg str = opf.substr(t, gt - t)
+        let pat str = "idref=\""
+        let a int = seg.find(pat)
+        if a >= 0 {
+            let vs int = a + pat.len()
+            let ve int = seg.find("\"", vs)
+            if ve > vs {
+                let idref str = seg.substr(vs, ve - vs)
+                let fenced str = "|" + idref + "|"
+                if spine_refs.find(fenced) < 0 {
+                    spine_refs = spine_refs + idref
+                    spine_refs = spine_refs + "|"
+                    spine_n = spine_n + 1
+                }
+            }
+        }
+        from = gt
+    }
+    if spine_n == 0 {
+        return epub_err("epub_invalid", "spine 为空（无可阅读内容）")
+    }
+    if spine_n > 4096 {
+        return epub_err("epub_too_many", "spine 条目超过 4096 上限")
+    }
+    // 单遍 manifest 扫描：id 命中 spine 集合 → 直接累积 href（顺序=manifest
+    // 顺序；章序由 meta 侧按 href→spine 索引还原，读侧用 href 寻章）。
+    var hrefs str = "|"
+    var hit_n int = 0
+    var mfrom int = 0
+    var mguard int = 0
+    while mguard < 8192 {
+        mguard = mguard + 1
+        if mfrom >= spine_end {
+            break
+        }
+        let t int = find_after(opf, "<item ", mfrom)
+        if t < 0 {
+            break
+        }
+        if t >= spine_end {
+            break
+        }
+        let gt int = find_after(opf, ">", t)
+        if gt < 0 {
+            break
+        }
+        let seg str = opf.substr(t, gt - t)
+        let ip str = "id=\""
+        let hp str = "href=\""
+        let ia int = seg.find(ip)
+        let ha int = seg.find(hp)
+        if ia >= 0 {
+            if ha >= 0 {
+                let ivs int = ia + ip.len()
+                let ive int = seg.find("\"", ivs)
+                let hvs int = ha + hp.len()
+                let hve int = seg.find("\"", hvs)
+                if ive > ivs {
+                    if hve > hvs {
+                        let mid str = seg.substr(ivs, ive - ivs)
+                        let fenced str = "|" + mid + "|"
+                        if spine_refs.find(fenced) >= 0 {
+                            let mh str = seg.substr(hvs, hve - hvs)
+                            if epub_href_ok(mh) == "" {
+                                return epub_err("epub_invalid", "manifest href 未通过安全检查: " + mh)
+                            }
+                            hrefs = hrefs + mh
+                            hrefs = hrefs + "|"
+                            hit_n = hit_n + 1
+                        }
+                    }
+                }
+            }
+        }
+        mfrom = gt
+    }
+    if hit_n != spine_n {
+        var dbg str = "spine 引用数与 manifest 命中数不一致: spine="
+        dbg = dbg + spine_n.to_string()
+        dbg = dbg + " hit="
+        dbg = dbg + hit_n.to_string()
+        return epub_err("epub_invalid", dbg)
+    }
+    // OPF 目录（用于相对 href → ZIP 路径）
+    var opf_dir str = ""
+    var slash int = opf_path.len() - 1
+    while slash >= 0 {
+        if opf_path.substr(slash, 1) == "/" {
+            opf_dir = opf_path.substr(0, slash + 1)
+            slash = -1
+        } else {
+            slash = slash - 1
+        }
+    }
+    // nav（EPUB3 必需；缺失诚实拒绝）
+    let nav_href str = epub_nav_href(opf)
+    if nav_href == "" {
+        return epub_err("epub_invalid", "manifest 缺少 properties=\"nav\" 的导航文档（EPUB3 必需）")
+    }
+    let nav_zip str = epub_zip_path(opf_dir, nav_href)
+    if nav_zip == "" {
+        return epub_err("epub_invalid", "nav href 未通过安全检查: " + nav_href)
+    }
+    let nav str = zip.read_text(path, nav_zip, 2097152)
+    if nav == "" {
+        return epub_err("epub_invalid", "导航文档缺失或超预算: " + nav_zip)
+    }
+    // 目录条目：<a href="...">label</a> 顺序提取（h 段锚点 v1 不拆——能力表记录）
+    var toc str = "|"
+    var tfrom int = 0
+    var tguard int = 0
+    var tcount int = 0
+    while tguard < 4096 {
+        tguard = tguard + 1
+        let at int = find_after(nav, "<a ", tfrom)
+        if at < 0 {
+            break
+        }
+        let label int = find_after(nav, ">", at)
+        if label < 0 {
+            break
+        }
+        let ac int = find_after(nav, "</a>", label)
+        if ac < 0 {
+            break
+        }
+        let seg str = nav.substr(at, label - at + 1)
+        let hp str = "href=\""
+        let ha int = seg.find(hp)
+        if ha >= 0 {
+            let hvs int = ha + hp.len()
+            let hve int = seg.find("\"", hvs)
+            if hve > hvs {
+                let hh str = seg.substr(hvs, hve - hvs)
+                if epub_href_ok(hh) != "" {
+                    let lbl str = nav.substr(label + 1, ac - label - 1)
+                    var trec str = hh + "`"
+                    trec = trec + lbl
+                    trec = trec + "|"
+                    toc = toc + trec
+                    tcount = tcount + 1
+                }
+            }
+        }
+        tfrom = label
+    }
+    // 受管资产：books/<hashdir>/original.epub（file.copy + sha256 读回对账）
+    let dd str = data_dir()
+    let books_root str = join(dd, "books")
+    let hdir str = hash_dir_of(source_hash)
+    let dir str = join(books_root, hdir)
+    let mrc int = mkdirs(dir)
+    if mrc != 0 {
+        return epub_err("io_error", "书库目录创建失败 rc=" + mrc.to_string())
+    }
+    let managed str = join(dir, "original.epub")
+    if !file.exists(managed) {
+        let crc int = file.copy(path, managed)
+        if crc != 0 {
+            return epub_err("io_error", "受管副本拷贝失败 rc=" + crc.to_string())
+        }
+        let back_sha str = hash.file_sha256(managed)
+        if back_sha != sha {
+            return epub_err("io_error", "受管副本校验失败（sha256 与源不一致）")
+        }
+    }
+    // epubmeta 边车（T-02 章读取/目录消费；导入期一次写就）
+    let bid str = str.uuid()
+    var meta str = "{\"version\":1,\"kind\":\"epub\",\"source_sha256\":\""
+    meta = meta + json_escape(source_hash)
+    meta = meta + "\",\"opf_dir\":\""
+    meta = meta + json_escape(opf_dir)
+    meta = meta + "\",\"spine\":\""
+    meta = meta + json_escape(hrefs)
+    meta = meta + "\",\"toc\":\""
+    meta = meta + json_escape(toc)
+    meta = meta + "\",\"title\":\""
+    meta = meta + json_escape(title)
+    meta = meta + "\",\"author\":\""
+    meta = meta + json_escape(creator)
+    meta = meta + "\",\"spine_n\":"
+    meta = meta + spine_n.to_string()
+    meta = meta + ",\"toc_n\":"
+    meta = meta + tcount.to_string()
+    meta = meta + "}"
+    let mwrc int = write_epub_meta_file(bid, meta)
+    if mwrc != 0 {
+        return epub_err("io_error", "EPUB 索引写入失败 rc=" + mwrc.to_string())
+    }
+    // 库记录（format "epub"；created_at 恒 0——a2r_std 无 time，框架债）
+    var who str = author
+    if who.trim() == "" {
+        who = "未知"
+    }
+    let nrj str = record_json(bid, source_hash, title, who, "epub", path, managed, size, spine_n, 1, 0)
+    var payload str = "{\"version\":1,\"books\":["
+    var i int = 0
+    for b in books {
+        if i > 0 {
+            payload = payload + ","
+        }
+        let v1 str = "" + b.book_id
+        let v2 str = "" + b.source_hash
+        let v3 str = "" + b.title
+        let v4 str = "" + b.author
+        let v5 str = "" + b.format
+        let v6 str = "" + b.original_path
+        let v7 str = "" + b.managed_path
+        let n1 int = b.size
+        let n2 int = b.chapter_count
+        let n3 int = b.import_version
+        let n4 int = b.created_at
+        let rj str = record_json(v1, v2, v3, v4, v5, v6, v7, n1, n2, n3, n4)
+        payload = payload + rj
+        i = i + 1
+    }
+    if i > 0 {
+        payload = payload + ","
+    }
+    payload = payload + nrj
+    payload = payload + "]}"
+    let src_rc int = write_library_file(payload)
+    if src_rc != 0 {
+        return epub_err("io_error", "书库索引写入失败 rc=" + src_rc.to_string())
+    }
+    var okm str = "{\"code\":\"ok\",\"message\":\"导入成功\",\"book_id\":\""
+    okm = okm + json_escape(bid)
+    okm = okm + "\",\"existing_id\":\""
+    okm = okm + json_escape(dup_id)
+    okm = okm + "\"}"
+    return okm
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// T-02：章读取（惰性解压 + 缓存）与目录
+// 章 XHTML 首读解压 → 文本行（段落/图片标记行）→ 落盘
+// <managed>.chapters/<n>.txt 永久缓存；后续读直接文件。
+// ═══════════════════════════════════════════════════════════
+
+/// hrefs（"|h1|h2|…"）取第 n（1 基）个 href；越界 ""。
+pub fn epub_href_at(hrefs str, n int) str {
+    var idx int = 1
+    var pos int = 1
+    while idx < n {
+        let nxt int = find_after(hrefs, "|", pos)
+        if nxt < 0 {
+            return ""
+        }
+        pos = nxt + 1
+        idx = idx + 1
+    }
+    let end int = find_after(hrefs, "|", pos)
+    if end < 0 {
+        return ""
+    }
+    return hrefs.substr(pos, end - pos)
+}
+
+/// XHTML → 文本行（段落/标题/图片标记行），"\n" 连接。
+/// 图片：<img src> → "img:<zip 内路径>" 行。实体五预定义解码。
+/// script/style 剥离。v1 边界（能力表记录）：行内链接不拆段。
+fn xhtml_to_lines(xhtml str, opf_dir str) str {
+    var body str = xml_text(xhtml, 0, "<body", "</body>")
+    if body == "" {
+        body = xhtml
+    }
+    body = strip_block(body, "<script", "</script>")
+    body = strip_block(body, "<style", "</style>")
+    var out str = ""
+    var pos int = 0
+    var cur str = ""
+    var guard int = 0
+    while guard < 65536 {
+        guard = guard + 1
+        let lt int = find_after(body, "<", pos)
+        if lt < 0 {
+            break
+        }
+        if lt > pos {
+            let seg str = body.substr(pos, lt - pos)
+            cur = cur + decode_entities(seg)
+        }
+        let gt int = find_after(body, ">", lt)
+        if gt < 0 {
+            break
+        }
+        let tag str = body.substr(lt, gt - lt + 1)
+        if tag.find("<img") == 0 {
+            let src str = xml_attr(body, pos, "img", "src")
+            if cur.trim() != "" {
+                out = out + cur.trim()
+                out = out + "\n"
+                cur = ""
+            }
+            let imgpath str = epub_zip_path(opf_dir, src)
+            if imgpath != "" {
+                var il str = "img:"
+                il = il + imgpath
+                out = out + il
+                out = out + "\n"
+            }
+        } else {
+            if is_block_tag(tag) {
+                if cur.trim() != "" {
+                    out = out + cur.trim()
+                    out = out + "\n"
+                    cur = ""
+                }
+            }
+        }
+        pos = gt + 1
+    }
+    if pos < body.len() {
+        cur = cur + decode_entities(body.substr(pos, body.len() - pos))
+    }
+    if cur.trim() != "" {
+        out = out + cur.trim()
+        out = out + "\n"
+    }
+    return out
+}
+
+fn strip_block(s str, open str, close str) str {
+    var out str = ""
+    var pos int = 0
+    var guard int = 0
+    while guard < 4096 {
+        guard = guard + 1
+        let a int = find_after(s, open, pos)
+        if a < 0 {
+            out = out + s.substr(pos, s.len() - pos)
+            return out
+        }
+        out = out + s.substr(pos, a - pos)
+        let b int = find_after(s, close, a)
+        if b < 0 {
+            return out
+        }
+        pos = b + close.len()
+    }
+    return out
+}
+
+fn is_block_tag(tag str) bool {
+    if tag.find("<p") == 0 {
+        return true
+    }
+    if tag.find("</p") == 0 {
+        return true
+    }
+    if tag.find("<h1") == 0 {
+        return true
+    }
+    if tag.find("</h1") == 0 {
+        return true
+    }
+    if tag.find("<h2") == 0 {
+        return true
+    }
+    if tag.find("</h2") == 0 {
+        return true
+    }
+    if tag.find("<h3") == 0 {
+        return true
+    }
+    if tag.find("</h3") == 0 {
+        return true
+    }
+    if tag.find("<h4") == 0 {
+        return true
+    }
+    if tag.find("</h4") == 0 {
+        return true
+    }
+    if tag.find("<h5") == 0 {
+        return true
+    }
+    if tag.find("</h5") == 0 {
+        return true
+    }
+    if tag.find("<h6") == 0 {
+        return true
+    }
+    if tag.find("</h6") == 0 {
+        return true
+    }
+    if tag.find("<li") == 0 {
+        return true
+    }
+    if tag.find("</li") == 0 {
+        return true
+    }
+    if tag.find("<div") == 0 {
+        return true
+    }
+    if tag.find("</div") == 0 {
+        return true
+    }
+    if tag.find("<br") == 0 {
+        return true
+    }
+    if tag.find("<tr") == 0 {
+        return true
+    }
+    return false
+}
+
+fn decode_entities(s str) str {
+    var out str = s
+    out = out.replace("&amp;", "&")
+    out = out.replace("&lt;", "<")
+    out = out.replace("&gt;", ">")
+    out = out.replace("&quot;", "\"")
+    out = out.replace("&apos;", "'")
+    return out
+}
+
+/// 章 JSON：缓存命中读文件；未命中解压转换写缓存（写失败不阻塞阅读）。
+/// 返回 {number,title,body,word_count}；缺章占位 "章节不存在"。
+pub fn epub_chapter_json(managed str, opf_dir str, hrefs str, number int, titles str) str {
+    if number < 1 {
+        return chap_json(number, "章节不存在", "", 0)
+    }
+    let chapter_dir str = managed + ".chapters"
+    mkdirs(chapter_dir)
+    var body_lines str = ""
+    let cn str = number.to_string()
+    let cpath str = join(chapter_dir, cn + ".txt")
+    if file.exists(cpath) {
+        body_lines = fs.read_text(cpath)
+    }
+    if body_lines == "" {
+        let href str = epub_href_at(hrefs, number)
+        if href == "" {
+            return chap_json(number, "章节不存在", "", 0)
+        }
+        let zip_path str = epub_zip_path(opf_dir, href)
+        if zip_path == "" {
+            return chap_json(number, "内容缺失", "", 0)
+        }
+        let xhtml str = zip.read_text(managed, zip_path, 12582912)
+        if xhtml == "" {
+            return chap_json(number, "内容缺失", "", 0)
+        }
+        body_lines = xhtml_to_lines(xhtml, opf_dir)
+        if body_lines != "" {
+            let wrc int = fs.write_text(cpath, body_lines)
+            if wrc != 0 {
+                body_lines = body_lines
+            }
+        }
+    }
+    let title str = epub_title_at(titles, number)
+    let t str = body_lines.trim()
+    // 图片解析：img:<zip 路径> 行 → extract_entry 落缓存目录 + image.thumb
+    // 媒体 URI（前端 image widget 直接消费）；失败行保留标记（诚实可见）。
+    var images str = "["
+    var lines str = t
+    var lpos int = 0
+    var lguard int = 0
+    var img_n int = 0
+    while lguard < 4096 {
+        lguard = lguard + 1
+        let eol int = find_after(lines, "\n", lpos)
+        var line str = ""
+        if eol < 0 {
+            line = lines.substr(lpos, lines.len() - lpos)
+        } else {
+            line = lines.substr(lpos, eol - lpos)
+        }
+        if line.find("img:") == 0 {
+            let zpath str = line.substr(4, line.len() - 4)
+            var flat str = ""
+            var fi int = 0
+            while fi < zpath.len() {
+                let c str = zpath.substr(fi, 1)
+                if c == "/" {
+                    flat = flat + "_"
+                } else {
+                    flat = flat + c
+                }
+                fi = fi + 1
+            }
+            let dest str = join(chapter_dir, "res_" + flat)
+            if !file.exists(dest) {
+                let zrc int = zip.extract_entry(managed, zpath, dest, 12582912)
+                if zrc == 0 {
+                    let uri str = image.thumb(dest, 600)
+                    if uri != "" {
+                        if img_n > 0 {
+                            images = images + ","
+                        }
+                        var iu str = "{\"k\":\""
+                        iu = iu + json_escape(zpath)
+                        iu = iu + "\",\"uri\":\""
+                        iu = iu + json_escape(uri)
+                        iu = iu + "\"}"
+                        images = images + iu
+                        img_n = img_n + 1
+                    }
+                }
+            }
+        }
+        if eol < 0 {
+            break
+        }
+        lpos = eol + 1
+    }
+    images = images + "]"
+    return chap_json_with_images(number, title, t, t.len(), images)
+}
+
+/// titles（与 hrefs 同序 "|t1|t2|"）取第 n 个标题；空位回退 "第 N 章"。
+pub fn epub_title_at(titles str, n int) str {
+    let t str = epub_href_at(titles, n)
+    if t == "" {
+        var fallback str = "第 "
+        fallback = fallback + n.to_string()
+        fallback = fallback + " 章"
+        return fallback
+    }
+    return t
+}
+
+fn chap_json_with_images(n int, title str, body str, wc int, images str) str {
+    var out str = "{\"number\":"
+    out = out + n.to_string()
+    out = out + ",\"title\":\""
+    out = out + json_escape(title)
+    out = out + "\",\"body\":\""
+    out = out + json_escape(body)
+    out = out + "\",\"word_count\":"
+    out = out + wc.to_string()
+    out = out + ",\"images\":"
+    out = out + images
+    out = out + "}"
+    return out
+}
+
+fn chap_json(n int, title str, body str, wc int) str {
+    return chap_json_with_images(n, title, body, wc, "[]")
+}
+
+/// 目录 JSON：[{"number":spine_idx,"title":label},...]（nav 顺序；
+/// href 经 hrefs 定位 spine 序号）。
+pub fn epub_toc_json(hrefs str, toc str) str {
+    var out str = "["
+    var pos int = 1
+    var n int = 0
+    var guard int = 0
+    while guard < 4096 {
+        guard = guard + 1
+        // pos = 当前记录首字节（首管道之后）；s = 记录尾管道
+        let s int = find_after(toc, "|", pos)
+        if s < 0 {
+            break
+        }
+        if s <= pos {
+            pos = pos + 1
+            continue
+        }
+        let rec str = toc.substr(pos, s - pos)
+        pos = s + 1
+        let sep int = rec.find("`")
+        if sep > 0 {
+            let href str = rec.substr(0, sep)
+            let label str = rec.substr(sep + 1, rec.len() - sep - 1)
+            var num int = 0
+            var idx int = 1
+            var g2 int = 0
+            while g2 < 4096 {
+                g2 = g2 + 1
+                let h str = epub_href_at(hrefs, idx)
+                if h == "" {
+                    break
+                }
+                if h == href {
+                    num = idx
+                    g2 = 4096
+                }
+                idx = idx + 1
+            }
+            if num > 0 {
+                if n > 0 {
+                    out = out + ","
+                }
+                var ej str = "{\"number\":"
+                ej = ej + num.to_string()
+                ej = ej + ",\"title\":\""
+                ej = ej + json_escape(label)
+                ej = ej + "\"}"
+                out = out + ej
+                n = n + 1
+            }
+        }
+    }
+    out = out + "]"
+    return out
+}
