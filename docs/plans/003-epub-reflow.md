@@ -131,7 +131,7 @@ EPUB持久身份以原始二进制内容证明/摘要＋格式版本区分，T-0
 ## 8. 执行步骤
 
 - [x] T-00（owner_stage=work；依赖001实际交付；AC-01..05）：冻结CAP-01..04与最小profile；验证候选ZIP/XML/二进制/图像/原生入口，输出capability-decision.md；必要缺项具名立最小owner前置，不依赖完整002。[✅ 2026-10-31] capability-decision.md 已产出（commit f251eed）：真sha256/字节读写字节精确/file.copy/image.thumb 可用；zip/xml native 不存在→纯.at 栈；惰性按章解压架构（导入期结构校验、首读期解压）；预算冻结。探针 t00_epub_cap_probe{,2..10}.as。
-- [ ] T-01（owner_stage=work；依赖T-00与实际具名前置交付；AC-01/03/04）：实现EPUB容器/package/spine/nav/资源adapter与受管导入提交、旧库格式兼容；数据先验证再发布，不改原件。[⛔ 2026-10-31 blocked] 纯.at DEFLATE 参考实现（src/back/inflatex.at，commit ca9d86f）在当前 CLI（v0.0.20-118）被运行时列表缺陷阻断（N-003-1..6：FFI 列表跨fn失真/单迭代≥3次计算索引读失真/嵌套解码表读+7系统性偏移等，证据 docs/plans/evidence/003/framework-gap.md + tests/probe/t00_*）。解除条件＝框架 owner 交付最小前置（修复列表读值语义 或 提供 zip/inflate native），见 framework-gap.md 选项 A/B。
+- [ ] T-01（owner_stage=work；依赖T-00与实际具名前置交付；AC-01/03/04）：实现EPUB容器/package/spine/nav/资源adapter与受管导入提交、旧库格式兼容；数据先验证再发布，不改原件。[⛔→✅ 2026-10-31 解除] 原纯.at DEFLATE 路径被运行时列表缺陷 N-003-1..6 阻断（framework-gap.md 在案）；用户裁决走选项 B，auto-lang 仓 **PLAN-897 已交付归档**（zip.list_json/read_text/extract_entry 三 native，VM 轨探针 22/22 PASS，merge a25e67983、archive 3fa75dd9c）。新 CLI＝D:/autostack/auto-man/target/debug/auto.exe SHA256 706d13f56277fc70913571bee675b554a3d08e4809d67953fe4d8ed5a2310543（版本串仍 118；以 SHA 为准）。T-01 改线：ZIP/解压全走 zip natives（max_bytes 直传 CAP-03 预算），XML/OPF/nav 用纯 .at str 扫描（字节索引域，可靠）；inflatex.at 归档为能力研究记录（不被消费）。
 - [ ] T-02（owner_stage=work；依赖T-01；AC-01/02/05）：接共用最小内容模型、真实目录/图片/内链与基本字号，扩充兼容locator和持久恢复；不实现002注释系统。
 - [ ] T-03（owner_stage=work；依赖T-01及T-00预算决策；AC-03/04）：完成规范化路径、禁止活动内容/外部实体/远程加载、实际解压/图像预算与失败回滚/可重试状态。
 - [ ] T-04（owner_stage=work；依赖T-02/T-03；AC-01..05）：制作永久fixture/双端入口并跑E-01..06及受影响旧库回归，准备SD-01/02，提交实现/证据摘要后execution_done；本轮不执行。
@@ -147,6 +147,8 @@ stage: new | plan_id: READER-003 | plan_revision: 3 | outcome: pass（首个有�
 stage: work | plan_id: READER-003 | plan_revision: 3 | round: 1 | outcome: **blocked（T-01 被运行时列表缺陷阻断；T-00 已完成）** | worktree_path: D:/autostack/.wt/reader-003/auto-reader | branch: plan-003-dev | base_commit: fa6185e | code_commit: f251eed（T-00 能力决策）→ ca9d86f（T-01 inflate 参考实现 + framework-gap.md） | dependency_revisions: auto 0.1.0+v0.0.20-118-ge6cc06f（较计划基线 -117 新一个补丁集；全部探针/证据在 -118 上实跑） | task_ids: T-00 ✅, T-01 ⛔ | evidence: docs/plans/evidence/003/{capability-decision.md,framework-gap.md}；探针 tests/probe/t00_*（26 个）；运行时失真直接证据＝%TEMP%/partial_out.bin（解码输出=期望文本逐字节+7）对照 vec_fixed_expected.txt | blockers: N-003-1..6（VM 列表读写语义，见 framework-gap.md 缺陷目录）；解除动作＝框架 owner 交付最小前置（选项 A 修复列表读值语义 / 选项 B 提供 zip·inflate native）并取得交付回执 | next_responsible_role: 框架 owner（auto-lang/auto-man），随后本计划 work 续跑 T-01..T-04
 
 stage: goal | plan_id: READER-003 | plan_revision: 3 | round: 1 | from: work | to: user（框架侧前置） | status: executing | outcome: blocked | worktree: D:/autostack/.wt/reader-003/auto-reader（保留，plan-003-dev @ ca9d86f） | commit: 34d762c 不可用（本轮主仓仅计划记账） | next: user/框架侧；goal 链按停止条件交回，恢复动作见 §10 与 framework-gap.md
+
+stage: goal | plan_id: READER-003 | plan_revision: 3 | round: 2 | from: user（框架前置交付） | to: work | status: executing | outcome: pass（解除条件达成，T-01 续跑） | framework_delivery: auto-lang PLAN-897 archived（3fa75dd9c；natives merge a25e67983；新 CLI SHA256 706d13f5…） | worktree: D:/autostack/.wt/reader-003/auto-reader（保留） | next: work/T-01（zip natives + 纯 .at XML 改线）
 
 ## 10. 待澄清事项
 
