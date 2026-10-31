@@ -159,6 +159,39 @@ def netstat_listening_pids(port: int) -> set:
     return pids
 
 
+def process_tree_pids(root_pid: int) -> set:
+    """root_pid 及其全部后代 pid（单次 PowerShell CIM 快照 + BFS）。
+
+    分裂宿主拓扑（READER-004 T-03 实证）：`auto run -r vm` 的 VM HTTP 后端与
+    UI 由 auto.exe 的子进程 auto-ui-tool（及其下级 UI 进程）实际持有端口——
+    身份断言的目标集合因此是「本 run 的进程树」而非单个直启子进程；反伪装
+    意图不变（端口不得属于本 run 树之外的外部进程）。"""
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "Get-CimInstance Win32_Process | "
+             "Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress"],
+            capture_output=True, text=True, timeout=30).stdout
+        rows = json.loads(out) if out.strip() else []
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return {root_pid}
+    if isinstance(rows, dict):  # 单结果时 ConvertTo-Json 产 dict
+        rows = [rows]
+    children: dict = {}
+    for row in rows:
+        try:
+            children.setdefault(int(row["ParentProcessId"]), []).append(int(row["ProcessId"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    tree, stack = {root_pid}, [root_pid]
+    while stack:
+        for c in children.get(stack.pop(), []):
+            if c not in tree:
+                tree.add(c)
+                stack.append(c)
+    return tree
+
+
 def port_accepts(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.5)
@@ -237,8 +270,11 @@ class Evidence:
         # holders 与本 run 任何 pid 无交集即视为已释放）。
         owned_pids = set()
         for inst in self.manifest.get("instances", {}).values():
-            if isinstance(inst, dict) and inst.get("pid") is not None:
-                owned_pids.add(inst["pid"])
+            if isinstance(inst, dict):
+                if inst.get("pid") is not None:
+                    owned_pids.add(inst["pid"])
+                for tp in inst.get("tree_pids") or []:
+                    owned_pids.add(tp)
         for rst in self.manifest.get("restarts", []):
             for key in ("from_pid", "to_pid"):
                 if rst.get(key) is not None:
@@ -398,13 +434,19 @@ class Instance:
         return True, f"ready in {time.monotonic() - t0:.1f}s"
 
     def identity_problems(self) -> list:
+        # 分裂宿主拓扑：端口由本 run 进程树（auto.exe → auto-ui-tool → UI 进程）
+        # 持有；树外持有者 = 身份违例。树集合同步进 manifest 供 owned-port sweep 用。
+        allowed = process_tree_pids(self.proc.pid)
+        inst_rec = self.ev.manifest.setdefault("instances", {}).setdefault(self.tag, {})
+        inst_rec["tree_pids"] = sorted(allowed)
         problems = []
         for label, port in (("mcp", self.mcp_port), ("back", self.back_port)):
             holders = netstat_listening_pids(port)
             if not holders:
                 problems.append(f"{label} port {port}: no listener")
-            elif self.proc.pid not in holders:
-                problems.append(f"{label} port {port} held by {holders}, not child pid {self.proc.pid}")
+            elif not holders <= allowed:
+                problems.append(f"{label} port {port} held by {sorted(holders)}, "
+                                f"outside this run's process tree (child pid {self.proc.pid})")
         return problems
 
     def _flush_logs(self) -> None:
@@ -1182,11 +1224,17 @@ def run_v09_cold_restore(ev: Evidence, inst: Instance) -> CaseResult:
 
 
 def run_v08_reader_current_state(ev: Evidence, inst: Instance) -> CaseResult:
-    """Reader 现状记录例（AC-08）：真实 Reader 走同一保存链——当前因
-    reading.at `let pr` 重赋值致 VM 合成失败、阅读页正文恒空。本例 PASS =
-    该缺陷被通道如实取证（不授予 Reader 目标 PASS）。"""
+    """V-08 Reader 真实保存链（READER-004 转正版，required）：真 Reader 经
+    本通道 书架卡片→章节→阅读页真实正文渲染（¶ 标签在场、无「本章无内容」
+    占位、stderr 无 N-r8-2 合成错误）→ 点选段落 →「已记录位置：第 0 段」
+    提示（TapParagraph → POST /api/library/progress）→ 进度读回一致。
+    （781 原版为「缺陷取证」记录例，oracle = N-r8-2 合成失败在场；
+    READER-001 r9 修复（268c7d4 let pr→var pr）后按其自身条款转正；
+    当前运行时直证见 READER-004 T-03 证据 v08-state-probe3。）"""
+    import re
+
     r = CaseResult("v08_reader_current_state")
-    r.required = False  # 记录例：缺陷修复后应转正（001 路由）
+    r.required = True  # 781 时代为记录例（required=False）；转正为真实验收例
     inst.launch()
     ok, detail = inst.wait_backend()
     if not ok:
@@ -1194,7 +1242,7 @@ def run_v08_reader_current_state(ev: Evidence, inst: Instance) -> CaseResult:
         inst.reap()
         return r
     try:
-        inst.seed_book()
+        bid = inst.seed_book()
     except RuntimeError as e:
         r.status, r.detail = "fail", f"seed failed: {e}"
         inst.reap()
@@ -1206,11 +1254,8 @@ def run_v08_reader_current_state(ev: Evidence, inst: Instance) -> CaseResult:
         return r
     cli = AutoUiMcpClient(inst.mcp_port)
 
-    import re
-
     def col_candidates(needle, n=6):
-        """needle 最近的 n 个容器头候选（内→外，含 col/button）。for 迭代>0
-        的 events 注解不随迭代重复、嵌套层数不定——由调用方逐一试派发。"""
+        """needle 最近的 n 个容器头候选（内→外，含 col/button）。"""
         vt = "".join(x.get("text", "") for x in cli.call("autoui_vtree", {}).get("content", []))
         idx = vt.find(needle)
         if idx < 0:
@@ -1225,11 +1270,6 @@ def run_v08_reader_current_state(ev: Evidence, inst: Instance) -> CaseResult:
                 break
         return out
 
-    if not inst.snapshot_has(inst.marker, timeout=30.0):
-        r.status, r.detail = "fail", f"marker {inst.marker} not visible on bookshelf"
-        inst.reap()
-        return r
-
     press_log = []
 
     def press_with_retry(needle, what):
@@ -1243,52 +1283,58 @@ def run_v08_reader_current_state(ev: Evidence, inst: Instance) -> CaseResult:
             time.sleep(1.0)
         return False
 
-    if not press_with_retry(inst.marker, "card"):
+    checks = []
+    if not (inst.snapshot_has(inst.marker, timeout=30.0)
+            and press_with_retry(inst.marker, "card")):
         r.status, r.detail = "fail", f"card press not dispatched: {press_log}"
         inst.reap()
         return r
     t0 = time.monotonic()
-    while time.monotonic() - t0 < 20:
-        if "第1章" in inst.snapshot_text():
-            break
+    while time.monotonic() - t0 < 20 and "第1章" not in inst.snapshot_text():
         time.sleep(POLL_INTERVAL)
-    if not press_with_retry("第1章", "chapter"):
-        r.status, r.detail = "fail", f"chapter press not dispatched: {press_log}"
-        inst.reap()
-        return r
+    checks.append(("chapter press dispatched", press_with_retry("第1章", "chapter")))
     t0 = time.monotonic()
-    reading = False
-    while time.monotonic() - t0 < 20:
+    snap = ""
+    while time.monotonic() - t0 < 25:
         snap = inst.snapshot_text()
-        if "OnScroll" in snap or "（本章无内容）" in snap:
-            reading = True
+        if "¶0" in snap or "（本章无内容）" in snap:
             break
         time.sleep(POLL_INTERVAL)
-    if not reading:
-        r.status, r.detail = "fail", "reading page not reached"
-        inst.reap()
-        return r
-    snap = inst.snapshot_text()
+    checks.append(("reading page renders real paragraphs (¶ labels)", "¶0" in snap))
+    checks.append(("no empty-content placeholder", "（本章无内容）" not in snap))
     err_txt = inst._read_log("stderr") + inst._read_log("stdout")
-    ev.raw_write("v08_reader_current_state", {
-        "snapshot_head": snap[:3000],
-        "synthesis_error_present": "Cannot reassign to immutable variable" in err_txt,
-        "empty_content_present": "（本章无内容）" in snap,
-        "paragraph_labels_present": "¶0" in snap,
-    })
-    defect_evidenced = ("Cannot reassign to immutable variable" in err_txt
-                        and "（本章无内容）" in snap)
-    reap_ok, _ = inst.reap()
-    if defect_evidenced and reap_ok:
-        r.status = "pass"
-        r.detail = ("documented consumer defect evidenced: reading.at:266 'let pr' reassigned "
-                    "at :315 -> VM handler synthesis fails -> reading Init never runs -> "
-                    "empty content; routed to READER-001 (not granted PASS)")
-    else:
+    checks.append(("no handler-synthesis error (N-r8-2 absent)",
+                   "Cannot reassign to immutable variable" not in err_txt))
+    # 点选段落（¶0）→ 保存提示 → 进度读回一致（真实保存链）。
+    ok_para = press_with_retry("¶0", "paragraph")
+    checks.append(("paragraph press dispatched", ok_para))
+    note = bool(ok_para) and inst.snapshot_has("已记录位置：第 0 段", timeout=15)
+    checks.append(("save note shown (已记录位置：第 0 段)", bool(note)))
+    pi = None
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < 10:
+        try:
+            st, got = http_json(inst.back_port, "GET",
+                                f"/api/library/progress?book_id={bid}")
+            got = unwrap_json(got)
+            if st == 200 and isinstance(got, dict) and "paragraph_index" in got:
+                pi = got.get("paragraph_index")
+                break
+        except (urllib.error.URLError, OSError, ValueError):
+            pass
+        time.sleep(POLL_INTERVAL)
+    checks.append(("progress readback paragraph_index==0", pi == 0))
+    ev.raw_write("v08_reader_current_state",
+                 {"checks": [(c[0], bool(c[1])) for c in checks],
+                  "progress_paragraph_index": pi, "snapshot_head": snap[:2000]})
+    reap_ok, reap_detail = inst.reap()
+    bad = [c for c in checks if not c[1]]
+    if bad or not reap_ok:
         r.status = "fail"
-        r.detail = (f"defect not evidenced as documented (synth_err="
-                    f"{'Cannot reassign' in err_txt}, empty={'（本章无内容）' in snap}) — "
-                    "若 Reader 已修复请把本例转正为真实保存链验收")
+        r.detail = f"failed: {[c[0] for c in bad]}; reap={'ok' if reap_ok else reap_detail}"
+    else:
+        r.status = "pass"
+        r.detail = f"{len(checks)} real-reader save-chain checks ok ({detail})"
     return r
 
 
