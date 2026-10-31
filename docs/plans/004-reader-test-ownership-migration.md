@@ -1,12 +1,12 @@
 ---
 plan_id: READER-004
-status: drafting
+status: executing
 feature_name: Reader验收驱动与夹具归属迁移
 author: [Codex]
 created_at: 2026-10-31
 updated_at: 2026-10-31
 plan_revision: 1
-current_step: 0
+current_step: 2
 total_steps: 6
 supersedes_spec_components: [docs/specs/reader/real-library.md]
 new_spec_components: []
@@ -108,19 +108,29 @@ SD-01..03是auto-lang协同写面，不冒充Reader本仓Spec；SD-04为本计�
 
 | ID | owner_stage/依赖 | 操作、实际路径及结果 | AC/验证 |
 |---|---|---|---|
-| T-01 | work/方案确认 | 核两仓指令/基面，建唯一兄弟树；来源hash/case/调用者/生成资产审计，冻结MCP实际方法集合与命令 | AC-01/02；V-01 |
-| T-02 | work/T-01 | Reader新增tests/native与目标fixtures，迁两驱动并去外部技能导入，更新CLI/README | AC-01/02/03；V-01/02 |
-| T-03 | work/T-02 | Reader树完整迁移触面真实验收及反控；记录首次红/退出状态/数据hash/端口reap | AC-01/02；V-03/04 |
+| T-01 | work/方案确认 | [x] 核两仓指令/基面，建唯一兄弟树；来源hash/case/调用者/生成资产审计，冻结MCP实际方法集合与命令 | AC-01/02；V-01 |
+| T-02 | work/T-01 | [x] Reader新增tests/native与目标fixtures，迁两驱动并去外部技能导入，更新CLI/README | AC-01/02/03；V-01/02 |
+| T-03 | work/T-02 | Reader树完整迁移触面真实验收及反控；记录首次红/退出状态/数据hash/端口reap（**blocked：运行时回归，见§10**） | AC-01/02；V-03/04 |
 | T-04 | work/T-03 | 语言树删除源两目录及两驱动，准备当前Spec迁移delta，核所有活跃调用者 | AC-03；V-05 |
 | T-05 | review/T-04 | 冻结两树，同树独立上下文审查逐AC/删除与SD，需修回原树；不以实现自检代复审 | AC-04；V-01..05 |
 | T-06 | merge/T-05 | 先Reader合入其main，再语言master退役+Spec沉淀；在auto-reader归档004、按适用最新留存政策、逐树wt-guard clean后清理分支/组 | AC-05；记录两仓delivery及清理收据 |
 
-下一执行入口：r1方案确认后T-01；不依赖899执行。创建源码树/构建/测试前核主仓同期变更，不能复制别人的WIP。无新增审查模型/代理授权。
+T-01 证据（2026-10-31）：基面 auto-reader a0801bc / auto-lang 0e6fbf9b4（cec583174→0e6fbf9b4 触面零变化）；来源hash审计（6×.at fixture + .gitignore + gen_fixtures.py + 两驱动，sha256 记录于本地 evidence/）；MCP 依赖面冻结 = call/snapshot/press/screenshot + pick_free_port（无公开 autoui 包，`import autoui` 失败 → 驱动内轻量适配）；活跃调用者 = 语言仓 3 Spec + test-purpose-policy.json S-014（modularity survey report 为历史快照不改），Reader 侧 README 测试表 + t04/t26 注释。worktree 组 D:/autostack/.wt/reader-004/{auto-reader codex/reader-004-dev, auto-lang codex/reader-004-lang}。
+T-02 证据：commit 9bab983（14 文件，+3431/-4）；py_compile 两驱动通过；--help 两驱动过（原生 usage/退出码语义不变；导入 --auto-bin/--reader-dir 新缺省语义）；生成器重建与源侧逐字节一致（manifest.json sha256=7afa5231…，5 数据文件全同）；残余引用扫描仅出处注释命中。fixture .gitignore 补 manifest.json（本仓无语言仓全局 *.json 规则）。
+T-03 首红证据（2026-10-31，非迁移缺陷）：完整导入套件 6 腿 6/11（v17/v19/v14/w03 实例腿全部 backend not live；v15_boot 4 项因 fail-fast 语义仍记录 [+]/[+]），report=plan-artifacts/reader-004/import/；根因探针 = **当前运行时 `auto.exe`（auto-man/target/debug，2026-10-31 11:37 构建）对 reader 主检出与 worktree 同样报 `[AutoVM server] error: Undefined variable: zip`**（READER-003 EPUB `zip` 命名空间解析失败，后端 120s 未就绪）；plan-890 legacy 副本/AUTO_LANG_ROOT/旧备份配对探针均不复绿。属并发 auto-man 会话施工回归（其 Cargo.lock WIP 正加 aes/zip），非本包改动所致。V-02 的非 repo cwd/退出码检查已先期通过（--auto-bin 缺省缺失→exit 3；argparse 用法错→exit 2）。
+
+下一执行入口：运行时恢复后重跑 T-03（导入全腿 + 原生默认集 + v12_injected_fail 反控）；已预判迁移驱动 `v08_reader_current_state` 记录例（required=False）的缺陷取证 oracle 在 READER-001 修复后必红（其自身条款：修复后转正真实保存链验收），待原生套件实跑确认后按测试范围规则做有界修复并重跑受影响面。不依赖899执行。创建源码树/构建/测试前核主仓同期变更，不能复制别人的WIP。无新增审查模型/代理授权。
 
 ## 9. 复审记录
 
 2026-10-31 / stage:new / READER-004 r1 / outcome:pass（草案自查，非实现验收）/ next:展示确认后work。来源、目标、AC/任务/SD及去外部技能依赖已明确；未迁测试、未跑UI/HTTP或修改Reader产品。用户明确要求纠正归属后，本草案迁为READER-004，docs/README.md登记入口；auto-lang移除900草案并在无后继分配前提下恢复.next-id=900。原草案提交保留Git历史，不重写共享提交。
 
+2026-10-31 / stage:work / READER-004 r1 / outcome:blocked / worktree:D:/autostack/.wt/reader-004/auto-reader (codex/reader-004-dev, base a0801bc→code 9bab983) + D:/autostack/.wt/reader-004/auto-lang (codex/reader-004-lang, base 0e6fbf9b4) / dependency_revisions: auto.exe 706d13f5(11:37)+auto-ui-tool 563afa4a / task_ids: T-01,T-02 完成并验证；T-03 首跑环境红 / evidence: V-01 hash守恒（来源8文件+生成资产6文件逐字节一致，本地 plan-artifacts/reader-004/）；V-02 入口/退出码检查过；V-03 首红=运行时回归「Undefined variable: zip」（探针证据 plan-artifacts/reader-004/probe/，主检出同样失败=非迁移缺陷）；T-04 按 T-03 门禁未启动、未删任何源 / blockers: 并发 auto-man 会话施工回归运行时 / next_responsible_role: work（运行时恢复后重跑 T-03）。
+
+2026-10-31 / stage: goal | plan_id: READER-004 | plan_revision: r1 | round: 1 | from: work | to: work | status: executing | outcome: blocked | worktree: D:/autostack/.wt/reader-004/auto-reader | commit: 9bab983 | next: user（解除动作见§10：auto-man 并发会话交付 zip 运行时后重跑 T-03；本目标授权链继续有效，恢复后从 work 段 T-03 进入）
+
 ## 10. 待澄清事项
 
 用户已指定目标owner为auto-reader；此处不再询问归属选择。待确认上述具体跨仓迁移方案后实施，尤其包含两份驱动及其路径/MCP辅助依赖，而非只移动数据目录。
+
+**当前阻塞（2026-10-31，T-03 真实验收无法开始）**：本机 `auto` 运行时被并发 auto-man 会话的施工中间态回归——`D:/autostack/auto-man/target/debug/auto.exe`（2026-10-31 11:37 构建，HEAD e6cc06f+未提交 Cargo.lock WIP[新增 aes/zip 依赖]）启动 reader VM 后端时报 `[AutoVM server] error: Undefined variable: zip`（READER-003 引入的 EPUB `zip` 命名空间在 VM 编译期未定义），主检出与 worktree 同样失败，plan-890 legacy 副本与 `AUTO_LANG_ROOT` 覆盖均不复绿。**解除动作**：待该 auto-man 会话交付其 zip/EPUB 运行时支持（或恢复一个能编译 reader api.at 链的 auto.exe+auto-ui-tool 配对）后，用探针确认复绿——`cd D:/autostack/auto-reader && auto run -r vm --no-merge -B <port>` 须使 `/__auto/health/live` 返回 200——然后以 `--auto-bin` 显式指向该二进制重跑 T-03。本包不改 auto-man 任何 WIP，不代建其产物。
