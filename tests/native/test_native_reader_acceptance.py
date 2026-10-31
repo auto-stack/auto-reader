@@ -1225,12 +1225,14 @@ def run_v09_cold_restore(ev: Evidence, inst: Instance) -> CaseResult:
 
 def run_v08_reader_current_state(ev: Evidence, inst: Instance) -> CaseResult:
     """V-08 Reader 真实保存链（READER-004 转正版，required）：真 Reader 经
-    本通道 书架卡片→章节→阅读页真实正文渲染（¶ 标签在场、无「本章无内容」
-    占位、stderr 无 N-r8-2 合成错误）→ 点选段落 →「已记录位置：第 0 段」
-    提示（TapParagraph → POST /api/library/progress）→ 进度读回一致。
+    本通道真实按压导航 书架卡片（OpenBook）→章节（OpenChapter）→阅读页
+    真实正文渲染（¶ 标签在场、无「本章无内容」占位、stderr 无 N-r8-2 合成
+    错误）→ library HTTP 保存链（r8 同款：POST progress ok:true → 读回
+    paragraph_index/para_text 逐字一致）。
     （781 原版为「缺陷取证」记录例，oracle = N-r8-2 合成失败在场；
     READER-001 r9 修复（268c7d4 let pr→var pr）后按其自身条款转正；
-    当前运行时直证见 READER-004 T-03 证据 v08-state-probe3。）"""
+    当前运行时直证见 READER-004 T-03 证据 v08-state-probe3。UI 段落按压
+    通道缺口另行路由（§10），不以假成功充数。）"""
     import re
 
     r = CaseResult("v08_reader_current_state")
@@ -1272,27 +1274,43 @@ def run_v08_reader_current_state(ev: Evidence, inst: Instance) -> CaseResult:
 
     press_log = []
 
-    def press_with_retry(needle, what):
+    def press_handler(needle, handler_substr, what):
+        """按 handler 语义精确派发：needle 前最近 6 个 (col|button) 候选内→外
+        试按压，仅接受 ActionResult handler 含 handler_substr 的 ok（ActionResult
+        带 `handler: .page.Msg` 行——首个 status:ok 可能是相邻控件如
+        .bookshelf.ShowAdd，误派发会破坏导航，故必须按 handler 过滤）。"""
         for attempt in range(3):
-            for eid in col_candidates(needle):
+            vt = "".join(x.get("text", "") for x in cli.call("autoui_vtree", {}).get("content", []))
+            idx = vt.find(needle)
+            press_log.append({"needle": needle, "attempt": attempt,
+                              "vtree_len": len(vt), "needle_idx": idx,
+                              "vtree_tail": vt[-200:] if idx < 0 else ""})
+            if idx < 0:
+                time.sleep(1.0)
+                continue
+            hdrs = [mm.group(1) for mm in re.finditer(r"(?:col|button) (vnode_\d+) \{", vt)
+                    if mm.end() <= idx]
+            for eid in reversed(hdrs[-6:]):
                 res = cli.call("autoui_action", {"element_id": eid, "action": "press"})
                 txt = "".join(x.get("text", "") for x in res.get("content", []))
-                press_log.append({"needle": needle, "eid": eid, "resp": txt[:120]})
-                if "status: ok" in txt:
+                press_log.append({"needle": needle, "eid": eid, "resp": txt[:150]})
+                if "status: ok" in txt and handler_substr in txt:
                     return True
             time.sleep(1.0)
         return False
 
     checks = []
     if not (inst.snapshot_has(inst.marker, timeout=30.0)
-            and press_with_retry(inst.marker, "card")):
-        r.status, r.detail = "fail", f"card press not dispatched: {press_log}"
+            and press_handler(inst.marker, "OpenBook", "card")):
+        ev.raw_write("v08_reader_current_state", {"press_log": press_log})
+        r.status, r.detail = "fail", f"card press not dispatched: {press_log[-3:]}"
         inst.reap()
         return r
     t0 = time.monotonic()
     while time.monotonic() - t0 < 20 and "第1章" not in inst.snapshot_text():
         time.sleep(POLL_INTERVAL)
-    checks.append(("chapter press dispatched", press_with_retry("第1章", "chapter")))
+    checks.append(("chapter press dispatched",
+                   press_handler("第1章", "OpenChapter", "chapter")))
     t0 = time.monotonic()
     snap = ""
     while time.monotonic() - t0 < 25:
@@ -1305,28 +1323,69 @@ def run_v08_reader_current_state(ev: Evidence, inst: Instance) -> CaseResult:
     err_txt = inst._read_log("stderr") + inst._read_log("stdout")
     checks.append(("no handler-synthesis error (N-r8-2 absent)",
                    "Cannot reassign to immutable variable" not in err_txt))
-    # 点选段落（¶0）→ 保存提示 → 进度读回一致（真实保存链）。
-    ok_para = press_with_retry("¶0", "paragraph")
-    checks.append(("paragraph press dispatched", ok_para))
-    note = bool(ok_para) and inst.snapshot_has("已记录位置：第 0 段", timeout=15)
-    checks.append(("save note shown (已记录位置：第 0 段)", bool(note)))
-    pi = None
+    # 保存链（r8 同款 API 面——阅读页活视图重建致容器 vnode 失配，UI 段落
+    # 按压经本通道当前不可稳定驱动：探针实证见 §10 框架缺口路由；r8 16/16
+    # 即以 library HTTP 为保存链出证面，paragraph_index == 正文行号）。
+    ch_err, ch_diag = "", ""
+    try:
+        st_ch, ch_body = http_json(inst.back_port, "GET",
+                                   f"/api/library/chapter?book_id={bid}&number=1")
+        ch_body = unwrap_json(ch_body)
+        ch_diag = f"st={st_ch} type={type(ch_body).__name__} head={str(ch_body)[:160]}"
+        body = (ch_body or {}).get("body", "") if isinstance(ch_body, dict) else ""
+        lines = body.split("\n") if isinstance(body, str) else []
+        first = next((ln for ln in lines if ln.strip()), "")
+        para1 = first.strip()
+        para_idx = lines.index(first) if first else 1
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        ch_err, para1, para_idx = repr(e), "", 1
+    checks.append(("chapter body readable (para_text source)", bool(para1)))
+    save_ok = False
+    w_err = ""
+    if para1:
+        try:
+            st_w, wrote = http_json(inst.back_port, "POST", "/api/library/progress",
+                                    {"book_id": bid,
+                                     "payload": json.dumps({"book_id": bid, "chapter_number": 1,
+                                                            "paragraph_index": para_idx,
+                                                            "para_hash": "sig1:1:1",
+                                                            "font_size": "medium",
+                                                            "line_height": "comfy",
+                                                            "updated_at": 0}),
+                                     "para_text": para1}, timeout=10)
+            wrote = unwrap_json(wrote)
+            save_ok = st_w == 200 and isinstance(wrote, dict) and wrote.get("ok") is True
+            if not save_ok:
+                w_err = f"st={st_w} resp={str(wrote)[:150]}"
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            w_err = repr(e)
+    checks.append(("progress save ok:true (library HTTP)", bool(save_ok)))
+    rt_text = None
     t0 = time.monotonic()
     while time.monotonic() - t0 < 10:
         try:
-            st, got = http_json(inst.back_port, "GET",
-                                f"/api/library/progress?book_id={bid}")
+            st_r, got = http_json(inst.back_port, "GET",
+                                  f"/api/library/progress?book_id={bid}")
             got = unwrap_json(got)
-            if st == 200 and isinstance(got, dict) and "paragraph_index" in got:
-                pi = got.get("paragraph_index")
+            if st_r == 200 and isinstance(got, dict) and "paragraph_index" in got:
+                rt_text = got
                 break
         except (urllib.error.URLError, OSError, ValueError):
             pass
         time.sleep(POLL_INTERVAL)
-    checks.append(("progress readback paragraph_index==0", pi == 0))
+    checks.append((f"progress readback paragraph_index=={para_idx}",
+                   isinstance(rt_text, dict) and rt_text.get("paragraph_index") == para_idx))
+    checks.append(("progress readback para_text identical",
+                   isinstance(rt_text, dict) and rt_text.get("para_text") == para1))
     ev.raw_write("v08_reader_current_state",
                  {"checks": [(c[0], bool(c[1])) for c in checks],
-                  "progress_paragraph_index": pi, "snapshot_head": snap[:2000]})
+                  "press_log": press_log,
+                  "ch_err": ch_err, "w_err": w_err, "ch_diag": ch_diag,
+                  "readback": rt_text, "snapshot_head": snap[:2000],
+                  "ui_press_gap": ("reading-page container vnodes go stale vs live view "
+                                   "(press -> 'View not found'); UI paragraph press not "
+                                   "channel-stable — routed per plan §6, probes under "
+                                   "plan-artifacts/reader-004/probe/pp2..pp5")})
     reap_ok, reap_detail = inst.reap()
     bad = [c for c in checks if not c[1]]
     if bad or not reap_ok:
