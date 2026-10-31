@@ -7,7 +7,7 @@ author: [Codex]
 created_at: 2026-10-04T00:00:00Z
 updated_at: 2026-10-29
 plan_revision: 3
-current_step: 1
+current_step: 5
 total_steps: 11
 base_branch: main
 base_commit: 4d6345cc37882b0216480661eefae4c773617c2d
@@ -134,10 +134,10 @@ Markdown导出必须含书名、原句、版本/来源身份、章节/资源loca
 ## 8. 执行步骤
 
 - [x] T-00（owner_stage=work；phase=A；依赖001/003实际交付；AC-01..05）：核实内容/locator/选区、两端能力与数据模型，输出local-capability-decision.md；不等待Notes，仅对真实缺项立具名最小前置。[✅ 已完成] [2026-10-31] docs/plans/evidence/002/local-capability-decision.md：双格式同面章节/段模型与 Locator v1 逐字锚冻结；input/textarea 双轨在册（auto-chat/auto-musk IME 先例），快捷键裁决=widget 级绑定不做全局 handler；注释文件 `<book_id>.annotations.json` 沿 put_reading 写协议；具名缺口 N-002-A-1（内联 span 缺失→段级标记承载）N-002-A-2（原生 IME 面 T-04 实录）。基线 30fcfb5，依赖 001/003 已归档。
-- [ ] T-01（owner_stage=work；phase=A；依赖T-00；AC-01/05）：实现本地样式/偏好、搜索/目录和布局输入规则，持久保存并保持同内容锚点；复用003基本阅读，不另写EPUB解析器。
-- [ ] T-03（owner_stage=work；phase=A；依赖T-01；AC-02）：实现稳定注释/书签/高亮/评论/标签、列表回访与重复句/源版本变化的诚实重定位。
-- [ ] T-05（owner_stage=work；phase=A；依赖T-03；AC-03/04本地面）：完成带完整出处的本地Markdown导出；Notes缺席也可用，不把文件导出说成已接收。
-- [ ] T-04（owner_stage=work；phase=A；依赖T-03/T-05；AC-01..05本地面）：建立永久本地双端入口并跑A-01..04，准备A的SD-01/02；只提交A实现/摘要，申请phase review，整体不因A结束就execution_done。
+- [x]  T-01（owner_stage=work；phase=A；依赖T-00；AC-01/05）：实现本地样式/偏好、搜索/目录和布局输入规则，持久保存并保持同内容锚点；复用003基本阅读，不另写EPUB解析器。[✅ 已完成] [2026-10-31] layout(narrow|medium|wide)/theme(light|sepia|dark) 随 reading 状态持久化（SD-02 可选键，缺位兼容）；搜索抽屉（onenter 触发、段粒度结果、JumpTo 跨章锚点定位）；排版抽屉。证据：verify_local L-23/24/27、UI L-U03/04/05/06。提交 1426346/7980320/1ea4dfd。
+- [x]  T-03（owner_stage=work；phase=A；依赖T-01；AC-02）：实现稳定注释/书签/高亮/评论/标签、列表回访与重复句/源版本变化的诚实重定位。[✅ 已完成] [2026-10-31] 服务端 uuid 注释存储（词法门+备份协议）、quote+occurrence 逐字锚核验、抽屉回访/编辑/删除、段标记 chip+需重定位徽标。证据：t10 69/69（S11 CRLF+中文出现计数回归、S10 源改版诚实拒绝+原摘录保留）、verify_local L-05..15/26、UI L-U07..11。
+- [x]  T-05（owner_stage=work；phase=A；依赖T-03；AC-03/04本地面）：完成带完整出处的本地Markdown导出；Notes缺席也可用，不把文件导出说成已接收。[✅ 已完成] [2026-10-31] POST /api/library/export → exports/*.md（完整出处+annotation_id），读回校验；空集合诚实 count=0。证据：verify_local L-16..20 独立解析核对。
+- [x]  T-04（owner_stage=work；phase=A；依赖T-03/T-05；AC-01..05本地面）：建立永久本地双端入口并跑A-01..04，准备A的SD-01/02；只提交A实现/摘要，申请phase review，整体不因A结束就execution_done。[✅ 已完成] [2026-10-31] 永久入口 tests/annotations/verify_local.py --profile vue|vm。vue 50/50（含 Playwright UI 面 11/11）；vm 49+1 SKIP（N-003-8 在案缺口，auto service 绕行已录）；回归 auto test 7/7、t01/t02/t06 0 fail、t08 all-pass、verify_epub 21/21。期间修复两处实现缺陷：occurrence 计数改滑窗（t10 S11 回归钉死）；vue codegen 形参/模型同名 .value 中毒（改名规避）。SD-01/02 候选文本由 T-06 按 SD 规程撰写。提交 1ea4dfd。
 - [ ] T-06（owner_stage=review；phase=A；依赖T-04；AC-07阶段面）：固定A提交做phase review，范围仅A本地AC/SD，B必需项明确未验；无pass不阶段merge。
 - [ ] T-07（owner_stage=merge；phase=A；依赖T-06；AC-08阶段面）：完成A适用门/规范/推送/组合pin，记录阶段交付；整Plan保持executing、B未勾选。B等Notes不撤回A成果。
 - [ ] T-02（owner_stage=work；phase=B；依赖T-07及NOTES-002实际接收交付；AC-03/04/06）：冻结真实协议与回执，做CaptureEnvelope/SourceRef、持久待发和稳定意图ID；不擅自写Notes数据库或假造系统API。
@@ -154,6 +154,8 @@ stage: new | plan_id: READER-002 | plan_revision: 3 | outcome: blocked（合同�
 stage: work | plan_id: READER-002 | plan_revision: 3 | outcome: pass（T-00 完成，1/11） | worktree_path: D:/autostack/.wt/reader-002/auto-reader | branch: plan-002-dev | base_commit: 30fcfb5 | code_commit: 30fcfb5（纯调查，无代码改动） | dependency_revisions: READER-001 r9 archived、READER-003 r3 archived（merge 24c9838） | task_ids: T-00 | evidence: docs/plans/evidence/002/local-capability-decision.md（基线核对 reading_page/pac hash 与 §4 一致；library 差异=003 合入，预期）；目标授权=用户 /goal 完成计划004 → 经确认指向交付 READER-002 全链（work→review→merge） | blockers: 无（N-002-A-1/2 具名缺口不阻塞 A） | next_responsible_role: work（T-01 样式/偏好/搜索/布局）
 
 stage: work | plan_id: READER-002 | plan_revision: 3 | outcome: pass（T-01/T-03/T-05 实现+后端面验证完成；A-01..04 端到端验证留 T-04，任务不勾选） | worktree_path: D:/autostack/.wt/reader-002/auto-reader | branch: plan-002-dev | base_commit: 30fcfb5 | code_commit: 1426346（后端数据面）+ 7980320（阅读页 UI） | dependency_revisions: 001 r9 archived、003 r3 archived | task_ids: T-01,T-03,T-05（实现完成，验收证据待 T-04） | evidence: t10 spec 66/66 PASS（%TEMP%/t10-spec.log；注释 CRUD/重复句 occurrence/锚点诚实拒绝/损坏容错/搜索/导出/layout-theme）；`auto test` 7/7（jsonx valid_annotations+layout/theme 词法扩展）；t01/t02 回归 0 fail；HTTP smoke 绿（service 模式 20 路由：annotate occ=2 ✓、bookmark ✓、search ✓、progress layout=wide/theme=sepia 读回 ✓、export 引文/出处/出现序注 ✓）；vue codegen 绿（gen/front/vue reading_page.vue 含全部新 UI）；无全局键盘 handler（widget 级 onenter/按钮） | blockers: N-003-8（在案跨仓缺口）：`auto run --server=vm` flattener 对 zip 模块编译失败——main 同样复现（非本计划回归）；绕行=003 既有形态：`auto service --server vm`/直接 api.at 入口 + vite 独立前端（proxy 已验证 200）；原生轨 UI e2e 待 T-04 按 N-003-8 处置记录 | next_responsible_role: work（T-04：verify_local.py 双 profile + Vue UI e2e + SD-01/02 准备）
+
+stage: work | plan_id: READER-002 | plan_revision: 3 | outcome: pass（A 阶段 work 全部完成：T-00..T-05 共 5/11，phase A 冻结于 commit 1ea4dfd，申请 T-06 phase review；整 Plan 保持 executing，B 未开始） | worktree_path: D:/autostack/.wt/reader-002/auto-reader | branch: plan-002-dev | base_commit: 30fcfb5 | code_commit: 1ea4dfd（1426346 后端 + 7980320 前端 + 1ea4dfd 验证/修复） | dependency_revisions: 001 r9 archived、003 r3 archived | task_ids: T-00,T-01,T-03,T-05,T-04 | evidence: verify_local vue 50/50 + vm 49+1SKIP(N-003-8)、t10 69/69、t01/t02/t06 0 fail、t08 all-pass、verify_epub 21/21、auto test 7/7；统一回归门按分工留 T-06/T-07 复核（work 不重复跑全量） | blockers: B 阶段（T-02/T-08）等 NOTES-002 真实接收交付——外部依赖未交付，A 不被拖住；N-003-8 原生轨 UI e2e 随档 | next_responsible_role: review（T-06 phase review：范围=A 本地 AC-01/02/05+AC-03/04 本地面+SD-01/02 候选；B 必需项明确未验）
 
 ## 10. 待澄清事项
 
