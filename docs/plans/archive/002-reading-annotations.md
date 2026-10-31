@@ -1,7 +1,7 @@
 ---
 plan_id: READER-002
 title: "本地阅读体验、摘录与分阶段Notes联动"
-status: drafting
+status: archived
 feature_name: "本地阅读体验、摘录与分阶段Notes联动"
 author: [Codex]
 created_at: 2026-10-04T00:00:00Z

@@ -14,7 +14,7 @@
 |---|---|
 | [READER-001：真实导入、书库存储与位置恢复](plans/archive/001-real-library.md) | archived/r9、32/32；最终复审和main landing已有记录，保持归档 |
 | [READER-003：最小重排版EPUB导入与阅读](plans/archive/003-epub-reflow.md) | archived/r3；EPUB最小重排版已交付（merge 24c9838，landing 21/21） |
-| [READER-002：本地体验、摘录与导出](plans/002-reading-annotations.md) | executing→收尾中/r4、7/9；阶段A已交付 main=72aac4f（SD-01/02）；B（Notes联动）r4 移除→AutoOS TODO（前置：OS级通讯框架/功能包共享未建） |
+| [READER-002：本地体验、摘录与导出](plans/archive/002-reading-annotations.md) | archived/r4、7/9；阶段A交付落地 main=72aac4f（SD-01/02 Spec 在库，verify_local vue 50/50）；B（Notes联动）r4 移除→AutoOS TODO |
 | [READER-004：Reader验收驱动与夹具归属迁移](plans/004-reader-test-ownership-migration.md) | drafting/r1；将auto-lang两组Reader夹具及对应驱动迁回应用，尚未实施 |
 
 ## 执行纪律
