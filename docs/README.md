@@ -15,6 +15,7 @@
 | [READER-001：真实导入、书库存储与位置恢复](plans/archive/001-real-library.md) | archived/r9、32/32；最终复审和main landing已有记录，保持归档 |
 | [READER-003：最小重排版EPUB导入与阅读](plans/archive/003-epub-reflow.md) | archived/r3；EPUB最小重排版已交付（merge 24c9838，landing 21/21） |
 | [READER-002：本地体验、摘录与Notes联动](plans/002-reading-annotations.md) | executing/r3、7/11；阶段A（本地样式/搜索/注释/导出+SD-01/02）已交付 main=72aac4f，B真实接收等NOTES-002交付 |
+| [READER-004：Reader验收驱动与夹具归属迁移](plans/004-reader-test-ownership-migration.md) | drafting/r1；将auto-lang两组Reader夹具及对应驱动迁回应用，尚未实施 |
 
 ## 执行纪律
 
