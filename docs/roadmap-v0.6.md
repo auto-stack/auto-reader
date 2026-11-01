@@ -24,7 +24,7 @@
 
 | 计划 | 状态 | 交付 |
 |---|---|---|
-| [006 Readest 详细调研与路线再设计](plans/006-readest-deep-research.md) | work 完成/待复审（r1，8/10 任务） | 基线固定（tag v0.12.16=3cc39ad7 + 官方 portable 同版）；257 项发布能力×稳定 ID 对照（=全量 259 行 − 2 行非发布）；代码地图（12 条链路/12 格式/fork 差异 path:line）；真机 U01~U07（核心日用链路全绿，2 个 Windows 缺陷实证）；三路线裁定与 P1~P6 建议；总设计/路线/导航二次修订 |
+| [006 Readest 详细调研与路线再设计](plans/archive/006-readest-deep-research.md) | archived/r1、10/10 | 基线固定（tag v0.12.16=3cc39ad7 + 官方 portable 同版）；257 项发布能力×稳定 ID 对照（=全量 259 行 − 2 行非发布）；代码地图（12 条链路/12 格式/fork 差异 path:line）；真机 U01~U07（核心日用链路全绿，2 个 Windows 缺陷实证）；三路线裁定与 P1~P6 建议；总设计/路线/导航二次修订 |
 
 调研源检出 `D:/autostack/readest`（detached v0.12.16，子模块按 tag 检出）；UI 证据与运行记录在 `D:/autostack/plan-artifacts/plan-006/`（复审可复演）。真机发现如实登记：对话框导入受管副本缺失+打开静默失败、软删不去重、页码口径滞后、移除确认待复验（[UI 研究](research/readest/ui-study.md) §1/§2）。
 

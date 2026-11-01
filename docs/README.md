@@ -1,6 +1,6 @@
 # AutoReader 产品规划与执行入口
 
-更新：2026-11-01（006 调研交付后）。001～005 已交付；**006 Readest 详细调研已完成研究任务**（待独立复审与归档），产出五份研究报告与总设计/路线二次修订。
+更新：2026-11-01（006 已归档）。001～006 均已交付；006 交付五份研究报告与总设计/路线二次修订（coverage v2）。
 
 - [产品总设计：覆盖 Readest（coverage v2）](design/01-product-design.md)
 - [路线图：首批计划建议 P1~P6](roadmap-v0.6.md)
@@ -16,7 +16,7 @@
 | [002 本地阅读与注释](plans/archive/002-reading-annotations.md) | archived/r4；本地 A 收尾，历史计数 7/9；Notes 交接为 OS TODO |
 | [004 驱动/夹具归属](plans/archive/004-reader-test-ownership-migration.md) | archived/delivered；框架正对照/HTTP 保存有明确边界 |
 | [005 真实 EPUB 阅读与双端收口](plans/archive/005-standalone-epub-and-ui-acceptance.md) | archived/r1、9/9；原生写传输与自动化按压缺口仍在册 |
-| [006 Readest 详细调研与路线再设计](plans/006-readest-deep-research.md) | work 完成（r1，8/10）；T-08 独立复审、T-09 归档待行；产出 = 上表五份研究报告 + 总设计/路线二次修订 |
+| [006 Readest 详细调研与路线再设计](plans/archive/006-readest-deep-research.md) | archived/r1、10/10；产出 = 五份研究报告 + 总设计/路线二次修订（coverage v2）；后续 P1~P6 建议待取号 |
 
 ## 工作约定
 

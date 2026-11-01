@@ -1,12 +1,12 @@
 ---
 plan_id: READER-006
-status: reviewed
+status: archived
 feature_name: "Readest详细调研与覆盖路线再设计"
 author: [Codex]
 created_at: 2026-11-01
 updated_at: 2026-11-01
 plan_revision: 1
-current_step: 8
+current_step: 10
 total_steps: 10
 base_branch: main
 base_commit: 0a296b39f84ce1d741511413a5eec9d3cd0225f0
@@ -209,7 +209,7 @@ work 首先核验 main 的实际 HEAD/WIP 与本计划 r1，记录到 baseline.m
 - 工作授权：/goal 继承（含 clone Readest）；证据在 plan-artifacts/plan-006/（runlog+notes+screens），merge 时按政策合并进计划文件并删除。
 - 未完成属下阶段：T-08 review（AC-09：独立上下文复核 AC-01..08，抽查 EPUB 选择/恢复与 PDF 本地任务+一个服务限制结论）、T-09 merge（AC-10）。移除确认复现 2 次未删已登记为复审抽检项（ui-study §1）。
 
-- stage: goal | plan_id: READER-006 | plan_revision: r1 | round: 1 | from: work | to: review | status: reviewed (work pass, 8/10) | outcome: pass | worktree: D:/autostack/auto-reader (main, 计划 §2 开发位) | commit: eaee1cc | next: review
+- stage: goal | plan_id: READER-006 | plan_revision: r1 | round: 1 | from: work | to: review | status: archived (work pass, 8/10) | outcome: pass | worktree: D:/autostack/auto-reader (main, 计划 §2 开发位) | commit: eaee1cc | next: review
 
 ### 2026-11-01：T-08 独立复审（review_scope: final，r1 @ 432ce21）
 
@@ -229,4 +229,12 @@ work 首先核验 main 的实际 HEAD/WIP 与本计划 r1，记录到 baseline.m
 - stage: review（targeted re-review，AC-01/02/03/04 受影响面） | review_scope: final（闭合复核） | outcome: **pass** → **reviewed** | 复核方式：修复项逐一比对 R1 实测值；两处改后引证由本会话在 tag 检出直接重读（section-chunks.js:13=CHUNK_ATTRIBUTE ✓、Annotator.tsx:1607=BookNote 字面量起点 ✓）；残留「255」仅存 d39c255 哈希与 matrix 废止说明（非主张）；check_links 134/134 ALL OK；git diff --check=0 | findings: 无新增 | next: merge（T-09）
 - 计划状态：executing → **reviewed**（r1 @ 098cde5）。
 
-- stage: goal | plan_id: READER-006 | plan_revision: r1 | round: 2 | from: review | to: merge | status: reviewed (T-08 needs_fix repaired, targeted re-review pass @ 098cde5) | outcome: pass | worktree: D:/autostack/auto-reader (main) | commit: 098cde5 | next: merge
+- stage: goal | plan_id: READER-006 | plan_revision: r1 | round: 2 | from: review | to: merge | status: archived (T-08 needs_fix repaired, targeted re-review pass @ 098cde5) | outcome: pass | worktree: D:/autostack/auto-reader (main) | commit: 098cde5 | next: merge
+
+### 2026-11-01：T-09 merge 沉淀与归档（READER-006:r1）
+
+- stage: merge | plan_id: READER-006 | plan_revision: r1 | outcome: pass | delivery_commit: main 线性链 d39c255..2e0600c（计划 §2 开发位=独立 clone main，无 worktree、无分支着陆；研究提交即交付链） | canonical: **无 Spec 增量落地**（计划 §规范增量=无，supersedes/new 均空；approved no-impact：研究报告描述候选能力不改运行时行为——T-08 已核实 diff 范围未触 docs/specs、.autoos ledger、OS gitlink） | archive_path: docs/plans/archive/006-readest-deep-research.md
+- 检查点：**prepared** = reviewed 基线 2e0600c（修复轮 098cde5 之后）、无 Spec diff、交付=既有 main 链；**landed** = 交付链本就在默认分支（`git log --oneline d39c255..2e0600c` 线性、无 merge commit），main tip 即交付头；**canonical_verified** = no-impact 结论（上栏）+ 研究产物五文件路径 docs/research/readest/{baseline,capability-matrix,code-map,ui-study,decisions,report}.md 在 landed 提交内（134/134 本地链接核验）；**archived** = `git mv` 至 docs/plans/archive/ + status: archived + 导航四处改链（docs/README、roadmap、00-intro、根 README）+ current_step 10/10；**cleaned** = 无 worktree 可拆（`git worktree list` 仅主检出；计划 §2 明示无 app worktree）；plan-artifacts/plan-006/ 证据折叠（本节+§9 全回执+docs/research/readest/ 耐久摘要）后整删，registry 刷新，无具名 holds。
+- 证据折叠去向（merge 后恢复研究结论所需的最小集）：研究耐久摘要 = docs/research/readest/ 五文件（含全部截图索引与运行方法）；原始运行记录 = 本计划 §9 各回执（work 交接/review/修复/本节）；上游复检 = baseline §2 命令（可重放）+ `D:/autostack/readest`（detached v0.12.16 检出，**保留在 plan-artifacts 作用域之外**，报告 §6 复演入口引用）；portable exe 重新获取 = evidence/exe-provenance.md 内容已折入 baseline §4（SHA256+URL+大小），exe 本体随作用域删除（92MB，可按 provenance 重下载）。
+- Landing checks（Landing ≠ 部署）：本计划纯文档（0 行 src/ 改动，T-08 diff 核实），无构建产物/运行进程需要刷新；主检出 clean。批量回归到期检查：auto-lang 规则不适用本仓（无 .last-batch-regression.json 机制），N/A。
+- completion_kind: delivered | 后续入口：P1~P6 建议待用户认可后另立计划取号（decisions §5）；遗留待人工复核项（Readest 上游侧，非本计划义务）：移除确认未生效复现×2、PDF 标注弹层、顶栏书签按钮——均已在上游 ui-study 如实登记，不阻塞本计划交付。
