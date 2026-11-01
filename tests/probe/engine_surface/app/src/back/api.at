@@ -448,7 +448,10 @@ pub fn probe_asset(name str) FileResponse {
             }
         }
     }
-    let ct str = asset_type_of(rel)
+    var ct str = asset_type_of(rel)
+    if rel == "__missing__" {
+        ct = "application/octet-stream"
+    }
     var opts str = "{\"content_type\":\""
     opts = opts + ct
     opts = opts + "\"}"
