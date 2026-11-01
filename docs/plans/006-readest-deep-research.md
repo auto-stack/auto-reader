@@ -1,6 +1,6 @@
 ---
 plan_id: READER-006
-status: executing
+status: reviewed
 feature_name: "Readest详细调研与覆盖路线再设计"
 author: [Codex]
 created_at: 2026-11-01
@@ -209,7 +209,7 @@ work 首先核验 main 的实际 HEAD/WIP 与本计划 r1，记录到 baseline.m
 - 工作授权：/goal 继承（含 clone Readest）；证据在 plan-artifacts/plan-006/（runlog+notes+screens），merge 时按政策合并进计划文件并删除。
 - 未完成属下阶段：T-08 review（AC-09：独立上下文复核 AC-01..08，抽查 EPUB 选择/恢复与 PDF 本地任务+一个服务限制结论）、T-09 merge（AC-10）。移除确认复现 2 次未删已登记为复审抽检项（ui-study §1）。
 
-- stage: goal | plan_id: READER-006 | plan_revision: r1 | round: 1 | from: work | to: review | status: executing (work pass, 8/10) | outcome: pass | worktree: D:/autostack/auto-reader (main, 计划 §2 开发位) | commit: eaee1cc | next: review
+- stage: goal | plan_id: READER-006 | plan_revision: r1 | round: 1 | from: work | to: review | status: reviewed (work pass, 8/10) | outcome: pass | worktree: D:/autostack/auto-reader (main, 计划 §2 开发位) | commit: eaee1cc | next: review
 
 ### 2026-11-01：T-08 独立复审（review_scope: final，r1 @ 432ce21）
 
@@ -227,4 +227,6 @@ work 首先核验 main 的实际 HEAD/WIP 与本计划 r1，记录到 baseline.m
 - stage: work（修复） | plan_id: READER-006 | plan_revision: r1 | outcome: pass | task_ids: RV-D01..D08+R2措辞（12 项全闭） | code_commit: 见本回执后首个提交 | evidence: exe-provenance.md（哈希两次独立计算同值 683a620d…）+ 各文件定点修正
 - 修复映射：RV-D01 baseline gstack=`a3259400a366…`（R1 实测值）；RV-D02 evidence/exe-provenance.md 归档哈希+URL+两次计算，baseline §4 指向之；RV-D03 分母改 **257=259−2**（逐行点名 C04-010 主分支/C05-035 code-only；255 宽估废止），matrix §11.2+report §1/§2/§3+design §1/§8+roadmap+两 README+00-intro 全部对齐；RV-D04 31 条；RV-D05 两引证按 R1 实测值改（section-chunks.js:13、Annotator.tsx:1607-1617）并注校正；RV-D06 runlog 补 U04~U07 逐条记录 + ui-study §0 覆盖说明；RV-D07 重复截图组+PDF 单帧证据如实注记；RV-D08 三导航文档 8/10；R2 措辞：高亮渲染=分页器 shadow-DOM SVG overlay（新行）+幂等去重（新行）+「应用到所有匹配」存疑样本注记。
 - stage: review（targeted re-review，AC-01/02/03/04 受影响面） | review_scope: final（闭合复核） | outcome: **pass** → **reviewed** | 复核方式：修复项逐一比对 R1 实测值；两处改后引证由本会话在 tag 检出直接重读（section-chunks.js:13=CHUNK_ATTRIBUTE ✓、Annotator.tsx:1607=BookNote 字面量起点 ✓）；残留「255」仅存 d39c255 哈希与 matrix 废止说明（非主张）；check_links 134/134 ALL OK；git diff --check=0 | findings: 无新增 | next: merge（T-09）
-- 计划状态：executing → **reviewed**（r1）。
+- 计划状态：executing → **reviewed**（r1 @ 098cde5）。
+
+- stage: goal | plan_id: READER-006 | plan_revision: r1 | round: 2 | from: review | to: merge | status: reviewed (T-08 needs_fix repaired, targeted re-review pass @ 098cde5) | outcome: pass | worktree: D:/autostack/auto-reader (main) | commit: 098cde5 | next: merge
