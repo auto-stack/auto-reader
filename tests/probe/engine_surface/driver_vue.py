@@ -387,6 +387,60 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
                     f"code={e.code}")
         except Exception as e:  # noqa: BLE001
             results("V-07.path-escape", "PASS", "transport refused: " + repr(e)[:80])
+
+        # ── V-09：内容损坏后的错锚（同 session，受管内容被改写）──
+        # 复制 alpha 并把 ch1 正文「十七」改写为「十八」（zip 级精准替换），
+        # 注册为独立文档；对改写书提交原句 quote 必须被原文核验明确拒绝
+        # （quote_not_found，不静默换第一处、零落盘）；改写后句对照仍接受。
+        import zipfile as _zf
+        mutated = os.path.join(out_dir, "probe-mutated.epub")
+        try:
+            with _zf.ZipFile(epub) as zin, _zf.ZipFile(mutated, "w") as zout:
+                for item in zin.infolist():
+                    data = zin.read(item.filename)
+                    if item.filename.endswith(".xhtml"):
+                        data = data.decode("utf-8").replace("十七", "十八").encode("utf-8")
+                    zout.writestr(item, data)
+            msize = os.path.getsize(mutated)
+            r = http("POST", "http://127.0.0.1:17827/api/probe/register",
+                      {"book_id": "uuid-MUT", "source_hash": "mut-hash-01",
+                       "managed_path": mutated.replace("\\", "/"), "title": "mutated",
+                       "book_bytes": msize})
+            if not r.get("ok"):
+                results("V-09.mutated-register", "FAIL", json.dumps(r, ensure_ascii=False)[:160])
+                return
+            sid9 = sid + "m"
+            http("POST", "http://127.0.0.1:17827/api/probe/session",
+                  {"session_id": sid9, "book_id": "uuid-MUT",
+                   "source_hash": "mut-hash-01", "engine": ENGINE_REVISION})
+            q_orig = repeat_a
+            q_mut = repeat_a.replace("十七", "十八")
+            rj = http("POST", "http://127.0.0.1:17827/api/probe/locator",
+                       {"schema_version": 1, "kind": "locator_select", "session_id": sid9,
+                        "book_id": "uuid-MUT", "source_hash": "mut-hash-01",
+                        "engine": ENGINE_REVISION, "resource_href": "ch1.xhtml",
+                        "resource_index": 0, "cfi": "epubcfi(/6/4)", "range_cfi": "",
+                        "text_quote": q_orig, "occurrence": 1,
+                        "context_before": "", "context_after": "", "seq": 1, "ts": 1})
+            ok_rej = rj.get("accepted") is False and                 "quote_not_found" in json.dumps(rj, ensure_ascii=False)
+            results("V-09.stale-quote-rejected", "PASS" if ok_rej else "FAIL",
+                    json.dumps(rj, ensure_ascii=False)[:160])
+            side9 = http("GET", f"http://127.0.0.1:17827/api/probe/locators?session_id={sid9}")
+            results("V-09.zero-disk-on-stale",
+                    "PASS" if not side9.get("found") else "FAIL",
+                    "sidecar found=" + str(side9.get("found")))
+            rj2 = http("POST", "http://127.0.0.1:17827/api/probe/locator",
+                        {"schema_version": 1, "kind": "locator_select", "session_id": sid9,
+                         "book_id": "uuid-MUT", "source_hash": "mut-hash-01",
+                         "engine": ENGINE_REVISION, "resource_href": "ch1.xhtml",
+                         "resource_index": 0, "cfi": "epubcfi(/6/4)", "range_cfi": "",
+                         "text_quote": q_mut, "occurrence": 1,
+                         "context_before": "", "context_after": "", "seq": 2, "ts": 2})
+            results("V-09.mutated-control-accepted",
+                    "PASS" if rj2.get("accepted") is True else "FAIL",
+                    json.dumps(rj2, ensure_ascii=False)[:160])
+        except Exception as e:  # noqa: BLE001
+            results("V-09", "FAIL", repr(e)[:160])
     finally:
         if cons:
             cons.stop()
