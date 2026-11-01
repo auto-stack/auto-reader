@@ -123,7 +123,7 @@ def t01_oracle_selfcheck(corpus_dir, out_dir):
     return ok
 
 
-# ─────────────────────── V-01..V-10 注册表（T-02+ 充实） ───────────────────────
+# ─────────────────────── V-01..V-10 注册表 ───────────────────────
 
 def stub(case):
     def _stub(ctx):
@@ -132,12 +132,19 @@ def stub(case):
     return _stub
 
 
-CASES = {
-    "V-01": stub("V-01"), "V-02": stub("V-02"), "V-03": stub("V-03"),
-    "V-04": stub("V-04"), "V-05": stub("V-05"), "V-06": stub("V-06"),
-    "V-07": stub("V-07"), "V-08": stub("V-08"), "V-09": stub("V-09"),
-    "V-10": stub("V-10"),
-}
+def run_surface(ctx):
+    """按 profile 驱动 V-01..V-10 已实现面（T-02 起）。"""
+    if ctx["profile"] == "vue":
+        from driver_vue import run_vue
+        oracle = BookScan(os.path.join(ctx["corpus_dir"], "probe-alpha.epub"))
+        run_vue(ctx["out_dir"], ctx["corpus_dir"], oracle, REPEAT_A, record)
+    else:
+        for cid in ("V-01", "V-02", "V-03", "V-04", "V-05", "V-06", "V-07",
+                    "V-08", "V-09", "V-10"):
+            record(cid, "not_run", "vm profile surface pending native seam experiment (T-03)")
+
+
+CASES = {"surface": run_surface}
 
 
 def main():
