@@ -210,3 +210,14 @@ work 首先核验 main 的实际 HEAD/WIP 与本计划 r1，记录到 baseline.m
 - 未完成属下阶段：T-08 review（AC-09：独立上下文复核 AC-01..08，抽查 EPUB 选择/恢复与 PDF 本地任务+一个服务限制结论）、T-09 merge（AC-10）。移除确认复现 2 次未删已登记为复审抽检项（ui-study §1）。
 
 - stage: goal | plan_id: READER-006 | plan_revision: r1 | round: 1 | from: work | to: review | status: executing (work pass, 8/10) | outcome: pass | worktree: D:/autostack/auto-reader (main, 计划 §2 开发位) | commit: eaee1cc | next: review
+
+### 2026-11-01：T-08 独立复审（review_scope: final，r1 @ 432ce21）
+
+- stage: review | review_scope: final | reviewer_identity: 双独立新上下文复核（R1=文档/AC 审计 44 次工具调用；R2=真机 UI 复现 89 次调用），编排会话汇总裁定；模型/会话 ID 未暴露（限制如实登记） | plan_id: READER-006 | plan_revision: r1 | outcome: **needs_fix**（0 blocker / 2 major / 6 minor + 4 条措辞修正） | worktree_path: D:/autostack/auto-reader | branch: main | reviewed_commit: 432ce21 | base_commit: d39c255 | dependency_revisions: readest 3cc39ad7 (v0.12.16, clean) | spec_inputs: 无 Spec 增量（计划 §规范增量=无；diff 范围核实未触 docs/specs、ledger、OS gitlink）
+- **AC 证据图**：AC-01..AC-08 全部 pass（R1 审计：基线 git 事实可复算、矩阵 259 行与清单逐一对应、code-map 12 引证 10 精确 2 漂移、26 截图全在、映射抽查 25+ 行无虚构、三路线/探针/建议完备、五文档实质修订、P1~P6 无早取号）；R2 真机复现 4/4 REPRODUCE（EPUB 选择→黄色高亮→落盘 cfi→重开恢复；PDF 打开/翻页/缩放，弹层未现与"未验证"记录一致；翻译禁用门；软删书架一致性）。
+- **Findings**（详见 plan-artifacts/plan-006/notes/review-r1-docs.md + review-r2-ui.md）：
+  - RV-D02 (major, AC-01)：portable exe SHA256/下载 URL 无归档原始记录（文件+大小旁证在）。
+  - RV-D03 (major, AC-02)：发布分母 255 不可由矩阵推导（仅 2 行非 released，可推导值 257；分域和 259 与 255 括注不自洽）。
+  - minor：RV-D01 gstack 哈希笔误（a3259400）；RV-D04 §11.2「30 条」应 31；RV-D05 两处行号漂移（section-chunks.js:13、Annotator.tsx:1607-1617）；RV-D06 runlog 缺 U04-U07 逐条记录；RV-D07 重复截图组未标注；RV-D08 三导航文档 7/10 应 8/10。
+  - R2 措辞修正：高亮渲染为分页器 shadow-DOM SVG overlay（非 iframe span）；重复高亮幂等去重；「应用到所有匹配」本次未现（存疑样本登记）。
+- evidence: notes/review-r1-docs.md、notes/review-r2-ui.md、screens/review-*.png(15)、check_links 134/134、git diff --check=0 | pending_closeout_gates: 无（研究文档计划，§6 检查已由审计覆盖） | next: work（有界修复 RV-D01..D08 + R2 措辞，随后 AC-01/02/04 受影响面 targeted re-review，pass 后 T-09）
