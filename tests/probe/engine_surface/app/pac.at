@@ -1,0 +1,13 @@
+name: "probe-engine-surface"
+version: "0.1.0"
+scene: "ui"
+render: "vue"
+title: "Engine Surface Probe"
+title_zh: "引擎表面探针"
+# PLAN-026 探针消费工程（reader tests/probe/engine_surface/ 隔离路径）。
+# 默认 server（缺省 api）= Vue 前端 + AutoVM HTTP 后端（同 reader 014-weather
+# 裁定：不声明 api: "rust"）。双端口用探针 profile 冻结的 secondary 槽位，
+# 与 reader 主实例（17824/17825）共存（V-08 双实例）。
+front_port: 17826
+back_port: 17827
+desktop: "true"

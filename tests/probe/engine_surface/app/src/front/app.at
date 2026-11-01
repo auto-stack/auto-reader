@@ -1,0 +1,16 @@
+// app.at — probe-engine-surface 外壳：单路由探针页。
+// PLAN-026 §5.2 Vue profile 有效承载：正常生成/装配的 AutoUI 消费页内
+// 文档表面。表面本体 = probe 页的 remote-frame 透传 div（PLAN-760 宿主
+// 接管契约），引擎由探针胶水 querySelector('[data-remote-frame]') 挂载。
+widget App {
+    routes {
+        "/" -> use probe
+    }
+
+    view {
+        col {
+            style: "w-full h-full min-h-screen bg-background text-foreground"
+            outlet
+        }
+    }
+}

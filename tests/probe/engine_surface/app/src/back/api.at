@@ -1,0 +1,1366 @@
+// api.at — PLAN-026 探针消费工程 .at 后端（隔离 PROBE_DATA_DIR 数据面）。
+//
+// 职责（计划 §5.1/§5.3）：受管文档注册（身份来自 reader 真实导入）、框架
+// 受控资源服务（受管原件字节 + 引擎资产，root 由注册记录/env 派生 + 形状
+// 白名单，不具跨书/逃逸可达性）、实验消息 v1 的 .at 消费 handler（会话/
+// 身份/序号/预算/quote 原文核验），接受者落 sidecar，拒绝者零落盘。
+//
+// 纪律沿 reader back 既有裁定：无状态 + JSON 字符串表面；只用已映射
+// native（fs/zip/Env/time/http.file_response）；str 操作字节索引（find/
+// substr 多字节安全）；fn 实参先绑局部；拼接链每步 ≤2 操作数；json.parse
+// 用 for-in + try/catch；记录重发用显式 reemit（无 raw json 通道）；写协议
+// backup/tmp/commit（write_with_backup 同式）。
+
+// ── 数据面路径与基础 ──
+
+pub fn data_dir() str {
+    let env str = Env.get("PROBE_DATA_DIR")
+    if env != "" {
+        return normalize(env)
+    }
+    var home str = Env.get("USERPROFILE")
+    if home == "" {
+        home = Env.get("HOME")
+    }
+    if home != "" {
+        return normalize(home) + "/.probe-engine-surface"
+    }
+    return "./.probe-engine-surface"
+}
+
+fn pd_dir() str {
+    return join2(data_dir(), "probe")
+}
+
+fn normalize(p str) str {
+    return p.replace("\\", "/")
+}
+
+fn join2(a str, b str) str {
+    return a + "/" + b
+}
+
+fn mkdirs(path str) int {
+    if path == "" {
+        return 0
+    }
+    let p str = normalize(path)
+    if fs.exists(p) {
+        return 0
+    }
+    var acc str = ""
+    var segs = p.split("/")
+    var i int = 0
+    while i < segs.len() {
+        let seg str = segs[i]
+        if acc == "" {
+            acc = seg
+        } else {
+            acc = acc + "/"
+            acc = acc + seg
+        }
+        if seg == "" {
+            i = i + 1
+            continue
+        }
+        if acc.substr(acc.len() - 1, 1) == ":" {
+            i = i + 1
+            continue
+        }
+        if !fs.exists(acc) {
+            let rc int = fs.create_dir(acc)
+            if rc != 0 {
+                if !fs.exists(acc) {
+                    return rc
+                }
+            }
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+fn json_escape(s str) str {
+    var out str = s
+    if out.find("\\") >= 0 {
+        out = out.replace("\\", "\\\\")
+    }
+    if out.find("\"") >= 0 {
+        out = out.replace("\"", "\\\"")
+    }
+    out = out.replace("\n", "\\n")
+    out = out.replace("\r", "\\r")
+    out = out.replace("\t", "\\t")
+    return out
+}
+
+fn verified_write(path str, payload str) int {
+    fs.write_text(path, payload)
+    if !fs.exists(path) {
+        return -1
+    }
+    let back str = fs.read_text(path)
+    if back != payload {
+        return -2
+    }
+    return 0
+}
+
+fn write_with_backup(path str, payload str) int {
+    if fs.exists(path) {
+        if fs.is_dir(path) {
+            return -2
+        }
+        let prev str = fs.read_text(path)
+        if prev == "" {
+            return -3
+        }
+        let bak str = path + ".bak"
+        let brc int = verified_write(bak, prev)
+        if brc != 0 {
+            return -4
+        }
+    }
+    let tmp str = path + ".tmp"
+    let trc int = verified_write(tmp, payload)
+    if trc != 0 {
+        return -5
+    }
+    let wrc int = verified_write(path, payload)
+    if wrc != 0 {
+        let bak2 str = path + ".bak"
+        if fs.exists(bak2) {
+            if !fs.is_dir(bak2) {
+                let prev2 str = fs.read_text(bak2)
+                if prev2 != "" {
+                    fs.write_text(path, prev2)
+                }
+            }
+        }
+        return wrc
+    }
+    return 0
+}
+
+fn dir_of(p str) str {
+    let n str = normalize(p)
+    var last int = -1
+    var i int = 0
+    while i < n.len() {
+        if n.substr(i, 1) == "/" {
+            last = i
+        }
+        i = i + 1
+    }
+    if last < 0 {
+        return "."
+    }
+    return n.substr(0, last)
+}
+
+fn base_of(p str) str {
+    let n str = normalize(p)
+    var last int = -1
+    var i int = 0
+    while i < n.len() {
+        if n.substr(i, 1) == "/" {
+            last = i
+        }
+        i = i + 1
+    }
+    return n.substr(last + 1, n.len() - last - 1)
+}
+
+// ── 注册面（文档身份来自 reader 真实导入契约） ──
+
+fn docs_path() str {
+    return join2(pd_dir(), "documents.json")
+}
+
+fn doc_reemit(d) str {
+    let fbid str = "" + d.book_id
+    let fsh str = "" + d.source_hash
+    let fmp str = "" + d.managed_path
+    let ftl str = "" + d.title
+    let fsz int = d.file_size
+    let fat int = d.registered_at
+    var out str = "{\"book_id\":\""
+    out = out + json_escape(fbid)
+    out = out + "\",\"source_hash\":\""
+    out = out + json_escape(fsh)
+    out = out + "\",\"managed_path\":\""
+    out = out + json_escape(fmp)
+    out = out + "\",\"title\":\""
+    out = out + json_escape(ftl)
+    out = out + "\",\"file_size\":"
+    out = out + fsz.to_string()
+    out = out + ",\"registered_at\":"
+    out = out + fat.to_string()
+    out = out + "}"
+    return out
+}
+
+/// POST /api/probe/register — 注册受管探针文档。
+/// book_id/source_hash 由驱动取自 reader 真实导入（隔离 AUTO_READER_DATA）；
+/// managed_path 为 reader 受管副本；此处核存在与尺寸，不复制不改原件。
+#[api(method = "POST", path = "/api/probe/register")]
+pub fn probe_register(book_id str, source_hash str, managed_path str, title str, book_bytes int) str {
+    if book_id == "" {
+        return "{\"ok\":false,\"error\":\"rejected_bad_document\",\"detail\":\"book_id empty\"}"
+    }
+    if source_hash == "" {
+        return "{\"ok\":false,\"error\":\"rejected_bad_document\",\"detail\":\"source_hash empty\"}"
+    }
+    let mp str = normalize(managed_path)
+    if !fs.exists(mp) {
+        return "{\"ok\":false,\"error\":\"rejected_bad_document\",\"detail\":\"managed copy missing\"}"
+    }
+    if fs.is_dir(mp) {
+        return "{\"ok\":false,\"error\":\"rejected_bad_document\",\"detail\":\"managed copy is dir\"}"
+    }
+    let real_size int = fs.file_size(mp)
+    if real_size != book_bytes {
+        return "{\"ok\":false,\"error\":\"rejected_bad_document\",\"detail\":\"size mismatch\"}"
+    }
+    if book_bytes > 1048576 {
+        return "{\"ok\":false,\"error\":\"rejected_oversize\",\"detail\":\"book over probe 1MiB profile\"}"
+    }
+    let mrc int = mkdirs(pd_dir())
+    if mrc != 0 {
+        return "{\"ok\":false,\"error\":\"fs_error\"}"
+    }
+    let now int = time.now_sec()
+    let rec str = doc_reemit_from(book_id, source_hash, mp, title, book_bytes, now)
+    var out str = "{\"version\":1,\"docs\":["
+    var n int = 0
+    let dp str = docs_path()
+    if fs.exists(dp) {
+        let docs_json str = fs.read_text(dp)
+        if docs_json != "" {
+            try {
+                let parsed = json.parse(docs_json)
+                let docs = parsed.docs
+                for d in docs {
+                    let bid str = "" + d.book_id
+                    if bid == book_id {
+                        continue
+                    }
+                    if n > 0 {
+                        out = out + ","
+                    }
+                    out = out + doc_reemit(d)
+                    n = n + 1
+                }
+            } catch {
+                out = "{\"version\":1,\"docs\":["
+                n = 0
+            }
+        }
+    }
+    if n > 0 {
+        out = out + ","
+    }
+    out = out + rec
+    out = out + "]}"
+    let wrc int = write_with_backup(dp, out)
+    if wrc != 0 {
+        return "{\"ok\":false,\"error\":\"fs_error\"}"
+    }
+    var okr str = "{\"ok\":true,\"document_id\":\""
+    let esc_id str = json_escape(book_id)
+    okr = okr + esc_id
+    okr = okr + "\"}"
+    return okr
+}
+
+fn doc_reemit_from(book_id str, source_hash str, mp str, title str, file_size int, at int) str {
+    var out str = "{\"book_id\":\""
+    out = out + json_escape(book_id)
+    out = out + "\",\"source_hash\":\""
+    out = out + json_escape(source_hash)
+    out = out + "\",\"managed_path\":\""
+    out = out + json_escape(mp)
+    out = out + "\",\"title\":\""
+    out = out + json_escape(title)
+    out = out + "\",\"file_size\":"
+    out = out + file_size.to_string()
+    out = out + ",\"registered_at\":"
+    out = out + at.to_string()
+    out = out + "}"
+    return out
+}
+
+fn find_doc_json(book_id str) str {
+    let dp str = docs_path()
+    if !fs.exists(dp) {
+        return ""
+    }
+    let docs_json str = fs.read_text(dp)
+    if docs_json == "" {
+        return ""
+    }
+    var hit str = ""
+    try {
+        let parsed = json.parse(docs_json)
+        let docs = parsed.docs
+        for d in docs {
+            let bid str = "" + d.book_id
+            if bid == book_id {
+                hit = doc_reemit(d)
+            }
+        }
+    } catch {
+        return ""
+    }
+    return hit
+}
+
+/// GET /api/probe/document/:bid — 注册状态读回（oracle 用）。
+#[api(method = "GET", path = "/api/probe/document/:bid")]
+pub fn probe_doc_get(bid str) str {
+    let dj str = find_doc_json(bid)
+    if dj == "" {
+        return "{\"registered\":false}"
+    }
+    var out2 str = "{\"registered\":true,\"document\":"
+    out2 = out2 + dj
+    out2 = out2 + "}"
+    return out2
+}
+
+// ── 资源面（框架受控装载；root 只由注册记录/env 派生） ──
+
+/// GET /api/probe/document/:bid/file — 本次书受管原件字节（引擎装载源）。
+/// root 由注册记录派生，rel 为记录内文件名——路径不可由请求注入；
+/// 未注册 → 指向必然不存在的名字（传输层 404），不泄露状态。
+#[api(method = "GET", path = "/api/probe/document/:bid/file")]
+pub fn probe_doc_file(bid str) FileResponse {
+    var root str = data_dir()
+    var rel str = "__missing__"
+    let dj str = find_doc_json(bid)
+    if dj != "" {
+        try {
+            let parsed = json.parse(dj)
+            let mp str = "" + parsed.managed_path
+            if mp != "" {
+                root = dir_of(mp)
+                rel = base_of(mp)
+            }
+        } catch {
+            root = data_dir()
+            rel = "__missing__"
+        }
+    }
+    return http.file_response(root, rel, "{\"content_type\":\"application/epub+zip\"}")
+}
+
+fn asset_type_of(name str) str {
+    if name.find(".mjs") >= 0 {
+        return "text/javascript"
+    }
+    if name.find(".js") >= 0 {
+        return "text/javascript"
+    }
+    if name.find(".css") >= 0 {
+        return "text/css"
+    }
+    if name.find(".html") >= 0 {
+        return "text/html"
+    }
+    if name.find(".json") >= 0 {
+        return "application/json"
+    }
+    if name.find(".png") >= 0 {
+        return "image/png"
+    }
+    return ""
+}
+
+/// GET /api/probe/asset/:name — 引擎固定资产（foliate-js fork@3d79419 +
+/// 探针 adapter）。root 来自 PROBE_ASSETS_DIR env（驱动指向 plan-artifacts
+/// 受管副本）；:name 形状白名单，`..`/绝对路径/盘符不可达；双保险同
+/// reader media 端点。
+#[api(method = "GET", path = "/api/probe/asset/:name")]
+pub fn probe_asset(name str) FileResponse {
+    var root str = data_dir()
+    var rel str = "__missing__"
+    var ok bool = true
+    if name == "" {
+        ok = false
+    }
+    if ok {
+        if name.len() > 200 {
+            ok = false
+        }
+    }
+    if ok {
+        if name.find("..") >= 0 {
+            ok = false
+        }
+    }
+    if ok {
+        var i int = 0
+        while i < name.len() {
+            let c str = name.substr(i, 1)
+            var known bool = false
+            if "0123456789".find(c) >= 0 {
+                known = true
+            }
+            if "abcdefghijklmnopqrstuvwxyz".find(c) >= 0 {
+                known = true
+            }
+            if "ABCDEFGHIJKLMNOPQRSTUVWXYZ".find(c) >= 0 {
+                known = true
+            }
+            if c == "." {
+                known = true
+            }
+            if c == "-" {
+                known = true
+            }
+            if c == "_" {
+                known = true
+            }
+            if c == "/" {
+                known = true
+            }
+            if !known {
+                ok = false
+                i = name.len()
+            }
+            i = i + 1
+        }
+    }
+    if ok {
+        let at str = asset_type_of(name)
+        if at == "" {
+            ok = false
+        }
+    }
+    if ok {
+        let ar str = normalize(Env.get("PROBE_ASSETS_DIR"))
+        if ar != "" {
+            if fs.exists(ar) {
+                if fs.is_dir(ar) {
+                    root = ar
+                    rel = name
+                }
+            }
+        }
+    }
+    let ct str = asset_type_of(rel)
+    var opts str = "{\"content_type\":\""
+    opts = opts + ct
+    opts = opts + "\"}"
+    return http.file_response(root, rel, opts)
+}
+
+// ── 会话面 ──
+
+fn sessions_path() str {
+    return join2(pd_dir(), "sessions.json")
+}
+
+fn session_id_ok(sid str) bool {
+    if sid == "" {
+        return false
+    }
+    if sid.len() > 64 {
+        return false
+    }
+    var i int = 0
+    while i < sid.len() {
+        let c str = sid.substr(i, 1)
+        var known bool = false
+        if "0123456789".find(c) >= 0 {
+            known = true
+        }
+        if "abcdefghijklmnopqrstuvwxyz".find(c) >= 0 {
+            known = true
+        }
+        if "ABCDEFGHIJKLMNOPQRSTUVWXYZ".find(c) >= 0 {
+            known = true
+        }
+        if c == "-" {
+            known = true
+        }
+        if c == "_" {
+            known = true
+        }
+        if !known {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fn session_reemit(s) str {
+    let fsid str = "" + s.session_id
+    let fbid str = "" + s.book_id
+    let fsh str = "" + s.source_hash
+    let fen str = "" + s.engine
+    let fca int = s.created_at
+    let fls int = s.last_seq
+    let fct int = s.count
+    var out str = "{\"session_id\":\""
+    out = out + json_escape(fsid)
+    out = out + "\",\"book_id\":\""
+    out = out + json_escape(fbid)
+    out = out + "\",\"source_hash\":\""
+    out = out + json_escape(fsh)
+    out = out + "\",\"engine\":\""
+    out = out + json_escape(fen)
+    out = out + "\",\"created_at\":"
+    out = out + fca.to_string()
+    out = out + ",\"last_seq\":"
+    out = out + fls.to_string()
+    out = out + ",\"count\":"
+    out = out + fct.to_string()
+    out = out + "}"
+    return out
+}
+
+/// POST /api/probe/session — 建立探针会话（绑定文档身份）。
+#[api(method = "POST", path = "/api/probe/session")]
+pub fn probe_session(session_id str, book_id str, source_hash str, engine str) str {
+    if !session_id_ok(session_id) {
+        return "{\"ok\":false,\"error\":\"rejected_bad_session\",\"detail\":\"session_id shape\"}"
+    }
+    let dj str = find_doc_json(book_id)
+    if dj == "" {
+        return "{\"ok\":false,\"error\":\"rejected_bad_document\",\"detail\":\"document not registered\"}"
+    }
+    var real_hash str = ""
+    try {
+        let dparsed = json.parse(dj)
+        real_hash = "" + dparsed.source_hash
+    } catch {
+        return "{\"ok\":false,\"error\":\"rejected_bad_document\",\"detail\":\"doc parse\"}"
+    }
+    if source_hash != real_hash {
+        return "{\"ok\":false,\"error\":\"rejected_bad_document\",\"detail\":\"source_hash mismatch\"}"
+    }
+    let mrc int = mkdirs(pd_dir())
+    if mrc != 0 {
+        return "{\"ok\":false,\"error\":\"fs_error\"}"
+    }
+    var out str = "{\"version\":1,\"sessions\":["
+    var n int = 0
+    let sp str = sessions_path()
+    if fs.exists(sp) {
+        let sess_json str = fs.read_text(sp)
+        if sess_json != "" {
+            try {
+                let parsed = json.parse(sess_json)
+                let sessions = parsed.sessions
+                for s in sessions {
+                    let sid str = "" + s.session_id
+                    if sid == session_id {
+                        continue
+                    }
+                    if n > 0 {
+                        out = out + ","
+                    }
+                    out = out + session_reemit(s)
+                    n = n + 1
+                }
+            } catch {
+                out = "{\"version\":1,\"sessions\":["
+                n = 0
+            }
+        }
+    }
+    let now int = time.now_sec()
+    let rec str = session_reemit_from(session_id, book_id, source_hash, engine, now)
+    if n > 0 {
+        out = out + ","
+    }
+    out = out + rec
+    out = out + "]}"
+    let wrc int = write_with_backup(sp, out)
+    if wrc != 0 {
+        return "{\"ok\":false,\"error\":\"fs_error\"}"
+    }
+    var okr str = "{\"ok\":true,\"session_id\":\""
+    let esc_sid str = json_escape(session_id)
+    okr = okr + esc_sid
+    okr = okr + "\"}"
+    return okr
+}
+
+fn session_reemit_from(session_id str, book_id str, source_hash str, engine str, at int) str {
+    var out str = "{\"session_id\":\""
+    out = out + json_escape(session_id)
+    out = out + "\",\"book_id\":\""
+    out = out + json_escape(book_id)
+    out = out + "\",\"source_hash\":\""
+    out = out + json_escape(source_hash)
+    out = out + "\",\"engine\":\""
+    out = out + json_escape(engine)
+    out = out + "\",\"created_at\":"
+    out = out + at.to_string()
+    out = out + ",\"last_seq\":0,\"count\":0}"
+    return out
+}
+
+fn find_session_json(want str) str {
+    let sid_param str = want
+    let sp str = sessions_path()
+    if !fs.exists(sp) {
+        return ""
+    }
+    let sess_json str = fs.read_text(sp)
+    if sess_json == "" {
+        return ""
+    }
+    var hit str = ""
+    try {
+        let parsed = json.parse(sess_json)
+        let sessions = parsed.sessions
+        for s in sessions {
+            let sid str = "" + s.session_id
+            if sid == sid_param {
+                hit = session_reemit(s)
+            }
+        }
+    } catch {
+        return ""
+    }
+    return hit
+}
+
+/// GET /api/probe/session — 会话状态读回（含冷重启恢复检查）。
+#[api(method = "GET", path = "/api/probe/session")]
+pub fn probe_session_get(session_id str) str {
+    let sj str = find_session_json(session_id)
+    if sj == "" {
+        return "{\"found\":false}"
+    }
+    var out3 str = "{\"found\":true,\"session\":"
+    out3 = out3 + sj
+    out3 = out3 + "}"
+    return out3
+}
+
+// ── EPUB 原文核验（quote/occurrence 的消费端身份核验） ──
+
+fn xml_attr(xml str, needle str) str {
+    let p int = xml.find(needle)
+    if p < 0 {
+        return ""
+    }
+    let vs int = p + needle.len()
+    let tail str = xml.substr(vs, xml.len() - vs)
+    let ve int = tail.find("\"")
+    if ve < 0 {
+        return ""
+    }
+    return tail.substr(0, ve)
+}
+
+fn strip_tags(x str) str {
+    var out str = ""
+    var i int = 0
+    while i < x.len() {
+        let lt int = x.find("<", i)
+        if lt < 0 {
+            out = out + x.substr(i, x.len() - i)
+            i = x.len()
+        } else {
+            if lt > i {
+                out = out + x.substr(i, lt - i)
+            }
+            let gt int = x.find(">", lt)
+            if gt < 0 {
+                i = x.len()
+            } else {
+                i = gt + 1
+            }
+        }
+    }
+    return out
+}
+
+/// 受管 EPUB 全文（spine 序，逐章 zip.read_text + 剥标签），预算内。
+/// 解析面沿 reader epub.at 同式（container → OPF → spine，字节索引）。
+fn epub_full_text(path str) str {
+    if !fs.exists(path) {
+        return ""
+    }
+    let container str = zip.read_text(path, "META-INF/container.xml", 4194304)
+    if container == "" {
+        return ""
+    }
+    let opf_path str = xml_attr(container, "full-path=\"")
+    if opf_path == "" {
+        return ""
+    }
+    let opf str = zip.read_text(path, opf_path, 4194304)
+    if opf == "" {
+        return ""
+    }
+    let slash int = last_slash(opf_path)
+    var opf_dir str = ""
+    if slash >= 0 {
+        opf_dir = opf_path.substr(0, slash + 1)
+    }
+    // spine idref 序（有界扫描）。
+    var ids str = ""
+    var pos int = 0
+    var guard int = 0
+    while pos < opf.len() {
+        guard = guard + 1
+        if guard > 4096 {
+            break
+        }
+        let p int = opf.find("idref=\"", pos)
+        if p < 0 {
+            break
+        }
+        let vs int = p + 7
+        let tail str = opf.substr(vs, opf.len() - vs)
+        let ve int = tail.find("\"")
+        if ve < 0 {
+            break
+        }
+        let id str = tail.substr(0, ve)
+        ids = ids + id
+        ids = ids + "|"
+        pos = vs + ve
+    }
+    // manifest id → href → 章文本。
+    var full str = ""
+    var i int = 0
+    var guard2 int = 0
+    while i < ids.len() {
+        guard2 = guard2 + 1
+        if guard2 > 4096 {
+            break
+        }
+        let nl int = ids.find("|", i)
+        if nl < 0 {
+            break
+        }
+        let id str = ids.substr(i, nl - i)
+        let needle str = "id=\"" + id + "\""
+        let mp int = opf.find(needle)
+        if mp >= 0 {
+            let seg str = opf.substr(mp, opf.len() - mp)
+            let href str = xml_attr(seg, "href=\"")
+            if href != "" {
+                let entry str = opf_dir + href
+                let ch str = zip.read_text(path, entry, 2097152)
+                if ch != "" {
+                    full = full + strip_tags(ch)
+                    full = full + "\n"
+                }
+            }
+        }
+        i = nl + 1
+    }
+    return full
+}
+
+fn last_slash(p str) int {
+    var last int = -1
+    var i int = 0
+    while i < p.len() {
+        if p.substr(i, 1) == "/" {
+            last = i
+        }
+        i = i + 1
+    }
+    return last
+}
+
+/// quote 在受管原文中的全书出现序（1-based）；ok=0 表示核验失败。
+/// 滑窗 substr 逐位比较——同 reader annotations.count_occurrences 口径：
+/// 不把 find 偏移喂回 find（多字节文本 p+1 起锚落在字符内部 → VM 原生
+/// panic，2026-11-02 实测 strings_json.rs:199）；len/substr 字节同族自洽，
+/// 非边界窗口切片只产生不相等字节串，不误计不 panic。
+fn count_occurrences(hay str, needle str) int {
+    if needle == "" {
+        return 0
+    }
+    if hay == "" {
+        return 0
+    }
+    let n int = needle.len()
+    let total int = hay.len()
+    if n > total {
+        return 0
+    }
+    var count int = 0
+    var i int = 0
+    let last int = total - n
+    while i <= last {
+        let seg str = hay.substr(i, n)
+        if seg == needle {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+fn quote_occurrence(full str, quote str, occurrence int) str {
+    if full == "" {
+        return "{\"ok\":0,\"reason\":\"verify_unavailable\",\"occurrences\":0}"
+    }
+    let count int = count_occurrences(full, quote)
+    if count == 0 {
+        return "{\"ok\":0,\"reason\":\"quote_not_found\",\"occurrences\":0}"
+    }
+    if occurrence < 1 {
+        var oor str = "{\"ok\":0,\"reason\":\"occurrence_out_of_range\",\"occurrences\":"
+        let cs1 str = count.to_string()
+        oor = oor + cs1
+        oor = oor + "}"
+        return oor
+    }
+    if occurrence > count {
+        var oor2 str = "{\"ok\":0,\"reason\":\"occurrence_out_of_range\",\"occurrences\":"
+        let cs2 str = count.to_string()
+        oor2 = oor2 + cs2
+        oor2 = oor2 + "}"
+        return oor2
+    }
+    var out str = "{\"ok\":1,\"reason\":\"\",\"occurrences\":"
+    let cs str = count.to_string()
+    out = out + cs
+    out = out + "}"
+    return out
+}
+
+// ── 定位回传消费 handler（实验消息 v1） ──
+
+fn locators_path(sid str) str {
+    let base str = join2(pd_dir(), "locators")
+    let name str = sid + ".json"
+    return join2(base, name)
+}
+
+fn record_reemit(r) str {
+    let fkind str = "" + r.kind
+    let fen str = "" + r.engine
+    let fhref str = "" + r.resource.href
+    let fidx int = r.resource.index
+    let fcfi str = "" + r.locator.cfi
+    let frcfi str = "" + r.locator.range_cfi
+    let fq str = "" + r.locator.text_quote
+    let focc int = r.locator.occurrence
+    let foccs int = r.locator.occurrences
+    let fbef str = "" + r.context.before
+    let faft str = "" + r.context.after
+    let fseq int = r.seq
+    let fts int = r.ts
+    var rec str = "{\"kind\":\""
+    rec = rec + json_escape(fkind)
+    rec = rec + "\",\"schema_version\":1,\"engine\":\""
+    rec = rec + json_escape(fen)
+    rec = rec + "\",\"resource\":{\"href\":\""
+    rec = rec + json_escape(fhref)
+    rec = rec + "\",\"index\":"
+    rec = rec + fidx.to_string()
+    rec = rec + "},\"locator\":{\"cfi\":\""
+    rec = rec + json_escape(fcfi)
+    rec = rec + "\",\"range_cfi\":\""
+    rec = rec + json_escape(frcfi)
+    rec = rec + "\",\"text_quote\":\""
+    rec = rec + json_escape(fq)
+    rec = rec + "\",\"occurrence\":"
+    rec = rec + focc.to_string()
+    rec = rec + ",\"occurrences\":"
+    rec = rec + foccs.to_string()
+    rec = rec + "},\"context\":{\"before\":\""
+    rec = rec + json_escape(fbef)
+    rec = rec + "\",\"after\":\""
+    rec = rec + json_escape(faft)
+    rec = rec + "\"},\"seq\":"
+    rec = rec + fseq.to_string()
+    rec = rec + ",\"ts\":"
+    rec = rec + fts.to_string()
+    rec = rec + "}"
+    return rec
+}
+
+fn record_new(kind str, engine str, resource_href str, resource_index int, cfi str,
+              range_cfi str, text_quote str, occurrence int, occurrences int,
+              context_before str, context_after str, seq int, ts int) str {
+    var rec str = "{\"kind\":\""
+    rec = rec + json_escape(kind)
+    rec = rec + "\",\"schema_version\":1,\"engine\":\""
+    rec = rec + json_escape(engine)
+    rec = rec + "\",\"resource\":{\"href\":\""
+    rec = rec + json_escape(resource_href)
+    rec = rec + "\",\"index\":"
+    rec = rec + resource_index.to_string()
+    rec = rec + "},\"locator\":{\"cfi\":\""
+    rec = rec + json_escape(cfi)
+    rec = rec + "\",\"range_cfi\":\""
+    rec = rec + json_escape(range_cfi)
+    rec = rec + "\",\"text_quote\":\""
+    rec = rec + json_escape(text_quote)
+    rec = rec + "\",\"occurrence\":"
+    rec = rec + occurrence.to_string()
+    rec = rec + ",\"occurrences\":"
+    rec = rec + occurrences.to_string()
+    rec = rec + "},\"context\":{\"before\":\""
+    rec = rec + json_escape(context_before)
+    rec = rec + "\",\"after\":\""
+    rec = rec + json_escape(context_after)
+    rec = rec + "\"},\"seq\":"
+    rec = rec + seq.to_string()
+    rec = rec + ",\"ts\":"
+    rec = rec + ts.to_string()
+    rec = rec + ",\"accepted_at\":"
+    let now2 int = time.now_sec()
+    rec = rec + now2.to_string()
+    rec = rec + "}"
+    return rec
+}
+
+/// POST /api/probe/locator — 实验消息 v1 消费入口。
+/// 校验序：schema → 会话 → 文档身份 → 序号 → 预算 → kind → quote/occurrence
+/// 原文核验；任何拒绝零落盘；接受者 backup 协议落 sidecar 并推进会话序号。
+#[api(method = "POST", path = "/api/probe/locator")]
+pub fn probe_locator(schema_version int, kind str, session_id str, book_id str,
+                     source_hash str, engine str, resource_href str, resource_index int,
+                     cfi str, range_cfi str, text_quote str, occurrence int,
+                     context_before str, context_after str, seq int, ts int) str {
+    if schema_version != 1 {
+        return "{\"accepted\":false,\"reason\":\"rejected_bad_schema\"}"
+    }
+    if !session_id_ok(session_id) {
+        return "{\"accepted\":false,\"reason\":\"rejected_bad_session\",\"detail\":\"shape\"}"
+    }
+    let sj str = find_session_json(session_id)
+    if sj == "" {
+        return "{\"accepted\":false,\"reason\":\"rejected_bad_session\",\"detail\":\"not found\"}"
+    }
+    var s_book str = ""
+    var s_hash str = ""
+    var last_seq int = -1
+    try {
+        let sparsed = json.parse(sj)
+        s_book = "" + sparsed.book_id
+        s_hash = "" + sparsed.source_hash
+        last_seq = sparsed.last_seq
+    } catch {
+        return "{\"accepted\":false,\"reason\":\"rejected_bad_session\",\"detail\":\"parse\"}"
+    }
+    if book_id != s_book {
+        return "{\"accepted\":false,\"reason\":\"rejected_bad_document\",\"detail\":\"book mismatch\"}"
+    }
+    if source_hash != s_hash {
+        return "{\"accepted\":false,\"reason\":\"rejected_bad_document\",\"detail\":\"source_hash mismatch\"}"
+    }
+    if seq <= last_seq {
+        var stale str = "{\"accepted\":false,\"reason\":\"rejected_stale_seq\",\"last_seq\":"
+        stale = stale + last_seq.to_string()
+        stale = stale + "}"
+        return stale
+    }
+    // 预算：字段级合计 32KiB 上界（transport 之上再校验）。
+    let total int = text_quote.len() + cfi.len() + range_cfi.len() + context_before.len() + context_after.len() + resource_href.len()
+    if total > 32768 {
+        var overs str = "{\"accepted\":false,\"reason\":\"rejected_oversize\",\"bytes\":"
+        overs = overs + total.to_string()
+        overs = overs + "}"
+        return overs
+    }
+    if kind != "locator_select" {
+        if kind != "locator_save" {
+            var bk str = "{\"accepted\":false,\"reason\":\"rejected_bad_kind\",\"kind\":\""
+            bk = bk + json_escape(kind)
+            bk = bk + "\"}"
+            return bk
+        }
+    }
+    // 原文核验（身份由真正消费端执行——不信任引擎自述）。
+    let dj str = find_doc_json(book_id)
+    if dj == "" {
+        return "{\"accepted\":false,\"reason\":\"rejected_bad_document\",\"detail\":\"doc gone\"}"
+    }
+    var mp str = ""
+    try {
+        let dparsed = json.parse(dj)
+        mp = "" + dparsed.managed_path
+    } catch {
+        return "{\"accepted\":false,\"reason\":\"rejected_bad_document\",\"detail\":\"doc parse\"}"
+    }
+    let full str = epub_full_text(mp)
+    let occ_json str = quote_occurrence(full, text_quote, occurrence)
+    var occ_ok int = 0
+    var occurrences int = 0
+    var reason str = ""
+    try {
+        let oparsed = json.parse(occ_json)
+        occ_ok = oparsed.ok
+        occurrences = oparsed.occurrences
+        reason = "" + oparsed.reason
+    } catch {
+        return "{\"accepted\":false,\"reason\":\"rejected_bad_locator\",\"detail\":\"verify parse\"}"
+    }
+    if occ_ok != 1 {
+        var bl str = "{\"accepted\":false,\"reason\":\"rejected_bad_locator\",\"detail\":\""
+        bl = bl + json_escape(reason)
+        bl = bl + "\"}"
+        return bl
+    }
+    // 接受：落 sidecar（backup 协议）。
+    let ldir str = join2(pd_dir(), "locators")
+    let mrc int = mkdirs(ldir)
+    if mrc != 0 {
+        return "{\"accepted\":false,\"reason\":\"fs_error\"}"
+    }
+    let lp str = locators_path(session_id)
+    var records str = ""
+    var n int = 0
+    if fs.exists(lp) {
+        let side str = fs.read_text(lp)
+        if side != "" {
+            try {
+                let sparsed2 = json.parse(side)
+                let arr = sparsed2.records
+                for r in arr {
+                    if n > 0 {
+                        records = records + ","
+                    }
+                    records = records + record_reemit(r)
+                    n = n + 1
+                }
+            } catch {
+                records = ""
+                n = 0
+            }
+        }
+    }
+    let rec str = record_new(kind, engine, resource_href, resource_index, cfi,
+                             range_cfi, text_quote, occurrence, occurrences,
+                             context_before, context_after, seq, ts)
+    var out str = "{\"version\":1,\"session_id\":\""
+    out = out + json_escape(session_id)
+    out = out + "\",\"book_id\":\""
+    out = out + json_escape(book_id)
+    out = out + "\",\"records\":["
+    out = out + records
+    if n > 0 {
+        out = out + ","
+    }
+    out = out + rec
+    out = out + "]}"
+    let wrc int = write_with_backup(lp, out)
+    if wrc != 0 {
+        var fe str = "{\"accepted\":false,\"reason\":\"fs_error\",\"code\":"
+        fe = fe + wrc.to_string()
+        fe = fe + "}"
+        return fe
+    }
+    // 会话序号推进（现读 → 重建 → backup 写）。
+    let sp str = sessions_path()
+    var sess_out str = "{\"version\":1,\"sessions\":["
+    var m int = 0
+    if fs.exists(sp) {
+        let sess_json str = fs.read_text(sp)
+        if sess_json != "" {
+            try {
+                let parsed3 = json.parse(sess_json)
+                let sessions = parsed3.sessions
+                for s in sessions {
+                    let sid str = "" + s.session_id
+                    if m > 0 {
+                        sess_out = sess_out + ","
+                    }
+                    if sid == session_id {
+                        let fen str = "" + s.engine
+                        let fca int = s.created_at
+                        var srec str = "{\"session_id\":\""
+                        srec = srec + json_escape(sid)
+                        srec = srec + "\",\"book_id\":\""
+                        srec = srec + json_escape(s_book)
+                        srec = srec + "\",\"source_hash\":\""
+                        srec = srec + json_escape(s_hash)
+                        srec = srec + "\",\"engine\":\""
+                        srec = srec + json_escape(fen)
+                        srec = srec + "\",\"created_at\":"
+                        srec = srec + fca.to_string()
+                        srec = srec + ",\"last_seq\":"
+                        srec = srec + seq.to_string()
+                        let fct int = s.count
+                        srec = srec + ",\"count\":"
+                        srec = srec + fct.to_string()
+                        srec = srec + "}"
+                        sess_out = sess_out + srec
+                    } else {
+                        sess_out = sess_out + session_reemit(s)
+                    }
+                    m = m + 1
+                }
+            } catch {
+                sess_out = "{\"version\":1,\"sessions\":["
+                m = 0
+            }
+        }
+    }
+    sess_out = sess_out + "]}"
+    let src_rc int = write_with_backup(sp, sess_out)
+    var okr str = "{\"accepted\":true,\"occurrences\":"
+    okr = okr + occurrences.to_string()
+    okr = okr + ",\"seq\":"
+    okr = okr + seq.to_string()
+    if src_rc != 0 {
+        okr = okr + ",\"session_update\":0"
+    }
+    okr = okr + "}"
+    return okr
+}
+
+/// GET /api/probe/locators — sidecar 独立读回（oracle 不预写）。
+#[api(method = "GET", path = "/api/probe/locators")]
+pub fn probe_locators_get(session_id str) str {
+    if !session_id_ok(session_id) {
+        return "{\"found\":false,\"reason\":\"bad session shape\"}"
+    }
+    let lp str = locators_path(session_id)
+    if !fs.exists(lp) {
+        return "{\"found\":false}"
+    }
+    let side str = fs.read_text(lp)
+    if side == "" {
+        return "{\"found\":false,\"reason\":\"empty\"}"
+    }
+    var out str = "{\"found\":true,\"sidecar\":"
+    out = out + side
+    out = out + "}"
+    return out
+}
+
+/// GET /api/probe/health — 存活面（驱动就绪等待用）。
+#[api(method = "GET", path = "/api/probe/health")]
+pub fn probe_health() str {
+    return "{\"ok\":true,\"service\":\"probe-engine-surface\",\"protocol\":1}"
+}
+
+/// POST /api/probe/echo — 绑定诊断（T-02 探针专用，交付前移除）。
+#[api(method = "POST", path = "/api/probe/echo")]
+pub fn probe_echo(aa str, bb str, cc int) str {
+    var out str = "{\"aa\":\""
+    out = out + aa
+    out = out + "\",\"bb\":\""
+    out = out + bb
+    out = out + "\",\"cc\":"
+    out = out + cc.to_string()
+    out = out + "}"
+    return out
+}
+
+#[api(method = "POST", path = "/api/probe/echo5")]
+pub fn probe_echo5(p1 str, p2 str, p3 str, p4 str, p5 int) str {
+    var out str = "{\"p1\":\""
+    out = out + p1
+    out = out + "\",\"p2\":\""
+    out = out + p2
+    out = out + "\",\"p3\":\""
+    out = out + p3
+    out = out + "\",\"p4\":\""
+    out = out + p4
+    out = out + "\",\"p5\":"
+    out = out + p5.to_string()
+    out = out + "}"
+    return out
+}
+
+#[api(method = "POST", path = "/api/probe/echo6")]
+pub fn probe_echo6(book_id str, source_hash str, managed_path str, title str) str {
+    var out str = "{\"book_id\":\""
+    out = out + book_id
+    out = out + "\",\"source_hash\":\""
+    out = out + source_hash
+    out = out + "\",\"managed_path\":\""
+    out = out + managed_path
+    out = out + "\",\"title\":\""
+    out = out + title
+    out = out + "}"
+    return out
+}
+
+#[api(method = "POST", path = "/api/probe/echo7")]
+pub fn probe_echo7(book_id str, source_hash str, managed_path str, title str, fsize int) str {
+    var out str = "{\"book_id\":\""
+    out = out + book_id
+    out = out + "\",\"source_hash\":\""
+    out = out + source_hash
+    out = out + "\",\"managed_path\":\""
+    out = out + managed_path
+    out = out + "\",\"title\":\""
+    out = out + title
+    out = out + "\",\"fsize\":"
+    out = out + fsize.to_string()
+    out = out + "}"
+    return out
+}
+
+fn echo_helper(a1 str, a2 str, a3 int, a4 int) str {
+    var out str = "{\"a1\":\""
+    out = out + a1
+    out = out + "\",\"a2\":\""
+    out = out + a2
+    out = out + "\",\"a3\":"
+    out = out + a3.to_string()
+    out = out + ",\"a4\":"
+    out = out + a4.to_string()
+    out = out + "}"
+    return out
+}
+
+#[api(method = "POST", path = "/api/probe/echo8")]
+pub fn probe_echo8(book_id str, source_hash str, title str, fsize int) str {
+    let nested str = echo_helper(book_id, source_hash, fsize, time.now_sec())
+    var out str = "{\"direct\":\""
+    out = out + book_id
+    out = out + "\",\"nested\":"
+    out = out + nested
+    out = out + "}"
+    return out
+}
+
+/// GET /api/probe/dbg_text — epub_full_text 诊断（T-02 专用，交付前移除）。
+#[api(method = "GET", path = "/api/probe/dbg_text")]
+pub fn probe_dbg_text(book_id str) str {
+    let dj str = find_doc_json(book_id)
+    if dj == "" {
+        return "{\"found\":false}"
+    }
+    var mp str = ""
+    try {
+        let dparsed = json.parse(dj)
+        mp = "" + dparsed.managed_path
+    } catch {
+        return "{\"found\":false,\"why\":\"parse\"}"
+    }
+    let full str = epub_full_text(mp)
+    let n int = full.len()
+    var head str = full
+    if n > 400 {
+        head = full.substr(0, 400)
+    }
+    head = head + "||TAIL||"
+    let tl int = full.len()
+    if tl > 400 {
+        head = head + full.substr(tl - 200, 200)
+    }
+    var out str = "{\"len\":"
+    let ns str = n.to_string()
+    out = out + ns
+    out = out + ",\"head\":\""
+    let he str = json_escape(head)
+    out = out + he
+    out = out + "\"}"
+    return out
+}
+#[api(method = "POST", path = "/api/probe/echo5")]
+pub fn probe_echo5(p1 str, p2 str, p3 str, p4 str, p5 int) str {
+    var out str = "{\"p1\":\""
+    out = out + p1
+    out = out + "\",\"p2\":\""
+    out = out + p2
+    out = out + "\",\"p3\":\""
+    out = out + p3
+    out = out + "\",\"p4\":\""
+    out = out + p4
+    out = out + "\",\"p5\":"
+    out = out + p5.to_string()
+    out = out + "}"
+    return out
+}
+
+#[api(method = "POST", path = "/api/probe/echo6")]
+pub fn probe_echo6(book_id str, source_hash str, managed_path str, title str) str {
+    var out str = "{\"book_id\":\""
+    out = out + book_id
+    out = out + "\",\"source_hash\":\""
+    out = out + source_hash
+    out = out + "\",\"managed_path\":\""
+    out = out + managed_path
+    out = out + "\",\"title\":\""
+    out = out + title
+    out = out + "}"
+    return out
+}
+
+#[api(method = "POST", path = "/api/probe/echo7")]
+pub fn probe_echo7(book_id str, source_hash str, managed_path str, title str, fsize int) str {
+    var out str = "{\"book_id\":\""
+    out = out + book_id
+    out = out + "\",\"source_hash\":\""
+    out = out + source_hash
+    out = out + "\",\"managed_path\":\""
+    out = out + managed_path
+    out = out + "\",\"title\":\""
+    out = out + title
+    out = out + "\",\"fsize\":"
+    out = out + fsize.to_string()
+    out = out + "}"
+    return out
+}
+
+fn echo_helper(a1 str, a2 str, a3 int, a4 int) str {
+    var out str = "{\"a1\":\""
+    out = out + a1
+    out = out + "\",\"a2\":\""
+    out = out + a2
+    out = out + "\",\"a3\":"
+    out = out + a3.to_string()
+    out = out + ",\"a4\":"
+    out = out + a4.to_string()
+    out = out + "}"
+    return out
+}
+
+#[api(method = "POST", path = "/api/probe/echo8")]
+pub fn probe_echo8(book_id str, source_hash str, title str, fsize int) str {
+    let nested str = echo_helper(book_id, source_hash, fsize, time.now_sec())
+    var out str = "{\"direct\":\""
+    out = out + book_id
+    out = out + "\",\"nested\":"
+    out = out + nested
+    out = out + "}"
+    return out
+}
+
+/// GET /api/probe/dbg_text — epub_full_text 诊断（T-02 专用，交付前移除）。
+#[api(method = "GET", path = "/api/probe/dbg_text")]
+pub fn probe_dbg_text(book_id str) str {
+    let dj str = find_doc_json(book_id)
+    if dj == "" {
+        return "{\"found\":false}"
+    }
+    var mp str = ""
+    try {
+        let dparsed = json.parse(dj)
+        mp = "" + dparsed.managed_path
+    } catch {
+        return "{\"found\":false,\"why\":\"parse\"}"
+    }
+    let full str = epub_full_text(mp)
+    let n int = full.len()
+    var head str = full
+    if n > 400 {
+        head = full.substr(0, 400)
+    }
+    head = head + "||TAIL||"
+    let tl int = full.len()
+    if tl > 400 {
+        head = head + full.substr(tl - 200, 200)
+    }
+    var out str = "{\"len\":"
+    let ns str = n.to_string()
+    out = out + ns
+    out = out + ",\"head\":\""
+    let he str = json_escape(head)
+    out = out + he
+    out = out + "\"}"
+    return out
+}
