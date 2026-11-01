@@ -62,7 +62,9 @@ P2 失败时不自动缩小“覆盖 Readest”的目标，先给接缝修复/�
 
 正式探针合同现为auto-ui/PLAN-026，本仓仅保留指针与消费责任，不分配READER-007复制正文。主改面已核为UI宿主/生成/桥接，Reader在独立clone main提供tests/probe/engine_surface/（未来新增）、隔离受管资产、.at handler与独立读回oracle。两端均要真实输入与冷恢复，不以API预写或外开浏览器替代；单端通过不能推导另一端通过。研究可交付有证no_go_current_profile，但不能将失败门计PASS或自动降目标。
 
-静态核查发现UI已有View::Text.selectable、View::Rich和RemoteFrame，故不把“无任何选择/富文本”当起点；但文本选择在widget本地，RemoteFrame是DisplayList与输入承载，Embed是块面板，均未证明DOM/CFI→.at链路。原生WebView接法、偏移单位与协议预算由026的T-00在实现前冻结；当前未创建实施树、未改代码、未构建或启动探针。
+静态核查发现UI已有View::Text.selectable、View::Rich和RemoteFrame，故不把“无任何选择/富文本”当起点；但文本选择在widget本地，RemoteFrame是DisplayList与输入承载，Embed是块面板，均未证明DOM/CFI→.at链路。
+
+**026 探针结果（2026-11-02，见 auto-ui `docs/research/reader-engine-probe.md` 与边界 Spec `docs/specs/runtime/document-surface-boundary.md`）**：vue 表面全链 go（真实导入身份→remote-frame 接缝挂 foliate-js@3d79419→真实拖选 CFI→.at 原文核验（逐字+出现位次吻合独立 oracle）→sidecar→冷重启恢复，30/30）；原生 iced 宿主内 WebView2 嵌入与引擎装载已证，注入输入回传具名 GAP（自动化环境侧，人工拖选待验）。本仓消费工程沉淀于 `tests/probe/engine_surface/`（verify_engine_surface.py 永久入口）。定位迁移（Locator v2）契约建议见报告 §5；阅读表面产品闭环据此另立计划。原生WebView接法、偏移单位与协议预算由026的T-00在实现前冻结；当前未创建实施树、未改代码、未构建或启动探针。
 
 已证实/被推翻/仍未验证的假设见[报告](research/readest/report.md)，矩阵保留功能追踪，当前实施态仍由 Spec 描述。
 
