@@ -1,21 +1,63 @@
-# auto-reader：独立可用性路线图
+# AutoReader 路线图：从独立阅读到覆盖 Readest
 
-更新：2026-11-01。现实现以Spec和实际交付为准；归档记录的历史元数据差异不通过改写旧计划掩盖。
+更新：2026-11-01。沿用此路径保持链接兼容；长期覆盖目标不等于所有能力必须在 v0.6 一次交付。
+
+## 1. 新目标与决策顺序
+
+以 Readest 开源项目为主要参照，逐步覆盖其绝大多数已核实的能力，涵盖阅读/排版、选区/标注、书库、多格式、辅助阅读、书源、同步与互操作。
+
+用户指定：**先更新总设计与路线 → 详细调研 Readest 文档、代码和实际 UI → 根据调研二次修订设计与路线 → 确定后续实施计划**。当前完成第一步与调研计划起草，尚未执行详细调研。见[总设计](design/01-product-design.md)。
+
+## 2. 已交付基础
 
 | 阶段 | 计划/成果 | 当前状态与证据边界 |
 |---|---|---|
-| 基础 | [001真实书库与恢复](plans/archive/001-real-library.md) | archive/r9、32/32，10MiB与内容锚点已有交付；不等于全EPUB/全UI验收 |
-| EPUB数据面 | [003最小EPUB](plans/archive/003-epub-reflow.md) | merge24c9838/landing21/21已有记录；图片标记、链接和UI门留缺口。旧frontmatter仍drafting，仅登记此差异 |
-| 本地增强 | [002 r4本地A](plans/archive/002-reading-annotations.md) | 已按用户裁决收尾；搜索/注释/Markdown导出已落地，原生门有历史skip；7/9为旧计数，不擅自重写 |
-| 测试归属 | [004驱动与夹具迁入](plans/archive/004-reader-test-ownership-migration.md) | archived/delivered；CLI/tool身份已纠正，导入36/36及原生required有记录；实际保存含HTTP面，非所有产品UI行为证明 |
-| 已交付 | [005真实EPUB阅读与双端收口](plans/archive/005-standalone-epub-and-ui-acceptance.md) | archived/r1、9/9；图片真实显示（应用自有媒体URI）、书内链接/脚注往返、双端UI验收聚合门 vue 28/vm 27 全绿；原生UI写传输留两项在册框架缺口（N-005-A-1/A-2），UI写验收由Vue承载 |
+| 基础 | [001 真实书库与恢复](plans/archive/001-real-library.md) | archived/r9、32/32；10MiB 与内容锚点已交付，不等于完整 EPUB |
+| EPUB 数据面 | [003 最小 EPUB](plans/archive/003-epub-reflow.md) | merge 24c9838/landing 21/21；旧 frontmatter 差异保留；图像/链接后由 005 接续 |
+| 本地增强 | [002 r4 本地 A](plans/archive/002-reading-annotations.md) | 搜索、注释与 Markdown 导出已交付；7/9 为历史计数；Notes 移交 OS TODO |
+| 测试归属 | [004 驱动与夹具迁入](plans/archive/004-reader-test-ownership-migration.md) | archived/delivered；框架正对照/HTTP 保存不代替全部产品 UI |
+| 独立可用 | [005 EPUB 实际阅读与双端收口](plans/archive/005-standalone-epub-and-ui-acceptance.md) | archived/r1、9/9；图片、链接/脚注、搜索/注释/导出/恢复；聚合门 Vue 28/VM 27 全绿，原生写传输/按压缺口在册 |
 
-005已闭合：独立split启动→真实UI导入→图像（首次/缓存/冷重启正确，应用自有媒体URI）→书内/脚注往返→搜索/20条注释回访与导出→实际保存/退出重开/下一次编辑。永久门 `tests/basic/verify_standalone.py --profile vue|vm` 含毁损反例（oracle 区分力）。原生必需任务的 skip 前提（N-003-8）已失效并由原生驱动转正；原生 UI 写传输两项框架缺口具名在册（N-005-A-1/A-2），修复后重跑即转正。
+现有 EPUB 仍为文本段落与图片行，高亮为段级；005 最小 profile 不等于 Readest 覆盖完成。旧归档不为新目标改写；现实现单源仍为 [Specs](specs/reader/standalone-reading.md)。
 
-AutoUI已有Vue图片发射、原生图片路径与auto-photos消费者，应先核验接入，不沿“没有image widget”的旧归因直接建框架前置。旧zip首红已定位陈旧auto-ui-tool；先固定CLI＋真实tool再判断缺陷。确有框架缺项才提实际owner最小前置。
+## 3. 当前唯一新增计划
 
-Notes交接仍为OS级TODO：等待应用间通讯协议和能力包共享机制，未来另立计划，不恢复002-B。PDF/OCR/TTS/复杂出版物与网络书源继续后置。Linux仍WAIT_DISTRO_M1。
+| 计划 | 状态 | 必须交付 |
+|---|---|---|
+| [006 Readest 详细调研与路线再设计](plans/006-readest-deep-research.md) | drafting/r1，0/10 | 上游版本基线、文档/源码地图、真实 UI 证据、覆盖/差距矩阵、架构/迁移/平台与服务决策、总设计和路线二次修订、后续计划建议 |
 
-开发位为D:/autostack/auto-reader独立clone main；本轮只计划/文档并push，不实现、不更新AutoOS子模块。后续以统一OS计划装配已单独验证的精确交付提交。
+需要时在 D:/autostack/readest 建立真实独立 clone，在 006 内固定提交与子模块身份；本次起草不克隆。复用已有检出先检查状态，不切走他人 WIP。实际 UI 使用有明确身份的本地构建或官方发布版；Web 只能证明 Web 路径，不能代替桌面结论。
 
-[README](../README.md) · [规划入口](README.md) · [现实现规范](specs/reader/real-library.md)
+区分已发布、主分支新增、计划中、未核实；每项有稳定 ID、来源/版本、代码/UI 证据、AutoReader 状态、差距与建议。云服务、账号、付费和设备限制显式登记，不以无法体验判定已支持或无需支持。
+
+## 4. 待调研排序的后续工作流
+
+以下为候选方向，无实施顺序承诺、无 Plan 编号；006 完成后才确定拆分与依赖。
+
+| 候选方向 | 目标 | 调研先回答 |
+|---|---|---|
+| 阅读核心与 EPUB | 内容结构/样式、选区/行内高亮、分页/滚动、精确定位 | 引擎复用或原生扩展？双端接缝、许可、旧 locator/注释迁移？ |
+| 书库与日用操作 | 书封/分组/筛选、批量导入、跨书搜索、命令与无障碍 | 既有能力与数据/交互缺口各是什么？ |
+| PDF 与更多格式 | 各格式形成可读、可选、可标注闭环 | 固定版式/漫画引擎与 MOBI/AZW3/FB2/HTML 等的覆盖收益和成本？ |
+| 深度与辅助阅读 | 查词/百科/翻译、TTS、双书对照、统计/专注辅助 | 本地、宿主或服务分别承担什么？精确定位依赖是什么？ |
+| 书源与传输 | OPDS、自建书库、URL 导入、局域网传书等 | 协议、平台、取消和错误语义？ |
+| 同步与生态 | 书籍/位置/注释同步、备份与外部互操作 | 离线/冲突/恢复、自托管与账号边界？ |
+| AutoOS 知识流 | Notes/Jade 稳定引用与真实接收 | 公共通信和能力包依赖，app/OS 验收分工？ |
+
+覆盖率须有可解释的计数规则、核心任务和目标建议，不能只计功能名称。功能与平台矩阵分开；Linux 仍 WAIT_DISTRO_M1，移动/电子墨水平台不直接成为当前必达项。
+
+## 5. 研究收口与后续入口
+
+调研完成必须同步修订总设计、路线与导航，标明已证实、被推翻与仍未验证的假设，以及各方向的依赖和验收门。引擎和迁移有证据后再形成首批实施合同；需要可行性探针时先规划探针，不直接承诺全量移植。
+
+006 包含后续计划建议，不自动创建/执行一批产品计划，不修改业务代码。实际 UI 未完成项保持未验证/阻塞；付费、额外账号或设备不可用时记录具体缺证，不能用读文档替代。完整证据与二次修订经复审后才算调研交付。
+
+## 6. 工程与系统依赖
+
+使用 D:/autostack/auto-reader 独立 clone main，一 app 一写入者，顺序复审用同一检出；不在 OS 子模块内开发。本次只调整目标文档与计划，不改当前 Spec、旧 ledger、业务源码或 OS gitlink。
+
+框架能力先实查 owner/版本，不沿用“没有 image widget”或旧 zip 首红等失效归因。原生写传输与 scroll-pane 工具路径缺口保留并核验当前状态；修复另走实际 owner 的计划。非框架修改不在 auto-lang 跑 cargo/docs_gen。
+
+Notes 交接仍属 OS 协同，不重开 002-B；组合装配由统一 OS 计划接收精确提交。独立研究与应用交付不以系统装配或 Linux 为前置。
+
+[README](../README.md) · [规划入口](README.md) · [总设计](design/01-product-design.md)

@@ -4,7 +4,7 @@
 
 更新：2026-11-01。001真实TXT/Markdown书库与定位已交付；003的最小EPUB数据面已落地；002 r4以本地A（搜索、注释、Markdown导出）收尾；004验收驱动归属迁移已交付；**005 EPUB实际阅读与双端验收已交付归档**——EPUB图片真实显示（应用自有稳定媒体服务 `/api/reader/media/...`，双射扁平名防碰撞、12MiB 提取闸、诚实错误行）、书内链接/脚注/跨章往返（chips + V-20 入 pane 逐字 oracle）、真实 UI 注释/搜索/导出/恢复双端验收（`python tests/basic/verify_standalone.py --profile vue|vm` 聚合门 vue 28/28、vm 27/0，R-01..06 含毁损反例）。原生轨 UI 写传输受两项在册框架缺口阻断（见下 N-005-A-1/A-2），UI 创建/编辑面由 Vue 轨承载；Notes 交接继续留 AutoOS TODO。
 
-当前无进行中计划；OS 组合装配与 Notes 交接留独立计划（AutoOS TODO）。
+当前新增 [006：Readest详细调研与路线再设计](docs/plans/006-readest-deep-research.md)（drafting/r1、0/10）。产品目标调整为覆盖Readest的绝大多数能力：先更新总设计/路线，再调研其文档、代码与实际UI，根据调研二次修订设计/路线，最后确定后续实施计划。本次尚未执行详细调研；OS组合装配与Notes交接仍为独立协同项。
 
 ## 运行
 
@@ -82,7 +82,8 @@ AutoOS 通过 [`apps/auto-reader`](https://github.com/auto-stack/auto-os/tree/ma
 - [002：本地阅读、注释与导出](docs/plans/archive/002-reading-annotations.md)：r4按用户裁决仅本地A收尾；Notes联动已移OS TODO，不再作为本地交付前置。
 - [004：验收驱动与夹具归属迁移](docs/plans/archive/004-reader-test-ownership-migration.md)：已交付；夹具与HTTP保存链覆盖有明确边界。
 - [005：EPUB实际阅读与双端验收收口](docs/plans/archive/005-standalone-epub-and-ui-acceptance.md)：archived/r1、9/9 已交付（final review pass 4efdccf；工作链 246cbfd..7953234）。
+- [006：Readest详细调研与路线再设计](docs/plans/006-readest-deep-research.md)：drafting/r1、0/10；可在执行阶段真实clone Readest，交付文档/源码/UI证据、覆盖矩阵、架构与迁移决策、总设计/路线二次修订和后续计划建议；不直接实现产品功能。
 
-[路线图](docs/roadmap-v0.6.md) · [规划入口](docs/README.md)。003旧frontmatter和002历史任务计数存在滞后，以实际交付回执及Spec区分范围，本轮不修改归档。
+[总设计](docs/design/01-product-design.md) · [路线图](docs/roadmap-v0.6.md) · [规划入口](docs/README.md)。003旧frontmatter和002历史任务计数存在滞后，以实际交付回执及Spec区分范围，本轮不修改归档。
 
-开发/计划/顺序复审使用 `D:/autostack/auto-reader` 独立clone main，一app一写入者；AutoOS `apps/auto-reader`仅保留组合pin。本轮只准备并推送计划/README/roadmap，不实现，不更新OS子模块。应用单独运行与验证后由统一集成计划装配；Linux仍等待Nix＋COSMIC发行版基础。
+开发/计划/顺序复审使用 `D:/autostack/auto-reader` 独立clone main，一app一写入者；AutoOS `apps/auto-reader`仅保留组合pin。本次更新目标设计、路线、导航与006草案，不实施调研、不克隆竞品、不改现实现Spec或业务代码、不更新OS子模块。后续实施计划依据详细调研再确定；应用交付由统一OS计划装配，Linux仍等待Nix＋COSMIC发行版基础。
