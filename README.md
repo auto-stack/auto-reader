@@ -4,7 +4,7 @@
 
 更新：2026-11-02。001真实TXT/Markdown书库与定位已交付；003的最小EPUB数据面已落地；002 r4以本地A（搜索、注释、Markdown导出）收尾；004验收驱动归属迁移已交付；**005 EPUB实际阅读与双端验收已交付归档**——EPUB图片真实显示（应用自有稳定媒体服务 `/api/reader/media/...`，双射扁平名防碰撞、12MiB 提取闸、诚实错误行）、书内链接/脚注/跨章往返（chips + V-20 入 pane 逐字 oracle）、真实 UI 注释/搜索/导出/恢复双端验收（`python tests/basic/verify_standalone.py --profile vue|vm` 聚合门 vue 28/28、vm 27/0，R-01..06 含毁损反例）。原生轨 UI 写传输受两项在册框架缺口阻断（见下 N-005-A-1/A-2），UI 创建/编辑面由 Vue 轨承载；Notes 交接继续留 AutoOS TODO。
 
-**006调研与 [auto-ui/PLAN-026探针](https://github.com/auto-stack/auto-ui/blob/master/docs/plans/archived/026-reader-engine-embedding-and-locator-probe.md)已交付归档**。026流程记10/10，Vue指定样本全链30/30；原生独立iced宿主嵌入/引擎/IPC已证，真实输入→.at→保存/冷恢复、焦点/IME/无障碍等未全闭合，双实例/专属负控未单列。当前[总设计](docs/design/01-product-design.md)/[路线](docs/roadmap-v0.6.md)为 **coverage v4：先收口原生输入与必要接缝，再进入完整EPUB产品化**。当前026工具cohort下Reader守旧门Vue27/28、VM25/27，R-05/R-06vm仍待复现定责；上列005全绿为其历史冻结基线，不代表本次重测成绩。下一阶段尚未取号，本次仅文档更新。
+**006调研与 [auto-ui/PLAN-026探针](https://github.com/auto-stack/auto-ui/blob/master/docs/plans/archived/026-reader-engine-embedding-and-locator-probe.md)已交付归档**。026流程记10/10，Vue指定样本全链30/30；原生独立iced宿主嵌入/引擎/IPC已证，真实输入→.at→保存/冷恢复、焦点/IME/无障碍等未全闭合，双实例/专属负控未单列。当前[总设计](docs/design/01-product-design.md)/[路线](docs/roadmap-v0.6.md)为 **coverage v4：先收口原生输入与必要接缝，再进入完整EPUB产品化**。当前026工具cohort下Reader守旧门Vue27/28、VM25/27，R-05/R-06vm仍待复现定责；上列005全绿为其历史冻结基线，不代表本次重测成绩。后续已建立 [auto-ui/PLAN-029](https://github.com/auto-stack/auto-ui/blob/master/docs/plans/029-reader-native-input-and-surface-closure.md)（drafting/r1、0/12，未实施），Reader只留指针不重复取号。
 
 ## 运行
 
@@ -88,4 +88,4 @@ AutoOS 通过 [`apps/auto-reader`](https://github.com/auto-stack/auto-os/tree/ma
 
 [总设计](docs/design/01-product-design.md) · [路线图](docs/roadmap-v0.6.md) · [规划入口](docs/README.md)。003旧frontmatter和002历史任务计数存在滞后，以实际交付回执及Spec区分范围，本轮不修改归档。
 
-开发/计划/顺序复审使用D:/autostack/auto-reader独立clone main，一app一写入者；AutoOS apps/auto-reader仅保留组合pin。本次只对账026状态、设计与路线，不改业务源码/当前Spec、不新建计划或执行探针；UI主导后续宿主接缝，Reader负责消费与数据验收。应用交付与OS装配分开，Linux仍等Nix＋COSMIC基础。
+开发/计划/顺序复审使用D:/autostack/auto-reader独立clone main，一app一写入者；AutoOS apps/auto-reader仅保留组合pin。本次只建立UI/029合同并同步导航，不改业务源码/当前Spec、不执行探针；UI主导后续宿主接缝，Reader负责消费与数据验收。应用交付与OS装配分开，Linux仍等Nix＋COSMIC基础。
