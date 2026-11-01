@@ -1,9 +1,9 @@
 # AutoReader 产品规划与执行入口
 
-更新：2026-11-01（006 已归档）。001～006 均已交付；006 交付五份研究报告与总设计/路线二次修订（coverage v2）。
+更新：2026-11-01。001～006 均已交付；006 交付基线、矩阵、源码地图、UI 研究、决策与综合报告，并完成 coverage v2。本次依据其结果进一步收敛总设计/路线为 **coverage v3**，尚未新增实施计划。
 
-- [产品总设计：覆盖 Readest（coverage v2）](design/01-product-design.md)
-- [路线图：首批计划建议 P1~P6](roadmap-v0.6.md)
+- [产品总设计：覆盖 Readest（coverage v3）](design/01-product-design.md)
+- [路线图：引擎探针优先，随后形成 EPUB 产品闭环](roadmap-v0.6.md)
 - 现实现：[书库](specs/reader/real-library.md) · [EPUB](specs/reader/epub-reflow.md) · [注释](specs/reader/reading-annotations.md) · [独立阅读](specs/reader/standalone-reading.md)
 - 006 研究：[综合报告](research/readest/report.md) · [能力矩阵](research/readest/capability-matrix.md) · [代码地图](research/readest/code-map.md) · [UI 研究](research/readest/ui-study.md) · [决策](research/readest/decisions.md)；历史参考[早期业界调研](research/20261004-benchmarks.md)
 
@@ -20,8 +20,8 @@
 
 ## 工作约定
 
-使用 D:/autostack/auto-reader 独立 clone main 进行计划、实现与顺序复审，一 app 一写入者，不建 junction/symlink，不在 OS 子模块开发。006 研究基线：Readest 源码检出 `D:/autostack/readest`（detached v0.12.16，只读），实际 UI 证据在 `D:/autostack/plan-artifacts/plan-006/`。
+使用 D:/autostack/auto-reader 独立 clone main 进行计划、实现与顺序复审，一 app 一写入者，不建 junction/symlink，不在 OS 子模块开发。006 源码基线为 `D:/autostack/readest`（detached v0.12.16，只读）。原始 UI 运行目录已按归档回执清理；以研究耐久摘要与归档复审记录为依据，必要时按 baseline 重建隔离环境。
 
-现实现单源为 docs/specs/；006 只更新 proposed 总设计、路线、导航、研究报告与计划本身，不改 Spec、旧 ledger 或 OS gitlink。后续实施（P1~P6 经用户认可后另立计划取号）先探针后承诺，不提前锁定引擎。Notes 留系统协同，Linux 仍等 Nix＋COSMIC 基础。
+现实现单源为 docs/specs/；本次只更新设计、路线与导航，不改研究报告、归档合同或业务实现。006 的 P1~P6 为候选代号，v3 推荐先做 P2，再据真实引擎/定位契约安排 P1 与完整 EPUB 交付；P3 分期推进。正式计划另行取号，Notes 留系统协同，Linux 仍等 Nix＋COSMIC 基础。
 
 [运行与测试完整入口](../README.md)
