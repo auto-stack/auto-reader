@@ -7,7 +7,8 @@
 - **驱动**：Computer Use 在本宿主不可用；改用 WebView2 CDP（`--remote-debugging-port=9223`）+ Playwright 1.62.1（与本仓自用验收驱动同族工具）。交互 = CDP 真实鼠标/键盘事件；观察 = ARIA 树 + 截图 + 只读 DOM 读取；选区 = 真实按下-拖动-抬起。原生文件对话框 = Win32 前置 + **剪贴板粘贴** + 回车（不用逐字符键入）。
 - **隔离**：portable 模式（exe 旁 `Settings.json`）+ 独立 `WEBVIEW2_USER_DATA_FOLDER`；用户既有数据（%APPDATA% 3.8GB）全程零写入（快照核对）。首次运行曾以共享 WebView2 profile 启动，继承了用户云端会话并下载一本用户书目到隔离目录——已整目录重建，事件记入 C07 发现（见 §6）。
 - **语料**：自制 `hello.epub`（中文混排+图+3 脚注+重复句×3+1200 段长章，218 页）、`hello.pdf`（Project Gutenberg Alice 文本型 69 页）、`hello.cbz`（7 页扫描漫画）、`hello.azw3`（中文神经科学样本）、`hello.fb2`、`hello.txt`。MOBI 无可生成语料（未测，代码证据见 code-map）。
-- **诚实边界**：快速横向拖拽会被识别为翻页手势（选区需慢速拖）；PDF 文本层选区在 shadow-DOM 内，`window.getSelection()` 读不到但视觉渲染成立；OS 级读屏与盲文不在本轮范围。
+- **诚实边界**：快速横向拖拽会被识别为翻页手势（选区需慢速拖）；PDF 文本层选区在 shadow-DOM 内，`window.getSelection()` 读不到且（T-08 R2 复现）两次拖选均未见视觉选中——本项证据弱于 U01-U03，仅存单帧截图；OS 级读屏与盲文不在本轮范围。
+- **原始记录覆盖说明（T-08 RV-D06/RV-D07）**：runlog-u01.md 逐条记录覆盖 U01~U03；U04~U07 的原始证据为 screenshots/ 下 u04-*/u05-*/u06-*/u07-* 截图索引 + 本文件各表（未逐条落 runlog）。截图存在同帧重复组（连续快照/捕获重试所致，如 u01-00-empty-library == u01-after-dialog-import == u01-library-after-return），索引以文件名为准。
 
 ## 1. U01 书库：导入/组织/移除（全部实测）
 
@@ -40,7 +41,7 @@
 | 任务 | 结果 | 关键证据 |
 |---|---|---|
 | **精确选区**（重复句第 2 处，跨 2 行） | ✓ 真实拖选逐字命中，非整段 | selection.toString() 与预期串相等 |
-| 选区弹层 | ✓ 笔刷/复制/笔记/搜索/词典/翻译/朗读/校对 + 高亮·下划线·波浪线 + 5 色 + **「应用到本书所有匹配位置」**（重复句消歧的显式产品答案） | u03-selection-popup3.png |
+| 选区弹层 | ✓ 笔刷/复制/笔记/搜索/词典/翻译/朗读/校对 + 高亮·下划线·波浪线 + 5 色 + **「应用到本书所有匹配位置」**（重复句消歧的显式产品答案；T-08 R2 复现运行中该按钮未出现于弹层快照——按样本存疑登记，以本行首次 ARIA 实录为准） | u03-selection-popup3.png |
 | 高亮持久化 | ✓ booknotes: `{id, type:annotation, color:yellow, style:highlight, text, **cfi:"epubcfi(/6/4!/4/12,/1:7,/1:31)"**}` —— **EPUB CFI + 字符偏移级锚定** | config.json |
 | 批注 | ✓ 添加笔记对话框 → 保存 → note 落盘 + 行尾批注图标 + 侧栏列表 | u03-note-editor2.png |
 | 书内搜索（oracle：重复句恰 3 处） | ✓ **恰 3 个结果**，摘录红标匹配词，点击跳转，页内全部命中红框 + 底部浮动导航（上/下个结果） | u03-jump-result2.png |

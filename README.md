@@ -4,7 +4,7 @@
 
 更新：2026-11-01。001真实TXT/Markdown书库与定位已交付；003的最小EPUB数据面已落地；002 r4以本地A（搜索、注释、Markdown导出）收尾；004验收驱动归属迁移已交付；**005 EPUB实际阅读与双端验收已交付归档**——EPUB图片真实显示（应用自有稳定媒体服务 `/api/reader/media/...`，双射扁平名防碰撞、12MiB 提取闸、诚实错误行）、书内链接/脚注/跨章往返（chips + V-20 入 pane 逐字 oracle）、真实 UI 注释/搜索/导出/恢复双端验收（`python tests/basic/verify_standalone.py --profile vue|vm` 聚合门 vue 28/28、vm 27/0，R-01..06 含毁损反例）。原生轨 UI 写传输受两项在册框架缺口阻断（见下 N-005-A-1/A-2），UI 创建/编辑面由 Vue 轨承载；Notes 交接继续留 AutoOS TODO。
 
-**006 [Readest详细调研与路线再设计](docs/plans/006-readest-deep-research.md) 研究任务已完成**（r1，7/10，待独立复审与归档）：固定基线 Readest v0.12.16（源码 tag 与官方 portable 同版）、[255 项发布能力对照](docs/research/readest/capability-matrix.md)、[代码地图](docs/research/readest/code-map.md)（12 条链路/12 格式/fork 差异）、[真机 UI 实测](docs/research/readest/ui-study.md)（U01~U07，核心日用链路全绿）、[三路线裁定与首批计划建议 P1~P6](docs/research/readest/decisions.md)、[综合报告](docs/research/readest/report.md)；[总设计已二次修订至 coverage v2](docs/design/01-product-design.md)。OS组合装配与Notes交接仍为独立协同项。
+**006 [Readest详细调研与路线再设计](docs/plans/006-readest-deep-research.md) 研究任务已完成**（r1，8/10，待独立复审与归档）：固定基线 Readest v0.12.16（源码 tag 与官方 portable 同版）、[257 项发布能力对照](docs/research/readest/capability-matrix.md)、[代码地图](docs/research/readest/code-map.md)（12 条链路/12 格式/fork 差异）、[真机 UI 实测](docs/research/readest/ui-study.md)（U01~U07，核心日用链路全绿）、[三路线裁定与首批计划建议 P1~P6](docs/research/readest/decisions.md)、[综合报告](docs/research/readest/report.md)；[总设计已二次修订至 coverage v2](docs/design/01-product-design.md)。OS组合装配与Notes交接仍为独立协同项。
 
 ## 运行
 
@@ -82,7 +82,7 @@ AutoOS 通过 [`apps/auto-reader`](https://github.com/auto-stack/auto-os/tree/ma
 - [002：本地阅读、注释与导出](docs/plans/archive/002-reading-annotations.md)：r4按用户裁决仅本地A收尾；Notes联动已移OS TODO，不再作为本地交付前置。
 - [004：验收驱动与夹具归属迁移](docs/plans/archive/004-reader-test-ownership-migration.md)：已交付；夹具与HTTP保存链覆盖有明确边界。
 - [005：EPUB实际阅读与双端验收收口](docs/plans/archive/005-standalone-epub-and-ui-acceptance.md)：archived/r1、9/9 已交付（final review pass 4efdccf；工作链 246cbfd..7953234）。
-- [006：Readest详细调研与路线再设计](docs/plans/006-readest-deep-research.md)：work 完成（r1，7/10）——基线/矩阵/代码地图/UI 实测/决策/报告已交付（docs/research/readest/），总设计与路线二次修订完成；T-08 独立复审、T-09 归档待行。不直接实现产品功能；Readest 源码检出 D:/autostack/readest 仅作只读研究基线。
+- [006：Readest详细调研与路线再设计](docs/plans/006-readest-deep-research.md)：work 完成（r1，8/10）——基线/矩阵/代码地图/UI 实测/决策/报告已交付（docs/research/readest/），总设计与路线二次修订完成；T-08 独立复审、T-09 归档待行。不直接实现产品功能；Readest 源码检出 D:/autostack/readest 仅作只读研究基线。
 
 [总设计](docs/design/01-product-design.md) · [路线图](docs/roadmap-v0.6.md) · [规划入口](docs/README.md)。003旧frontmatter和002历史任务计数存在滞后，以实际交付回执及Spec区分范围，本轮不修改归档。
 

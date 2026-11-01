@@ -35,7 +35,7 @@
 | packages/tauri | `382ea858bdd29458a5447e49c401b3ac64f0c3c0` (readest 分支) | ✅ 已检出（**Readest fork 的 Tauri**，平台桥分析必需） |
 | apps/readest-app/src-tauri/plugins/tauri-plugin-turso | `3c4be4fd92fbe11e8e374b6e8e85dbf9a3b1b4ac` | ✅ 已检出 |
 | apps/readest-app/src-tauri/plugins/tauri-plugin-webview-upgrade | `c7f9774b0396e32280108fa6c8ee3b1a971df5fc` | ✅ 已检出（tag 值；main 已前移至 `c861233a`） |
-| apps/readest-app/.claude/skills/gstack | `e3259400…`（- 前缀） | ❌ 未检出（Claude 技能目录，非产品/构建必需，依计划"分析/构建所需"条款排除并在此登记） |
+| apps/readest-app/.claude/skills/gstack | `a3259400a366593e0c909dd9ac3e59752efd2488`（- 前缀） | ❌ 未检出（Claude 技能目录，非产品/构建必需，依计划"分析/构建所需"条款排除并在此登记） |
 
 ## 3. 文档固定源与访问日期
 
@@ -50,7 +50,7 @@
 | 项 | 值 |
 |---|---|
 | 版本/平台 | **Readest 0.12.16，Windows x64**（与源码基线同一 tag v0.12.16 —— 版本对应关系成立，见 §6 边界） |
-| 来源 | 官方 GitHub Release 资产 `Readest_0.12.16_x64-portable.exe`（browser_download_url 实录于 plan-artifacts） |
+| 来源 | 官方 GitHub Release 资产 `Readest_0.12.16_x64-portable.exe`（下载 URL 与哈希两次独立计算记录归档于 `plan-artifacts/plan-006/evidence/exe-provenance.md`） |
 | SHA256 | `683a620d4ee883c2d15c500cbe0ca82e42900510276e557df33289e3b7265f74` |
 | 大小 | 92,852,224 字节 |
 | 隔离运行目录 | `D:/autostack/plan-artifacts/plan-006/ui/readest-portable/`（exe 拷贝 + 同目录空 `Settings.json` 触发 portable 模式） |

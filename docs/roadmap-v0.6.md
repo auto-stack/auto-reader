@@ -6,7 +6,7 @@
 
 以 Readest 开源项目为主要参照，逐步覆盖其绝大多数已核实的能力，涵盖阅读/排版、选区/标注、书库、多格式、辅助阅读、书源、同步与互操作。
 
-用户指定顺序：**先更新总设计与路线 → 详细调研 Readest 文档、代码和实际 UI → 根据调研二次修订设计与路线 → 确定后续实施计划**。前两步已完成：调研交付了 255 项发布能力对照（[能力矩阵](research/readest/capability-matrix.md)）、真机 U01~U07 实测（[UI 研究](research/readest/ui-study.md)）、引擎三路线裁定与首批计划建议 P1~P6（[决策](research/readest/decisions.md)、[报告](research/readest/report.md)）；总设计已二次修订为 coverage v2。当前处于"确定后续实施计划"阶段：P1~P6 经用户认可后另行取号。
+用户指定顺序：**先更新总设计与路线 → 详细调研 Readest 文档、代码和实际 UI → 根据调研二次修订设计与路线 → 确定后续实施计划**。前两步已完成：调研交付了 257 项发布能力对照（[能力矩阵](research/readest/capability-matrix.md)）、真机 U01~U07 实测（[UI 研究](research/readest/ui-study.md)）、引擎三路线裁定与首批计划建议 P1~P6（[决策](research/readest/decisions.md)、[报告](research/readest/report.md)）；总设计已二次修订为 coverage v2。当前处于"确定后续实施计划"阶段：P1~P6 经用户认可后另行取号。
 
 ## 2. 已交付基础
 
@@ -24,7 +24,7 @@
 
 | 计划 | 状态 | 交付 |
 |---|---|---|
-| [006 Readest 详细调研与路线再设计](plans/006-readest-deep-research.md) | work 完成/待复审（r1，7/10 任务） | 基线固定（tag v0.12.16=3cc39ad7 + 官方 portable 同版）；255 项发布能力×稳定 ID 对照；代码地图（12 条链路/12 格式/fork 差异 path:line）；真机 U01~U07（核心日用链路全绿，2 个 Windows 缺陷实证）；三路线裁定与 P1~P6 建议；总设计/路线/导航二次修订 |
+| [006 Readest 详细调研与路线再设计](plans/006-readest-deep-research.md) | work 完成/待复审（r1，8/10 任务） | 基线固定（tag v0.12.16=3cc39ad7 + 官方 portable 同版）；257 项发布能力×稳定 ID 对照（=全量 259 行 − 2 行非发布）；代码地图（12 条链路/12 格式/fork 差异 path:line）；真机 U01~U07（核心日用链路全绿，2 个 Windows 缺陷实证）；三路线裁定与 P1~P6 建议；总设计/路线/导航二次修订 |
 
 调研源检出 `D:/autostack/readest`（detached v0.12.16，子模块按 tag 检出）；UI 证据与运行记录在 `D:/autostack/plan-artifacts/plan-006/`（复审可复演）。真机发现如实登记：对话框导入受管副本缺失+打开静默失败、软删不去重、页码口径滞后、移除确认待复验（[UI 研究](research/readest/ui-study.md) §1/§2）。
 

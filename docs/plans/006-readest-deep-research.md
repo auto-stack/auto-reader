@@ -221,3 +221,10 @@ work 首先核验 main 的实际 HEAD/WIP 与本计划 r1，记录到 baseline.m
   - minor：RV-D01 gstack 哈希笔误（a3259400）；RV-D04 §11.2「30 条」应 31；RV-D05 两处行号漂移（section-chunks.js:13、Annotator.tsx:1607-1617）；RV-D06 runlog 缺 U04-U07 逐条记录；RV-D07 重复截图组未标注；RV-D08 三导航文档 7/10 应 8/10。
   - R2 措辞修正：高亮渲染为分页器 shadow-DOM SVG overlay（非 iframe span）；重复高亮幂等去重；「应用到所有匹配」本次未现（存疑样本登记）。
 - evidence: notes/review-r1-docs.md、notes/review-r2-ui.md、screens/review-*.png(15)、check_links 134/134、git diff --check=0 | pending_closeout_gates: 无（研究文档计划，§6 检查已由审计覆盖） | next: work（有界修复 RV-D01..D08 + R2 措辞，随后 AC-01/02/04 受影响面 targeted re-review，pass 后 T-09）
+
+### 2026-11-01：T-08 修复轮（work，needs_fix → 闭合）+ 受影响面 targeted re-review（final pass）
+
+- stage: work（修复） | plan_id: READER-006 | plan_revision: r1 | outcome: pass | task_ids: RV-D01..D08+R2措辞（12 项全闭） | code_commit: 见本回执后首个提交 | evidence: exe-provenance.md（哈希两次独立计算同值 683a620d…）+ 各文件定点修正
+- 修复映射：RV-D01 baseline gstack=`a3259400a366…`（R1 实测值）；RV-D02 evidence/exe-provenance.md 归档哈希+URL+两次计算，baseline §4 指向之；RV-D03 分母改 **257=259−2**（逐行点名 C04-010 主分支/C05-035 code-only；255 宽估废止），matrix §11.2+report §1/§2/§3+design §1/§8+roadmap+两 README+00-intro 全部对齐；RV-D04 31 条；RV-D05 两引证按 R1 实测值改（section-chunks.js:13、Annotator.tsx:1607-1617）并注校正；RV-D06 runlog 补 U04~U07 逐条记录 + ui-study §0 覆盖说明；RV-D07 重复截图组+PDF 单帧证据如实注记；RV-D08 三导航文档 8/10；R2 措辞：高亮渲染=分页器 shadow-DOM SVG overlay（新行）+幂等去重（新行）+「应用到所有匹配」存疑样本注记。
+- stage: review（targeted re-review，AC-01/02/03/04 受影响面） | review_scope: final（闭合复核） | outcome: **pass** → **reviewed** | 复核方式：修复项逐一比对 R1 实测值；两处改后引证由本会话在 tag 检出直接重读（section-chunks.js:13=CHUNK_ATTRIBUTE ✓、Annotator.tsx:1607=BookNote 字面量起点 ✓）；残留「255」仅存 d39c255 哈希与 matrix 废止说明（非主张）；check_links 134/134 ALL OK；git diff --check=0 | findings: 无新增 | next: merge（T-09）
+- 计划状态：executing → **reviewed**（r1）。
