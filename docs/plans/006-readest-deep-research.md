@@ -1,12 +1,12 @@
 ---
 plan_id: READER-006
-status: drafting
+status: executing
 feature_name: "Readest详细调研与覆盖路线再设计"
 author: [Codex]
 created_at: 2026-11-01
 updated_at: 2026-11-01
 plan_revision: 1
-current_step: 0
+current_step: 8
 total_steps: 10
 base_branch: main
 base_commit: 0a296b39f84ce1d741511413a5eec9d3cd0225f0
@@ -22,7 +22,7 @@ touched_goals: []
 
 在“覆盖 Readest 开源项目绝大多数能力”的新目标下，详细调查 Readest 官方文档、真实源码与依赖、实际 UI 和运行行为，与 AutoReader 已交付能力逐项对照。基于证据修订总设计和路线，确定后续计划建议、依赖和验收边界。本计划交付研究与设计，不实施阅读器功能。
 
-本次 new 已先更新 docs/design/01-product-design.md、docs/roadmap-v0.6.md 与导航，作为调研前目标基线；以下任务全部尚未执行。计划保持 drafting/r1、0/10，不把先期文档调整计作研究完成。
+**work 阶段执行状态（2026-11-01）**：T-00～T-07 已完成（基线/矩阵/代码地图/UI 实测/对照核查/决策与报告/二次修订/内部核对），产出 docs/research/readest/ 五份报告并二次修订总设计与路线（coverage v2）；T-08 独立复审、T-09 归档未执行。详见第 9 节回执。
 
 ## 1. 目标
 
@@ -83,7 +83,7 @@ AutoReader 源码/规范基线为 0a296b39f84ce1d741511413a5eec9d3cd0225f0；本
 
 ## 5. 详细设计
 
-### 5.1 研究产物（均为新增目标路径，尚未产出）
+### 5.1 研究产物（均已产出，2026-11-01 work 阶段）
 
 | 文件 | 内容与闭合要求 |
 |---|---|
@@ -200,3 +200,11 @@ work 首先核验 main 的实际 HEAD/WIP 与本计划 r1，记录到 baseline.m
 2. Readest 实际功能深度、依赖/fork 差异、同步/迁移机制和服务限制？T-01～04 给证据。
 3. 引擎路线、Vue/VM 接缝、旧数据迁移、覆盖计数/阈值与后续优先级？T-05～07 提出可审查决策；影响目标范围的变更明确留待用户裁定。
 4. 如实际 UI 因安装、账号、费用或设备不可用，T-03 记录具体任务/失败证据与替代路径；核心本地任务未完成则不能声明 AC-04 通过。不得静默用源码分析替代实际体验。
+
+### 2026-11-01：work 阶段交接（T-00～T-07 完成）
+
+- stage: work | plan_id: READER-006 | plan_revision: r1 | outcome: pass | worktree: D:/autostack/auto-reader（main，计划 §2 指定开发位，无 app worktree） | branch: main | base_commit: d39c255 | code_commit: 7d0f760 | dependency_revisions: readest=3cc39ad7(v0.12.16, detached)+submodules per tag（baseline §2） | task_ids: T-00,T-01,T-02,T-03,T-04,T-05,T-06,T-07 | evidence: docs/research/readest/*(5 报告)+baseline/ui-study 摘要+plan-artifacts/plan-006/(原始记录) | blockers: 无阻塞 | next_responsible_role: review（T-08 独立复审）
+- 交付：①baseline.md（clone/tag/子模块/portable SHA256/隔离机制/命令实录）；②capability-matrix.md（259 行=255 发布分母+主分支候选，33 行 ✓实测，AutoReader 列受控词表 1 完整/36 部分/116 缺失/102 待验证/4 排除-需裁定）；③code-map.md（498 行，12 链路/12 格式/fork 差异/24 服务，path:line 于 tag）；④ui-study.md（U01~U07 真机：核心日用链路全绿——精确选区/CFI 锚/重复句搜索恰 3 结果/重开恢复/导出深链；2 个 Windows 0.12.16 缺陷实证；IME/窄窗移动布局/本地 TTS；服务成功面缺证具名）；⑤decisions.md（三路线裁定=B 主干+A 有界探针+C 长尾过渡；迁移=字段扩展+逐字锚保留；P1~P6 建议）；⑥report.md（假设核对/计数规则/不预宣比例）；⑦二次修订 design/01（coverage v2）+roadmap+00-intro+docs/README+README。
+- 提交链：d39c255(计划)→14d1689/346c7de(T-00)→ccd08a0(T-03)→8213092(T-01/02/04/05)→a68b4fe(链接修复)→7d0f760(T-06)；internal check：git diff --check=0、本地链接 134/134 存在、006 活动区唯一（archive 0）、矩阵行数=清单行数（agent 复核）。
+- 工作授权：/goal 继承（含 clone Readest）；证据在 plan-artifacts/plan-006/（runlog+notes+screens），merge 时按政策合并进计划文件并删除。
+- 未完成属下阶段：T-08 review（AC-09：独立上下文复核 AC-01..08，抽查 EPUB 选择/恢复与 PDF 本地任务+一个服务限制结论）、T-09 merge（AC-10）。移除确认复现 2 次未删已登记为复审抽检项（ui-study §1）。
