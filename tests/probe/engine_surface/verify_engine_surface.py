@@ -134,14 +134,13 @@ def stub(case):
 
 def run_surface(ctx):
     """按 profile 驱动 V-01..V-10 已实现面（T-02 起）。"""
+    oracle = BookScan(os.path.join(ctx["corpus_dir"], "probe-alpha.epub"))
     if ctx["profile"] == "vue":
         from driver_vue import run_vue
-        oracle = BookScan(os.path.join(ctx["corpus_dir"], "probe-alpha.epub"))
         run_vue(ctx["out_dir"], ctx["corpus_dir"], oracle, REPEAT_A, record)
     else:
-        for cid in ("V-01", "V-02", "V-03", "V-04", "V-05", "V-06", "V-07",
-                    "V-08", "V-09", "V-10"):
-            record(cid, "not_run", "vm profile surface pending native seam experiment (T-03)")
+        from driver_vm import run_vm
+        run_vm(ctx["out_dir"], ctx["corpus_dir"], oracle, record)
 
 
 CASES = {"surface": run_surface}
