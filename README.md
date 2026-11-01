@@ -2,9 +2,9 @@
 
 图书阅读器，使用 AutoLang / AutoUI 开发的独立应用。
 
-更新：2026-11-01。001真实TXT/Markdown书库与定位已交付；003的最小EPUB数据面已落地；002 r4以本地A（搜索、注释、Markdown导出）收尾；004验收驱动归属迁移已交付；**005 EPUB实际阅读与双端验收已交付归档**——EPUB图片真实显示（应用自有稳定媒体服务 `/api/reader/media/...`，双射扁平名防碰撞、12MiB 提取闸、诚实错误行）、书内链接/脚注/跨章往返（chips + V-20 入 pane 逐字 oracle）、真实 UI 注释/搜索/导出/恢复双端验收（`python tests/basic/verify_standalone.py --profile vue|vm` 聚合门 vue 28/28、vm 27/0，R-01..06 含毁损反例）。原生轨 UI 写传输受两项在册框架缺口阻断（见下 N-005-A-1/A-2），UI 创建/编辑面由 Vue 轨承载；Notes 交接继续留 AutoOS TODO。
+更新：2026-11-02。001真实TXT/Markdown书库与定位已交付；003的最小EPUB数据面已落地；002 r4以本地A（搜索、注释、Markdown导出）收尾；004验收驱动归属迁移已交付；**005 EPUB实际阅读与双端验收已交付归档**——EPUB图片真实显示（应用自有稳定媒体服务 `/api/reader/media/...`，双射扁平名防碰撞、12MiB 提取闸、诚实错误行）、书内链接/脚注/跨章往返（chips + V-20 入 pane 逐字 oracle）、真实 UI 注释/搜索/导出/恢复双端验收（`python tests/basic/verify_standalone.py --profile vue|vm` 聚合门 vue 28/28、vm 27/0，R-01..06 含毁损反例）。原生轨 UI 写传输受两项在册框架缺口阻断（见下 N-005-A-1/A-2），UI 创建/编辑面由 Vue 轨承载；Notes 交接继续留 AutoOS TODO。
 
-**006 [Readest详细调研与路线再设计](docs/plans/archive/006-readest-deep-research.md) 已交付归档**（archived/r1、10/10）：固定 Readest v0.12.16，交付[发布能力矩阵](docs/research/readest/capability-matrix.md)、[代码地图](docs/research/readest/code-map.md)、[UI研究](docs/research/readest/ui-study.md)、[决策](docs/research/readest/decisions.md)与[综合报告](docs/research/readest/report.md)。[总设计](docs/design/01-product-design.md)/[路线](docs/roadmap-v0.6.md)现为coverage v3，首份后继正式合同是 **[auto-ui/PLAN-026 阅读引擎嵌入与定位回传探针](https://github.com/auto-stack/auto-ui/blob/master/docs/plans/026-reader-engine-embedding-and-locator-probe.md)**（drafting/r1、0/10，暂不实施）。UI主导宿主/双端桥，Reader提供真实受管EPUB与纯.at消费/保存/恢复验证；不重复取号007。257行为发布对照，不代表全部逐项实机通过，PDF标注/服务成功面的缺证保留。OS组合装配与Notes交接仍为独立协同项。
+**006调研与 [auto-ui/PLAN-026探针](https://github.com/auto-stack/auto-ui/blob/master/docs/plans/archived/026-reader-engine-embedding-and-locator-probe.md)已交付归档**。026流程记10/10，Vue指定样本全链30/30；原生独立iced宿主嵌入/引擎/IPC已证，真实输入→.at→保存/冷恢复、焦点/IME/无障碍等未全闭合，双实例/专属负控未单列。当前[总设计](docs/design/01-product-design.md)/[路线](docs/roadmap-v0.6.md)为 **coverage v4：先收口原生输入与必要接缝，再进入完整EPUB产品化**。当前026工具cohort下Reader守旧门Vue27/28、VM25/27，R-05/R-06vm仍待复现定责；上列005全绿为其历史冻结基线，不代表本次重测成绩。下一阶段尚未取号，本次仅文档更新。
 
 ## 运行
 
@@ -84,8 +84,8 @@ AutoOS 通过 [`apps/auto-reader`](https://github.com/auto-stack/auto-os/tree/ma
 - [005：EPUB实际阅读与双端验收收口](docs/plans/archive/005-standalone-epub-and-ui-acceptance.md)：archived/r1、9/9 已交付（final review pass 4efdccf；工作链 246cbfd..7953234）。
 - [006：Readest详细调研与路线再设计](docs/plans/archive/006-readest-deep-research.md)：archived/r1、10/10——基线/矩阵/代码地图/UI 实测/决策/报告交付于 docs/research/readest/，总设计与路线二次修订完成（coverage v2）；后续 P1~P6 建议见决策 §5。不直接实现产品功能；Readest 源码检出 D:/autostack/readest 保留为只读研究基线。
 
-当前设计/路线为coverage v3，P2已起草为auto-ui/PLAN-026，其余P1/P3～P6仍是候选，依赖以[现行路线](docs/roadmap-v0.6.md)为准。026要求Vue/原生VM各自真实选区→.at→探针sidecar→冷恢复、接缝/身份拒绝与清理门，不用外开浏览器/API预写替代；计划完成与路线go分开。原始plan-artifacts/plan-006已按归档回执清理，研究摘要/复审保留，重跑需重建隔离环境。
+当前设计/路线为coverage v4，026已归档但双端门未全通过；后续先做原生输入/必要接缝收口，再据真实契约推进Locator v2与完整EPUB闭环，其他格式/服务范围保留。006/026原始plan-artifacts已清理，复演按固定cohort与重建脚本生成新证据；历史研究/回执不冒充本轮新验收。
 
 [总设计](docs/design/01-product-design.md) · [路线图](docs/roadmap-v0.6.md) · [规划入口](docs/README.md)。003旧frontmatter和002历史任务计数存在滞后，以实际交付回执及Spec区分范围，本轮不修改归档。
 
-开发/计划/顺序复审使用 `D:/autostack/auto-reader` 独立clone main，一app一写入者；AutoOS `apps/auto-reader`仅保留组合pin。本次仅更新设计、路线与导航，不改现实现Spec/业务代码、研究报告或归档006合同。后续正式计划依据现行路线讨论结果另行取号；应用交付与OS组合装配分开管理，Linux仍等待Nix＋COSMIC发行版基础。
+开发/计划/顺序复审使用D:/autostack/auto-reader独立clone main，一app一写入者；AutoOS apps/auto-reader仅保留组合pin。本次只对账026状态、设计与路线，不改业务源码/当前Spec、不新建计划或执行探针；UI主导后续宿主接缝，Reader负责消费与数据验收。应用交付与OS装配分开，Linux仍等Nix＋COSMIC基础。
