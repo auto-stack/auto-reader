@@ -208,3 +208,5 @@ work 首先核验 main 的实际 HEAD/WIP 与本计划 r1，记录到 baseline.m
 - 提交链：d39c255(计划)→14d1689/346c7de(T-00)→ccd08a0(T-03)→8213092(T-01/02/04/05)→a68b4fe(链接修复)→7d0f760(T-06)；internal check：git diff --check=0、本地链接 134/134 存在、006 活动区唯一（archive 0）、矩阵行数=清单行数（agent 复核）。
 - 工作授权：/goal 继承（含 clone Readest）；证据在 plan-artifacts/plan-006/（runlog+notes+screens），merge 时按政策合并进计划文件并删除。
 - 未完成属下阶段：T-08 review（AC-09：独立上下文复核 AC-01..08，抽查 EPUB 选择/恢复与 PDF 本地任务+一个服务限制结论）、T-09 merge（AC-10）。移除确认复现 2 次未删已登记为复审抽检项（ui-study §1）。
+
+- stage: goal | plan_id: READER-006 | plan_revision: r1 | round: 1 | from: work | to: review | status: executing (work pass, 8/10) | outcome: pass | worktree: D:/autostack/auto-reader (main, 计划 §2 开发位) | commit: eaee1cc | next: review
