@@ -22,20 +22,20 @@
 | main 相对发布基线 | v0.12.16 是 main 祖先；`git rev-list --count v0.12.16..main` = **183**（主分支新增能力另列候选，不混入已发布分母） |
 | GitHub latest release | v0.12.16（API `releases/latest` 实查 2026-11-01，published 2026-10-13T22:34Z，非 prerelease） |
 
-### 子模块（`git submodule status --recursive`，已按固定提交检出，标 ✅；未检出不标）
+### 子模块（**以发布 tag v0.12.16 的 gitlink 为准**；已按固定提交检出，标 ✅；未检出不标）
 
-| 路径 | 固定提交 | 状态 |
+研究检出已切到 tag：`git checkout --detach v0.12.16` → HEAD `3cc39ad7`（exit 0）；随后 `git submodule update --init <同下表 7 项>` → exit 0，`git status` clean。**tag 与 main 的 gitlink 差异实证**：foliate-js tag=`3d79419` ≠ main=`0c7a0edc`；webview-upgrade tag=`c7f9774b` ≠ main=`c861233a`（主分支差异另列，不混入发布证据）。
+
+| 路径 | tag v0.12.16 固定提交 | 备注 |
 |---|---|---|
-| packages/foliate-js | `0c7a0edcda672218e958fb92b4cdf090d7ca9daa` (heads/main) | ✅ 已检出（文档引擎，code-map 必需） |
-| packages/js-mdict | `d01bf62af872b1fbeacb2f18446460960e7400de` (heads/master) | ✅ 已检出（MDict 词典） |
-| packages/simplecc-wasm | `5e5b56f5b82394e7df07f9171ac70f4578b24a32` (heads/master) | ✅ 已检出（CJK 转换；其内嵌 OpenCC 子模块 `e0d41d7f…` 未检出，分析不需要） |
+| packages/foliate-js | `3d7941954a98b136316a795e8200d60c9643b141` | ✅ 已检出（文档引擎，code-map 必需；Readest fork） |
+| packages/js-mdict | `d01bf62af872b1fbeacb2f18446460960e7400de` | ✅ 已检出（MDict 词典；tag 与 main 同值） |
+| packages/simplecc-wasm | `5e5b56f5b82394e7df07f9171ac70f4578b24a32` | ✅ 已检出（CJK 转换；其内嵌 OpenCC 子模块 `e0d41d7f…` 未检出，分析不需要） |
 | packages/qcms | `fc23a407f1ed9ccfea15875d27e0936dcc798a1f` | ✅ 已检出（pdf.js qcms 色彩管理） |
-| packages/tauri | `382ea858bdd29458a5447e49c401b3ac64f0c3c0` (heads/readest) | ✅ 已检出（**Readest fork 的 Tauri**，平台桥分析必需） |
+| packages/tauri | `382ea858bdd29458a5447e49c401b3ac64f0c3c0` (readest 分支) | ✅ 已检出（**Readest fork 的 Tauri**，平台桥分析必需） |
 | apps/readest-app/src-tauri/plugins/tauri-plugin-turso | `3c4be4fd92fbe11e8e374b6e8e85dbf9a3b1b4ac` | ✅ 已检出 |
-| apps/readest-app/src-tauri/plugins/tauri-plugin-webview-upgrade | `c861233a9328319bf36369159735c7100e65c287` | ✅ 已检出 |
+| apps/readest-app/src-tauri/plugins/tauri-plugin-webview-upgrade | `c7f9774b0396e32280108fa6c8ee3b1a971df5fc` | ✅ 已检出（tag 值；main 已前移至 `c861233a`） |
 | apps/readest-app/.claude/skills/gstack | `e3259400…`（- 前缀） | ❌ 未检出（Claude 技能目录，非产品/构建必需，依计划"分析/构建所需"条款排除并在此登记） |
-
-检出命令：`git submodule update --init packages/foliate-js packages/js-mdict packages/simplecc-wasm packages/qcms packages/tauri apps/readest-app/src-tauri/plugins/tauri-plugin-turso apps/readest-app/src-tauri/plugins/tauri-plugin-webview-upgrade` → exit 0。未清理、未 reset、未切换任何他人 WIP（目录原不存在）。
 
 ## 3. 文档固定源与访问日期
 
