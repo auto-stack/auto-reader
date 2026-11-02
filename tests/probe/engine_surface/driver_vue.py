@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 import urllib.request
 import urllib.error
@@ -91,6 +92,250 @@ def mount_and_wait(page, ident, sid):
             return True, page.evaluate("() => window.__probe.loadMs")
         time.sleep(0.5)
     return False, None
+
+
+def _vue_drag_and_verify(page, results, oracle_scan, tag, repeat_a,
+                         host_sel="[data-remote-frame]"):
+    """在当前布局下重新定位 repeat_a 第2处出现 → 真实 Playwright 鼠标拖选
+    → 事件/预言机核验。返回 (ok, quote, occ, cfi, respj)。"""
+    tframe = None
+    for f in page.frames:
+        try:
+            if repeat_a[:18] in f.content():
+                tframe = f
+                break
+        except Exception:
+            continue
+    if tframe is None:
+        results(tag, "FAIL", "target text not in any frame")
+        return False, None, None, None, None
+    para = tframe.locator(f"text={repeat_a[:18]}").last
+    try:
+        para.wait_for(state="attached", timeout=10000)
+    except Exception:
+        results(tag, "FAIL", "target paragraph not attached")
+        return False, None, None, None, None
+    host_bb = page.locator(host_sel).bounding_box()
+    bb = para.bounding_box()
+    for _ in range(12):
+        if bb is None:
+            break
+        ix0 = max(bb["x"], host_bb["x"])
+        ix1 = min(bb["x"] + bb["width"], host_bb["x"] + host_bb["width"])
+        iy0 = max(bb["y"], host_bb["y"])
+        iy1 = min(bb["y"] + bb["height"], host_bb["y"] + host_bb["height"])
+        if ix1 - ix0 > 60 and iy1 - iy0 > 24:
+            break
+        page.evaluate("() => window.__probe.view.renderer.next()")
+        page.wait_for_timeout(700)
+        bb = para.bounding_box()
+    if bb is None or host_bb is None:
+        results(tag, "FAIL", "target box unresolved against host")
+        return False, None, None, None, None
+    ix0 = max(bb["x"], host_bb["x"]) + 6
+    ix1 = min(bb["x"] + bb["width"], host_bb["x"] + host_bb["width"]) - 6
+    iy0 = max(bb["y"], host_bb["y"]) + 6
+    iy1 = min(bb["y"] + bb["height"], host_bb["y"] + host_bb["height"]) - 6
+    if ix1 - ix0 < 40 or iy1 - iy0 < 12:
+        results(tag, "FAIL", "visible intersection too small")
+        return False, None, None, None, None
+    sx = ix0 + (ix1 - ix0) * 0.25
+    sy = iy0 + (iy1 - iy0) * 0.35
+    ex = ix0 + (ix1 - ix0) * 0.9
+    ey = iy0 + (iy1 - iy0) * 0.9
+    ev = None
+    n_ev = page.evaluate("() => (window.__probe.events || []).length")
+    page.mouse.move(sx, sy)
+    page.mouse.down()
+    page.mouse.move((sx + ex) / 2, (sy + ey) / 2, steps=8)
+    page.mouse.move(ex, ey, steps=8)
+    page.mouse.up()
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < 5:
+        evs = page.evaluate("() => window.__probe.events || []")
+        if len(evs) > n_ev:
+            ev = evs[-1]
+            break
+        time.sleep(0.4)
+    if not ev:
+        results(tag + ".drag-event", "FAIL", "no locator event after real drag (5s)")
+        return False, None, None, None, None
+    respj = ev["resp"]
+    for _ in range(2):
+        if isinstance(respj, str):
+            try:
+                respj = json.loads(respj)
+            except Exception:
+                break
+    quote = ev["msg"]["text_quote"]
+    occ = ev["msg"]["occurrence"]
+    cfi = ev["msg"]["cfi"]
+    vq = oracle_scan.verify_quote(quote, occ)
+    ok = respj.get("accepted") is True and vq.get("ok")
+    results(tag + ".drag-oracle", "PASS" if ok else "FAIL",
+            f"accepted={respj.get('accepted')} occ={occ} oracle_ok={vq.get('ok')} "
+            f"pos={vq.get('position')}")
+    return ok, quote, occ, cfi, respj
+
+
+def _run_vue_n05(page, results, oracle_scan, repeat_a, shot_dir):
+    """N-05（vue 轨，T-09）：字体重排/翻页滚动/遮挡/隐藏再展示后，真实
+    拖选仍命中指定原文。像素取证=整页截图解码（真实合成面）。"""
+    sys.path.insert(0, os.path.abspath(os.path.join(HERE, "..", "..", "native")))
+    from test_native_standalone_ui import scan_png_pixels, count_near
+    os.makedirs(shot_dir, exist_ok=True)
+
+    def _shot(name):
+        p = os.path.join(shot_dir, name)
+        page.screenshot(path=p)
+        return scan_png_pixels(p)
+
+    # ① 字体重排：章节 body 200% → 行盒位移（新几何）→ 真实拖选
+    moved = page.evaluate("""() => {
+        const cs = window.__probe.view.renderer.getContents();
+        for (const c of cs) {
+            if (c.doc && c.doc.body) {
+                const before = c.doc.body.style.fontSize;
+                c.doc.body.style.fontSize = '200%';
+                return before || '';
+            }
+        }
+        return null;
+    }""")
+    if moved is None:
+        results("N-05.reflow-move", "FAIL", "section body not reachable")
+        return
+    page.wait_for_timeout(1000)
+    ok_r, _, _, _, _ = _vue_drag_and_verify(page, results, oracle_scan,
+                                            "N-05.reflow", repeat_a)
+    page.evaluate("""() => {
+        const cs = window.__probe.view.renderer.getContents();
+        for (const c of cs) { if (c.doc && c.doc.body) c.doc.body.style.fontSize = ''; }
+        return 1;
+    }""")
+    page.wait_for_timeout(800)
+
+    # ② 翻页滚动再回：renderer.next() 离开 → prev() 回（滚动位姿已变）→ 真实拖选
+    page.evaluate("() => window.__probe.view.renderer.next()")
+    page.wait_for_timeout(900)
+    page.evaluate("() => window.__probe.view.renderer.prev()")
+    page.wait_for_timeout(900)
+    _vue_drag_and_verify(page, results, oracle_scan, "N-05.repage", repeat_a)
+
+    # ③ 遮挡：宿主页真实覆盖层（z-index 置顶纯色 div 盖住 remote-frame）→
+    # 像素三段（before白/覆盖红/撤除白）→ 撤除后真实拖选
+    host_bb = page.locator("[data-remote-frame]").bounding_box()
+    cx = int(host_bb["x"] + host_bb["width"] / 2)
+    cy = int(host_bb["y"] + host_bb["height"] / 2)
+    px0 = _shot("n05-occ-before.png")
+    n_red0 = count_near(px0, (255, 0, 0)) if px0 else -1
+    page.evaluate("""() => {
+        const d = document.createElement('div');
+        d.id = 'probe-occluder';
+        d.style.cssText = 'position:fixed;inset:0;background:#ff0000;z-index:9999';
+        document.body.appendChild(d);
+        return 1;
+    }""")
+    page.wait_for_timeout(500)
+    px1 = _shot("n05-occ-during.png")
+    n_red1 = count_near(px1, (255, 0, 0)) if px1 else -1
+    results("N-05.occlusion-cover", "PASS" if n_red1 > 20000 and n_red1 > n_red0 else "FAIL",
+            f"red_px before={n_red0} during={n_red1} (overlay must own pixels)")
+    page.evaluate("() => { const d = document.getElementById('probe-occluder');"
+                  " if (d) d.remove(); return 1; }")
+    page.wait_for_timeout(500)
+    px2 = _shot("n05-occ-after.png")
+    n_red2 = count_near(px2, (255, 0, 0)) if px2 else -1
+    results("N-05.occlusion-reveal", "PASS" if n_red2 < n_red1 / 10 else "FAIL",
+            f"red_px after={n_red2}")
+    _vue_drag_and_verify(page, results, oracle_scan, "N-05.occlusion", repeat_a)
+
+    # ④ 隐藏→再展示：display:none → foliate-view 真隐藏（无盒）→ 恢复 →
+    # 真实拖选重新命中
+    page.evaluate("""() => {
+        const h = document.querySelector('[data-remote-frame]');
+        h.__probe_disp = h.style.display;
+        h.style.display = 'none';
+        return 1;
+    }""")
+    page.wait_for_timeout(600)
+    gone = page.evaluate(
+        "() => document.querySelector('[data-remote-frame] foliate-view')"
+        " === null || document.querySelector('[data-remote-frame]').offsetParent === null")
+    results("N-05.hideshow-hide", "PASS" if bool(gone) else "FAIL",
+            "foliate-view box gone=" + str(gone))
+    page.evaluate("""() => {
+        const h = document.querySelector('[data-remote-frame]');
+        h.style.display = h.__probe_disp || '';
+        return 1;
+    }""")
+    page.wait_for_timeout(900)
+    _vue_drag_and_verify(page, results, oracle_scan, "N-05.hideshow", repeat_a)
+
+
+def _run_vue_n11(page, results, oracle_scan, data_dir, sid, true_quote, true_cfi):
+    """N-11（vue 轨，T-09）：磁盘变异真实已存 locator → 原始 oracle 实红 +
+    错 CFI 恢复落点异位（位置指纹，非文本可见性口径）→ 字节级还原 →
+    oracle 绿 + 恢复命中。隔离 probe 数据目录，用户数据零污染。"""
+    disk = os.path.join(data_dir, "probe", "locators", sid + ".json")
+    if not os.path.exists(disk):
+        results("N-11", "FAIL", "sidecar file missing: " + disk)
+        return
+    raw = open(disk, "rb").read()
+    dj = json.loads(raw.decode("utf-8"))
+    recs = dj.get("records", [])
+    if not recs:
+        results("N-11", "FAIL", "sidecar has no records")
+        return
+    mut_q = "零出现变异片段 probe-zero-occurrence-xyz"
+    recs[-1]["locator"]["text_quote"] = mut_q
+    with open(disk, "w", encoding="utf-8") as f:
+        json.dump(dj, f, ensure_ascii=False)
+    vq = oracle_scan.verify_quote(mut_q, 1)
+    results("N-11.mutation-red", "PASS" if not vq.get("ok") else "FAIL",
+            f"mutated quote -> oracle ok={vq.get('ok')} reason={vq.get('reason', '')[:40]}"
+            " (must be red)")
+    # 错 CFI 恢复落点异位：真目标不可见即落点异位（位置判据）
+    wrong_cfi = "epubcfi(/6/2!/4/2,/1:1,/1:5)"
+    page.evaluate("() => { window.__probe.target = %s; return 1; }"
+                  % json.dumps(true_quote))
+    page.evaluate("""async (cfi) => {
+        try { await window.__probe.view.goTo(cfi); return 'ok'; }
+        catch (e) { return 'err:' + e; }
+    }""", wrong_cfi)
+    page.wait_for_timeout(1500)
+    vis_wrong = page.evaluate("""() => {
+        const cs = window.__probe.view.renderer.getContents();
+        for (const c of cs) {
+            if (c.doc.body && c.doc.body.textContent.includes(window.__probe.target))
+                return true;
+        }
+        return false;
+    }""")
+    results("N-11.wrong-cfi-lands-elsewhere", "PASS" if not vis_wrong else "FAIL",
+            f"goTo({wrong_cfi}) true-target visible={vis_wrong} (must be False)")
+    # 字节级还原 → oracle 绿 + 恢复命中
+    with open(disk, "wb") as f:
+        f.write(raw)
+    back = open(disk, "rb").read()
+    results("N-11.restore-bytes", "PASS" if back == raw else "FAIL",
+            f"bytes_restored={back == raw}")
+    vq2 = oracle_scan.verify_quote(true_quote, 1)
+    page.evaluate("""async (cfi) => {
+        try { await window.__probe.view.goTo(cfi); return 'ok'; }
+        catch (e) { return 'err:' + e; }
+    }""", true_cfi)
+    page.wait_for_timeout(1500)
+    vis_true = page.evaluate("""() => {
+        const cs = window.__probe.view.renderer.getContents();
+        for (const c of cs) {
+            if (c.doc.body && c.doc.body.textContent.includes(window.__probe.target))
+                return true;
+        }
+        return false;
+    }""")
+    results("N-11.restore-green", "PASS" if (vq2.get("ok") and vis_true) else "FAIL",
+            f"oracle_ok={vq2.get('ok')} restore_visible={vis_true}")
 
 
 def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
@@ -295,6 +540,12 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
             disk = os.path.join(data_dir, "probe", "locators", sid + ".json")
             ok_disk = os.path.exists(disk) and quote_sel in open(disk, encoding="utf-8").read()
             results("N-02.sidecar-disk", "PASS" if ok_disk else "FAIL", disk)
+            # ── N-05（vue 轨，T-09）：几何/遮挡/隐藏后真实拖选仍命中 ──
+            try:
+                _run_vue_n05(page, results, oracle_scan, repeat_a,
+                             os.path.join(out_dir, "shots"))
+            except Exception as e:  # noqa: BLE001
+                results("N-05", "FAIL", "vue geometry gate exception: " + repr(e)[:140])
             browser.close()
 
         # ── V-03：冷重启恢复 ──
@@ -344,7 +595,13 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
                 err = r
                 time.sleep(1.5)
             results("N-03.cold-restart-restore", "PASS" if goto_ok else "FAIL",
-                    f"goto={err or 'ok'} target-visible={goto_ok} (deadline 30s)")
+                    f"goTo={err or 'ok'} target-visible={goto_ok} (deadline 30s)")
+            # ── N-11（vue 轨，T-09）：磁盘变异红→还原绿（同一视图实例内）──
+            try:
+                _run_vue_n11(page, results, oracle_scan, data_dir, sid,
+                             quote_sel, cfi_sel)
+            except Exception as e:  # noqa: BLE001
+                results("N-11", "FAIL", "vue mutation gate exception: " + repr(e)[:140])
             browser.close()
 
         # ── V-06/V-07 HTTP 负控 ──

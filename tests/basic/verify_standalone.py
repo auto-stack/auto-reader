@@ -147,7 +147,16 @@ def r01(app, auto_bin, data_dir, log_dir, profile):
     ready = app.wait_ready()
     check("R-01 profile boots and backend ready", ready, f"poll 90s data={data_dir}")
     if profile == "vue":
-        check("R-01 vite frontend serves", url_ok("http://localhost:17824/"))
+        # 前端就绪有界轮询（vite 冷启动慢于后端——单发探测会把冷启动误判
+        # 为不服务，dry3 实测；条件不变：17824 必须真实可服务）
+        front_ok = False
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < 60:
+            if url_ok("http://localhost:17824/"):
+                front_ok = True
+                break
+            time.sleep(1.5)
+        check("R-01 vite frontend serves", front_ok, "poll 60s")
     else:
         check("R-01 vm track backend on 17825", url_ok("http://127.0.0.1:17825/api/library/books"))
     # 占口负例：以裸 socket 占住后端端口 → 新实例启动失败（deadline 内未

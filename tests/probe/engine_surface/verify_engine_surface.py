@@ -369,30 +369,123 @@ def stub(cid, note="implemented in a later task"):
     return _stub
 
 
+def _run_cmd_capture(cmd, cwd, env, timeout):
+    """子进程运行并捕获输出；超时返回 (None, "TIMEOUT …s")。"""
+    try:
+        r = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True,
+                           encoding="utf-8", errors="replace", timeout=timeout)
+        return r, (r.stdout or "") + (r.stderr or "")
+    except subprocess.TimeoutExpired:
+        return None, f"TIMEOUT {timeout}s"
+
+
+def _wait_port_free(port, deadline=30.0):
+    """端口静默屏障：上一段实例 kill 后 socket 释放有迟滞（且服务端有 busy
+    回退链——带着残留实例起下一实例会把 HTTP 全部打到别人身上，dry2
+    N-12.vue-chain 实证）。返回 False = deadline 内仍被占。"""
+    import socket
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < deadline:
+        sk = socket.socket()
+        try:
+            sk.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            time.sleep(1.0)
+        finally:
+            sk.close()
+    return False
+
+
+def _run_n12_gate(ctx):
+    """N-12（AC-09）：Vue 既有链 + 两端旧门 + R-05/R-06vm 原负例（冻结
+    cohort）。vue profile 的旧链 = 本聚合自身 vue 臂记录最坏推导镜像；
+    vm profile 在隔离 out-dir 实际重跑 driver_vue。两端 verify_standalone
+    各自完整跑（含 R-05 verify_epub 与 R-06vm 毁损负控/合法对照）；
+    R-05 直连入口另设具名快检（T-08 复现定责的同一机制）。"""
+    profile = ctx["profile"]
+
+    # 端口静默屏障：前段实例必须完全退出再起 vue 链（17825/17827）。
+    ports_quiet = _wait_port_free(17825) and _wait_port_free(17827)
+    if not ports_quiet:
+        record("N-12.vue-chain", "FAIL",
+               "ports 17825/17827 not free before vue chain (leftover instance?)")
+
+    # ① Vue 既有链
+    if ports_quiet and profile == "vue":
+        vue_recs = [r for r in RECORDS
+                    if parent_of(r["case"]) in ("N-02", "N-03", "N-09")]
+        bad = [r for r in vue_recs if r["outcome"] in ("FAIL", "GAP")]
+        record("N-12.vue-chain", "PASS" if not bad else "FAIL",
+               ("; ".join(f'{r["case"]}:{r["outcome"]}' for r in bad[:3])
+                if bad else f"own vue arm ({len(vue_recs)} records) all pass"))
+    elif ports_quiet:
+        vue_dir = os.path.join(ctx["out_dir"], "n12-vue")
+        os.makedirs(vue_dir, exist_ok=True)
+        vrecs = []
+        try:
+            from driver_vue import run_vue
+            oracle = BookScan(os.path.join(ctx["corpus_dir"], "probe-alpha.epub"))
+            run_vue(vue_dir, ctx["corpus_dir"], oracle, REPEAT_A,
+                    lambda c, o, d="": vrecs.append({"case": c, "outcome": o, "detail": d}))
+        except Exception as e:
+            record("N-12.vue-chain", "FAIL", "driver_vue exception: " + repr(e)[:120])
+        else:
+            bad = [r for r in vrecs if r["outcome"] in ("FAIL", "GAP")]
+            record("N-12.vue-chain", "PASS" if not bad else "FAIL",
+                   ("; ".join(f'{r["case"]}:{r["outcome"]}:{r["detail"][:40]}'
+                              for r in bad[:3])
+                    if bad else f"isolated rerun ({len(vrecs)} records) all pass"))
+
+    # ② R-05 直连入口具名快检（api.at 直连服务真实契约，T-08 同门命令）
+    root = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
+    vep = os.path.abspath(os.path.join(HERE, "..", "..", "epub", "verify_epub.py"))
+    r, out = _run_cmd_capture([sys.executable, vep, "--auto"], cwd=root,
+                              env=dict(os.environ, AUTO_EXE=ctx["auto_bin"]),
+                              timeout=600)
+    rc = getattr(r, "returncode", r)
+    record("N-12.r05-direct-entry", "PASS" if (rc == 0 and "PASS=22 FAIL=0" in out)
+           else "FAIL", f"rc={rc} tail={out[-130:]}")
+
+    # ③ 两端旧门完整跑（verify_standalone：R-01 启动/占口/坏tool、R-02/03
+    # HTTP+UI oracle、R-04 verify_local、R-05 预算/缺失负例+verify_epub、
+    # R-06 毁损负控——vue 走 Playwright 像素面，vm 走原生物件+截图像素面）
+    gate = os.path.abspath(os.path.join(HERE, "..", "..", "basic", "verify_standalone.py"))
+    for prof in ("vue", "vm"):
+        gdir = os.path.join(ctx["out_dir"], f"n12-standalone-{prof}")
+        os.makedirs(gdir, exist_ok=True)
+        r, out = _run_cmd_capture(
+            [sys.executable, gate, "--profile", prof, "--auto-bin", ctx["auto_bin"]],
+            cwd=root, env=dict(os.environ, VERIFY_STANDALONE_HOME=gdir,
+                               AUTO_EXE=ctx["auto_bin"]),
+            timeout=3600)
+        rc = getattr(r, "returncode", r)
+        record(f"N-12.standalone-{prof}", "PASS" if rc == 0 else "FAIL",
+               f"rc={rc} tail={out[-150:]}")
+
+
 def run_surface(ctx):
     """按 profile 驱动已实现面。未实现必需父用例显式 not_run（聚合 exit3，
-    不冒充通过）——T-02..T-08 逐个替换为真实执行。"""
+    不冒充通过）——T-02..T-09 逐个替换为真实执行。"""
     profile = ctx["profile"]
     if profile == "vue":
-        for cid in ["N-05", "N-10", "N-11", "N-12"]:
-            record(cid, "not_run", "pending later task (T-05/07/08/09)")
         from driver_vue import run_vue
         oracle = BookScan(os.path.join(ctx["corpus_dir"], "probe-alpha.epub"))
         run_vue(ctx["out_dir"], ctx["corpus_dir"], oracle, REPEAT_A, record)
+        _run_n12_gate(ctx)
     else:
-        # PLAN-029 T-03：vm 臂 = 真实 AutoUI 原生 VM 消费者（026 独立宿主流程
-        # 退役）。N-05 完整几何门（重排/滚动/遮挡/隐藏/DPI）与 N-06 系统无
-        # 障碍已随 T-05 落入 driver_vm（run_vm 尾段）；N-01/07/08（输入通道
-        # 对照/实例/生命周期）、N-09 后端负控、N-10 实况负控、N-11 变异、
-        # N-12 旧门仍待 T-06..T-09。
-        for cid in ["N-01", "N-12"]:
-            record(cid, "not_run", "pending later task (T-07..T-09)")
+        # PLAN-029：vm 臂 = 真实 AutoUI 原生 VM 消费者。N-01（T-09：双通道
+        # 输入对照）由 run_vm 在 N-02 后执行；N-04 IME/焦点门在 run_vm 尾段；
+        # N-12 旧门/链在聚合末段独立执行（实例已停，端口空闲）。
         from driver_vm import run_vm
         oracle = BookScan(os.path.join(ctx["corpus_dir"], "probe-alpha.epub"))
         run_vm(ctx["out_dir"], ctx["corpus_dir"], oracle, record)
         # N-04 由 run_vm 尾段执行（真实 IME 门）；驱动早退未触达时显式 not_run。
         if not any(r["case"].startswith("N-04") for r in RECORDS):
             record("N-04", "not_run", "driver exited before the N-04 gate")
+        if not any(r["case"].startswith("N-01") for r in RECORDS):
+            record("N-01", "not_run", "driver exited before the N-01 gate")
+        _run_n12_gate(ctx)
 
 
 CASES = {"surface": run_surface, "n10": lambda ctx: n10_aggregator_selftest()}

@@ -346,6 +346,188 @@ def _cdp_engine_page(marker, deadline=30, cdp_port=9333):
     return pw, browser, (page if eng else None)
 
 
+def _gui_focus_capture():
+    """当前线程 GUI 焦点/捕获 hwnd（0 = 无）。"""
+    import ctypes
+
+    class _GI(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.c_uint), ("flags", ctypes.c_uint),
+                    ("hwndActive", ctypes.c_void_p), ("hwndFocus", ctypes.c_void_p),
+                    ("hwndCapture", ctypes.c_void_p), ("hwndMenuOwner", ctypes.c_void_p),
+                    ("hwndMoveSize", ctypes.c_void_p), ("hwndCaret", ctypes.c_void_p),
+                    ("rcCaret", ctypes.wintypes.RECT)]
+
+    gi = _GI()
+    gi.cbSize = ctypes.sizeof(gi)
+    user32.GetGUIThreadInfo(0, ctypes.byref(gi))
+    return gi.hwndFocus or 0, gi.hwndCapture or 0
+
+
+def _run_n01(rect, win_hwnd, results, sid, tag="N-01", cdp_port=9333):
+    """N-01（AC-01/03）：同一宿主/同一文档双通道真实输入对照——CDP 输入
+    管线（Input 域真实鼠标事件，非 JS 合成代选）与系统 SendInput 各自完成
+    目标句拖选；逐通道取证焦点/捕获/命中，成对合法对照。桌面 UIA 观察维
+    度由 N-06 系统树门承担（同窗同刻取证），通道对照以两真实输入通道为准。
+    自持 CDP 连接（N-02 的 playwright 已在其段内关闭）。"""
+    pw, browser, page = _cdp_engine_page(sid, cdp_port=cdp_port)
+    if page is None:
+        results(tag, "GAP", "CDP engine page unavailable for channel comparison")
+        return
+    wpx, hpx, ox, oy = rect
+
+    def _cleanup():
+        try:
+            browser.close()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            pw.stop()
+        except Exception:  # noqa: BLE001
+            pass
+
+    JS_LINE = """([marker, vw, vh]) => {
+        const walker = document.createTreeWalker(
+            document.body, NodeFilter.SHOW_TEXT);
+        const hits = [];
+        let n;
+        while ((n = walker.nextNode())) {
+            let i = 0;
+            while ((i = n.data.indexOf(marker, i)) >= 0) {
+                hits.push([n, i]);
+                i += marker.length;
+            }
+        }
+        if (hits.length < 2) return null;
+        const [node, off] = hits[1];
+        const end = node.data.indexOf('\\u3002', off);
+        const r = document.createRange();
+        r.setStart(node, off);
+        r.setEnd(node, end > 0 ? end + 1 : off + marker.length);
+        const rects = r.getClientRects();
+        const fe = frameElement
+            ? frameElement.getBoundingClientRect()
+            : {left: 0, top: 0};
+        for (const b of rects) {
+            const x = b.left + fe.left, y = b.top + fe.top;
+            if (b.width > 40 && b.height > 6 && x >= -4 && y >= -4
+                && x + b.width <= vw + 4
+                && y + b.height <= vh + 4) {
+                return {x, y, width: b.width, height: b.height};
+            }
+        }
+        return null;
+    }"""
+    JS_SEL = """() => { const s = document.getSelection();
+        return s && !s.isCollapsed ? s.toString() : null; }"""
+
+    def _sel():
+        try:
+            for f in page.frames:
+                r = f.evaluate(JS_SEL)
+                if r:
+                    return r
+        except Exception:
+            pass
+        return None
+
+    vw = page.evaluate("() => window.innerWidth")
+    vh = page.evaluate("() => window.innerHeight")
+    box = None
+    for f in page.frames:
+        try:
+            if REPEAT_A_MARKER in f.content():
+                box = f.evaluate(JS_LINE, [REPEAT_A_MARKER, vw, vh])
+                if box:
+                    break
+        except Exception:
+            continue
+    if not box:
+        results(tag, "FAIL", "target line not visible for channel comparison")
+        _cleanup()
+        return
+
+    scale = wpx / max(1, vw)
+    cpt = ctypes.wintypes.POINT(0, 0)
+    user32.ClientToScreen(win_hwnd, ctypes.byref(cpt))
+    lx, ly = box["x"], box["y"]
+    lw_, lh_ = box["width"], box["height"]
+
+    # ── 通道A：CDP 输入管线（真实 Input 域鼠标事件，坐标=页面 css 视口）──
+    fA0, cA0 = _gui_focus_capture()
+    page.mouse.move(lx + lw_ * 0.30, ly + lh_ * 0.40)
+    page.wait_for_timeout(200)
+    page.mouse.down()
+    page.wait_for_timeout(150)
+    for i in range(1, 13):
+        page.mouse.move(lx + lw_ * (0.30 + 0.62 * i / 12),
+                        ly + lh_ * (0.40 + 0.35 * i / 12))
+        page.wait_for_timeout(60)
+    page.mouse.up()
+    page.wait_for_timeout(2500)
+    selA = _sel()
+    fA1, cA1 = _gui_focus_capture()
+    flatA = (selA or "").replace(chr(10), "").replace(" ", "")
+    okA = bool(flatA) and flatA in REPEAT_A
+    results(tag + ".cdp-input", "PASS" if okA else "FAIL",
+            f"sel={repr((selA or '')[:30])} focus={fA0 & 0xFFFF:x}->{fA1 & 0xFFFF:x} "
+            f"cap={cA1 & 0xFFFF:x} (CDP Input pipeline, no JS Range)")
+
+    # ── 通道B：系统 SendInput（同一文档同一句，屏幕物理坐标）──
+    bx0 = cpt.x + ox + lx * scale
+    by0 = cpt.y + oy + ly * scale
+    bw = lw_ * scale
+    bh = lh_ * scale
+    # 逐点 hit-test 守卫 + 有界重试（T-00 窗口避让教训：活桌面上终端/悬浮
+    # 窗会瞬时盖住目标点——重拉前台后再测；覆盖不退则具名失败）。
+    guard = False
+    cls0 = ""
+    for _ in range(4):
+        _force_foreground(win_hwnd)
+        time.sleep(0.6)
+        _, cls0 = _hit_window(bx0 + bw * 0.3, by0 + bh * 0.4)
+        guard = ("Chrome" in cls0) or ("WRY" in cls0.upper())
+        if guard:
+            break
+    results(tag + ".hit-guard", "PASS" if guard else "FAIL", "hit=" + cls0)
+    fg_ok = False
+    for _ in range(4):
+        _force_foreground(win_hwnd)
+        time.sleep(0.5)
+        if user32.GetForegroundWindow() == win_hwnd:
+            fg_ok = True
+            break
+    results(tag + ".foreground", "PASS" if fg_ok else "FAIL", str(fg_ok))
+    if not (guard and fg_ok):
+        results(tag + ".sys-input", "FAIL", "guard/foreground failed before sys drag")
+        _cleanup()
+        return
+    fB0, _ = _gui_focus_capture()
+    sxp, syp = bx0 + bw * 0.30, by0 + bh * 0.40
+    exp_, eyp = bx0 + bw * 0.92, by0 + bh * 0.75
+    _send_mouse(sxp, syp)
+    time.sleep(0.25)
+    _send_mouse(sxp, syp, down=True)
+    time.sleep(0.2)
+    for i in range(1, 13):
+        _send_mouse(sxp + (exp_ - sxp) * i / 12, syp + (eyp - syp) * i / 12)
+        time.sleep(0.12)
+    time.sleep(0.2)
+    _send_mouse(exp_, eyp, down=False)
+    time.sleep(2.5)
+    selB = _sel()
+    fB1, cB1 = _gui_focus_capture()
+    flatB = (selB or "").replace(chr(10), "").replace(" ", "")
+    okB = bool(flatB) and flatB in REPEAT_A
+    results(tag + ".sys-input", "PASS" if okB else "FAIL",
+            f"sel={repr((selB or '')[:30])} focus={fB0 & 0xFFFF:x}->{fB1 & 0xFFFF:x} "
+            f"cap={cB1 & 0xFFFF:x} (SendInput drag)")
+
+    # ── 成对合法对照：两通道同文档同句命中（合法对照成对，无 JS 代选）──
+    results(tag + ".pair", "PASS" if (okA and okB) else "FAIL",
+            f"cdp_ok={okA} sys_ok={okB} same-doc-same-sentence")
+    _cleanup()
+
+
 def _drag_para_and_verify(page, rect, win_hwnd, oracle_scan, sid, results,
                           tag="N-02"):
     """翻页至目标句 → 真实 SendInput 拖选 → sidecar/oracle 核验。
@@ -707,6 +889,19 @@ def run_vm(out_dir, corpus_dir, oracle_scan, results):
                 break
             n_saved = n2
         results("N-02.settle", "PASS", f"record count settled at {n_saved}")
+
+        # ── N-01：同一宿主/文档双通道真实输入对照（CDP 管线 vs SendInput）──
+        _run_n01(rect, win_hwnd, results, sid, cdp_port=9333)
+        # N-01 双通道各产一条合法落盘记录——N-03「旧记录保持」基线须在
+        # N-01 之后重新静默冻结（否则合法增长被误判为丢失，dry3 实测）。
+        n_saved = _count()
+        for _ in range(5):
+            time.sleep(1.5)
+            n2 = _count()
+            if n2 == n_saved:
+                break
+            n_saved = n2
+        results("N-01.settle", "PASS", f"baseline after N-01 channels: {n_saved}")
 
         # ── N-03：正常关闭 → 新进程冷恢复 ──
         cons.stop()
@@ -1099,9 +1294,19 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
         if cap and cap != win_hwnd:
             user32.PostMessageW(cap, WM_CANCELMODE, 0, 0)
             time.sleep(0.4)
+        # 捕获冲刷必须在焦点归还**之前**：Chromium 在鼠标按下时夺取线程
+        # 焦点（t07-vm6 a0..a3 实测——旧序 SetFocus 后再点表面，焦点每轮
+        # 都被冲刷点击夺回）。已激活窗口内的点击不触发激活迁移、不归还
+        # 键盘焦点（含标题栏点击）——焦点只能显式 SetFocus 归还。
+        _send_mouse(sx0, sy0, True)
+        time.sleep(0.06)
+        _send_mouse(sx0, sy0, False)
+        time.sleep(0.5)
         # 显式焦点归还（点击激活的内部机制）：AttachThreadInput 后 SetFocus
-        # 到 iced 主窗——表面拖选后 OS 线程焦点停在弹出窗 Chrome（fd5e 类，
-        # 拟人点击也无法拉回的合成输入盲区）。
+        # 到 iced 主窗——必须在最后一次表面点击之后。OS 焦点已实证落主窗
+        # （dry2 a0..a3：f->b48、fg=b48、hit=Window Class）而输入值仍不变
+        # ——iced 组件级焦点未随 OS 焦点恢复：真实键盘 Tab（iced 焦点循环，
+        # 真 OS 键击非合成状态写）恢复输入框组件焦点。
         fgw = user32.GetForegroundWindow()
         tid_fg = user32.GetWindowThreadProcessId(fgw, None)
         tid_me = kernel32.GetCurrentThreadId()
@@ -1109,10 +1314,9 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
         user32.SetFocus(win_hwnd)
         user32.AttachThreadInput(tid_me, tid_fg, False)
         time.sleep(0.3)
-        _send_mouse(sx0, sy0, True)
-        time.sleep(0.06)
-        _send_mouse(sx0, sy0, False)
-        time.sleep(0.5)
+        for _ in range(2 + attempt_i):
+            _send_key(0x09)  # Tab：iced 组件焦点循环（真实键盘输入）
+            time.sleep(0.25)
         if attempt_i % 2 == 1:
             # 拟人路径：先点标题栏（激活 iced 窗、OS 焦点归位），再点输入框。
             wr = ctypes.wintypes.RECT()
@@ -1122,6 +1326,17 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
             _send_mouse(wr.left + 300, wr.top + 20, False)
             time.sleep(0.5)
         click_input()
+        # 输入点落窗取证：命中类名 + 弹窗矩形 + 前台——区分「点击被弹出窗
+        # 截走（几何/置顶）」与「点击达主窗但键击未达模型（组件焦点/IME）」。
+        ipt_px = ox + int(found_x * scale)
+        ipt_py = oy + int(105 * scale)
+        _, ipt_cls = _hit_window(ipt_px, ipt_py)
+        fg_now = user32.GetForegroundWindow() or 0
+        try:
+            hpop = _find_popup_hwnd()
+            popup_rect = _win_rect(hpop) if hpop else None
+        except Exception:
+            popup_rect = None
         _send_char("k")
         time.sleep(0.2)
         _send_key(0x0D)
@@ -1131,8 +1346,10 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
         gi2.cbSize = ctypes.sizeof(gi2)
         user32.GetGUIThreadInfo(0, ctypes.byref(gi2))
         rt_log.append(
-            f"a{attempt_i}:cap{cap & 0xFFFF:x} f{fpre & 0xFFFF:x}"
-            f"->f{(gi2.hwndFocus or 0) & 0xFFFF:x} v={v_try!r}")
+            f"a{attempt_i}:cap{cap & 0xFFFF:x} w{win_hwnd & 0xFFFF:x}"
+            f" f{fpre & 0xFFFF:x}->f{(gi2.hwndFocus or 0) & 0xFFFF:x}"
+            f" fg{fg_now & 0xFFFF:x} hit({ipt_px},{ipt_py})={ipt_cls[:24]}"
+            f" pop={popup_rect} v={v_try!r}")
         if v_try is not None and v_try != v_after_surface:
             v_back = v_try
             break
@@ -1626,8 +1843,6 @@ def _run_t05_gates(out_dir, mcp3, sid3, win_hwnd3, oracle_scan, results,
         results("N-05.font-reflow.reflowed", "PASS" if moved else "FAIL",
                 f"before=({lb0['x']:.0f},{lb0['y']:.0f},{lb0['width']:.0f}) "
                 f"after=({lb1['x']:.0f},{lb1['y']:.0f},{lb1['width']:.0f})")
-        if not moved:
-            return
         popup_rect = _win_rect(_find_popup_hwnd()) if _find_popup_hwnd() else popup_rect
         sel, err = _drag_line(page5, popup_rect, lb1, win_hwnd3)
         rec, n_recs = _poll_target_record(sid3, base_count)
@@ -1640,9 +1855,10 @@ def _run_t05_gates(out_dir, mcp3, sid3, win_hwnd3, oracle_scan, results,
         else:
             note = f"sel={str(sel)[:24]!r} err={err} recs={n_recs}"
         results("N-05.font-reflow.redrag", "PASS" if ok else "FAIL", note)
-        if not ok:
-            return
-        base_count = n_recs
+        # 单腿失败不再早退：后续门（滚动/遮挡/隐藏/UIA）各自独立取证，
+        # 早退会把整段连锁成 missing（dry3 实测 N-06 被跳过）。
+        if ok:
+            base_count = n_recs
 
         # ── N-05.scroll-redrag：CDP 翻页（许可口径：CDP 用于翻页/只读观察，
         # 非代选）→ 内容重定位断言（首可视行文本必须变化）→ 真实拖选可视
