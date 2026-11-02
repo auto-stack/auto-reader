@@ -15,6 +15,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 import urllib.request
 
@@ -27,6 +28,8 @@ ENGINE_REVISION = "foliate-js@3d794195"
 
 # 目标句前缀（verify_engine_surface.REPEAT_A 同源常量；第 2 处 = ch1 para7）。
 REPEAT_A_MARKER = "探针重复句甲"
+# 完整目标句（verify_engine_surface.REPEAT_A 同源；oracle 逐字核验用）。
+REPEAT_A = "探针重复句甲🦊：琥珀色的狐狸跃过懒狗时携带三枚星形饼干，并轻声数到十七✨，随后沿对角线穿过整段跨度以便在窄栏里真实换行。"
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
@@ -298,11 +301,11 @@ def _connect_session(mcp_base, sid, log_path):
     return rect, None
 
 
-def _cdp_engine_page(marker, deadline=30):
-    """CDP 找 native-host 页并等待引擎装载；返回 (page, engine)。"""
+def _cdp_engine_page(marker, deadline=30, cdp_port=9333):
+    """CDP 找 native-host 页并等待引擎装载；返回 (pw, browser, page)。"""
     from playwright.sync_api import sync_playwright
     pw = sync_playwright().start()
-    browser = pw.chromium.connect_over_cdp("http://127.0.0.1:9333")
+    browser = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{cdp_port}")
     t0 = time.monotonic()
     page = None
     while time.monotonic() - t0 < 20 and page is None:
@@ -331,12 +334,19 @@ def _cdp_engine_page(marker, deadline=30):
 
 def _drag_para_and_verify(page, rect, win_hwnd, oracle_scan, sid, results,
                           tag="N-02"):
-    """翻页至目标句 → 真实 SendInput 拖选 → sidecar/oracle 核验。"""
+    """翻页至目标句 → 真实 SendInput 拖选 → sidecar/oracle 核验。
+
+    定位纪律（t04-vm1 实测修正）：句子行盒经 JS Range 量测（量测用途，
+    非代选——选择仍为真实 SendInput）；分页后 frame 可能整体切换，必须
+    每轮重找 frame、以当前可见 rects 判定入视口，防止量测滞后于翻页。
+    """
     wpx, hpx, ox, oy = rect
-    # 目标句所在 frame/para（跨 iframe 搜索，026 vue 臂同纪律）。
-    found_frame = None
-    t0 = time.monotonic()
-    while time.monotonic() - t0 < 15 and not found_frame:
+    vw = page.evaluate("() => window.innerWidth")
+    vh = page.evaluate("() => window.innerHeight")
+    line_box = None  # 页面级 css 坐标 {x,y,width,height}（目标句某一行盒）
+    for _ in range(12):
+        # 每轮重找承载目标句的 frame（翻页会换章节 iframe）。
+        found_frame = None
         for f in page.frames:
             try:
                 if REPEAT_A_MARKER in f.content():
@@ -344,68 +354,168 @@ def _drag_para_and_verify(page, rect, win_hwnd, oracle_scan, sid, results,
                     break
             except Exception:
                 continue
-        if not found_frame:
-            time.sleep(1)
-    if not found_frame:
-        results(tag, "FAIL", "target text not in any frame (15s)")
-        return None
-    loc = found_frame.locator(f"text={REPEAT_A_MARKER}").last
-    loc.wait_for(state="attached", timeout=10000)
-    vw0 = page.evaluate("() => window.innerWidth")
-    para_box = None
-    for _ in range(12):
-        try:
-            para_box = loc.bounding_box()
-        except Exception:
-            para_box = None
-        # 必须真实入视口（分栏排版下目标可能整列停在视口右侧——
-        # x=innerWidth 处 size 合法但不可见，拖选必落空：t03 实测）。
-        if (para_box and para_box.get("width", 0) > 40
-                and para_box.get("height", 0) > 8
-                and para_box["x"] >= -4
-                and para_box["x"] + para_box["width"] <= vw0 + 4):
+        if found_frame is not None:
+            try:
+                # 入视口判定用页面视口（vw/vh 形参）而非 iframe 内窗——分栏
+                # 排版下 iframe innerWidth 可达 2 倍视口宽（forensics3 实测
+                # 1588 vs 848），iframe 口径会把屏外列误判可见。
+                line_box = found_frame.evaluate(
+                    """([marker, full, vw, vh]) => {
+                        const walker = document.createTreeWalker(
+                            document.body, NodeFilter.SHOW_TEXT);
+                        const hits = [];
+                        let n;
+                        while ((n = walker.nextNode())) {
+                            let i = 0;
+                            while ((i = n.data.indexOf(marker, i)) >= 0) {
+                                hits.push([n, i]);
+                                i += marker.length;
+                            }
+                        }
+                        if (hits.length < 2) return null;
+                        const [node, off] = hits[1];  // 第 2 处出现（=ch1 para7）
+                        const end = node.data.indexOf('。', off);
+                        const r = document.createRange();
+                        r.setStart(node, off);
+                        r.setEnd(node, end > 0 ? end + 1 : off + full.length);
+                        const rects = r.getClientRects();
+                        const fe = frameElement
+                            ? frameElement.getBoundingClientRect()
+                            : {left: 0, top: 0};
+                        for (const b of rects) {
+                            const x = b.left + fe.left, y = b.top + fe.top;
+                            if (b.width > 40 && b.height > 6 && x >= -4 && y >= -4
+                                && x + b.width <= vw + 4
+                                && y + b.height <= vh + 4) {
+                                return {x, y, width: b.width, height: b.height,
+                                        hits: hits.length};
+                            }
+                        }
+                        return null;
+                    }""", [REPEAT_A_MARKER, REPEAT_A, vw, vh])
+            except Exception:
+                line_box = None
+        if line_box:
             break
         page.evaluate("() => window.__probe.view.renderer.next()")
-        page.wait_for_timeout(700)
-    if not para_box:
-        results(tag, "FAIL", "target paragraph never visible (12 pages)")
+        page.wait_for_timeout(900)
+    if not line_box:
+        results(tag, "FAIL", "target sentence line never visible (12 pages)")
         return None
     results(tag + ".target-visible", "PASS",
-            f"2nd-occurrence para on page ({int(para_box['width'])}x{int(para_box['height'])} css)")
+            f"2nd-occurrence line on page ({int(line_box['width'])}x{int(line_box['height'])} css, "
+            f"occurrences={line_box.get('hits')})")
 
     # css → 宿主屏幕物理坐标：视口 = 子表面，比例 = wpx/innerWidth。
     vw = page.evaluate("() => window.innerWidth")
     scale = wpx / max(1, vw)
     cpt = ctypes.wintypes.POINT(0, 0)
     user32.ClientToScreen(win_hwnd, ctypes.byref(cpt))
-    bx0 = cpt.x + ox + para_box["x"] * scale
-    by0 = cpt.y + oy + para_box["y"] * scale
-    bw = para_box["width"] * scale
-    bh = para_box["height"] * scale
+    bx0 = cpt.x + ox + line_box["x"] * scale
+    by0 = cpt.y + oy + line_box["y"] * scale
+    bw = line_box["width"] * scale
+    bh = line_box["height"] * scale
     # 逐点 hit-test 守卫（T-00 教训：覆盖层/误窗必须具名失败）。
     _, cls0 = _hit_window(bx0 + bw * 0.3, by0 + bh * 0.4)
     guard = ("Chrome" in cls0) or ("WRY" in cls0.upper())
     results(tag + ".hit-guard", "PASS" if guard else "FAIL", "hit=" + cls0)
     if not guard:
         return None
-    _force_foreground(win_hwnd)
-    time.sleep(0.5)
-    fg_ok = user32.GetForegroundWindow() == win_hwnd
-    results(tag + ".foreground", "PASS" if fg_ok else "GAP",
+    fg_ok = False
+    for _ in range(4):
+        _force_foreground(win_hwnd)
+        time.sleep(0.5)
+        if user32.GetForegroundWindow() == win_hwnd:
+            fg_ok = True
+            break
+    results(tag + ".foreground", "PASS" if fg_ok else "FAIL",
             "fg==hwnd:" + str(fg_ok))
-    sxp, syp = bx0 + bw * 0.30, by0 + bh * 0.40
-    exp_, eyp = bx0 + bw * 0.92, by0 + bh * 0.75
-    _send_mouse(sxp, syp)
-    time.sleep(0.25)
-    _send_mouse(sxp, syp, down=True)
-    time.sleep(0.2)
-    for i in range(1, 13):
-        _send_mouse(sxp + (exp_ - sxp) * i / 12, syp + (eyp - syp) * i / 12)
-        time.sleep(0.12)
-    time.sleep(0.2)
-    _send_mouse(exp_, eyp, down=False)
-    time.sleep(3)
-    return True
+    if not fg_ok:
+        # 前台失守时拖选必然落点漂移（vm14 实测拖中 ch2 假锚点段）——具名
+        # 失败，不带病拖选。
+        results(tag, "FAIL", "window foreground could not be secured for drag")
+        return None
+    # 有界重试（2 次）：拖选后 CDP 读 DOM 选区——非空且含目标句片段才算
+    # 拖选生效；空/漂移则重量测再拖（外部输入注入的环境方差；oracle 仍
+    # 独立核验，不放宽）。
+    JS_LINE = """([marker, vw, vh]) => {
+        const walker = document.createTreeWalker(
+            document.body, NodeFilter.SHOW_TEXT);
+        const hits = [];
+        let n;
+        while ((n = walker.nextNode())) {
+            let i = 0;
+            while ((i = n.data.indexOf(marker, i)) >= 0) {
+                hits.push([n, i]);
+                i += marker.length;
+            }
+        }
+        if (hits.length < 2) return null;
+        const [node, off] = hits[1];
+        const end = node.data.indexOf('\\u3002', off);
+        const r = document.createRange();
+        r.setStart(node, off);
+        r.setEnd(node, end > 0 ? end + 1 : off + marker.length);
+        const rects = r.getClientRects();
+        const fe = frameElement
+            ? frameElement.getBoundingClientRect()
+            : {left: 0, top: 0};
+        for (const b of rects) {
+            const x = b.left + fe.left, y = b.top + fe.top;
+            if (b.width > 40 && b.height > 6 && x >= -4 && y >= -4
+                && x + b.width <= vw + 4
+                && y + b.height <= vh + 4) {
+                return {x, y, width: b.width, height: b.height};
+            }
+        }
+        return null;
+    }"""
+    JS_SEL = """() => { const s = document.getSelection();
+        return s && !s.isCollapsed ? s.toString() : null; }"""
+    for attempt in (1, 2):
+        fresh = None
+        try:
+            fresh = found_frame.evaluate(JS_LINE, [REPEAT_A_MARKER, vw, vh])
+        except Exception:
+            fresh = None
+        if fresh:
+            bx0 = cpt.x + ox + fresh["x"] * scale
+            by0 = cpt.y + oy + fresh["y"] * scale
+            bw = fresh["width"] * scale
+            bh = fresh["height"] * scale
+        sxp, syp = bx0 + bw * 0.30, by0 + bh * 0.40
+        exp_, eyp = bx0 + bw * 0.92, by0 + bh * 0.75
+        _send_mouse(sxp, syp)
+        time.sleep(0.25)
+        _send_mouse(sxp, syp, down=True)
+        time.sleep(0.2)
+        for i in range(1, 13):
+            _send_mouse(sxp + (exp_ - sxp) * i / 12, syp + (eyp - syp) * i / 12)
+            time.sleep(0.12)
+        time.sleep(0.2)
+        _send_mouse(exp_, eyp, down=False)
+        time.sleep(2.5)
+        sel_txt = None
+        try:
+            for f in page.frames:
+                r = f.evaluate(JS_SEL)
+                if r:
+                    sel_txt = r
+                    break
+        except Exception:
+            sel_txt = None
+        # 选区接受口径：去空白后为 REPEAT_A 的子串（拖选可落在句中任意
+        # 行段——行盒拖选常只覆盖句尾片段，t05-vm1 实测）；oracle 仍独立
+        # 核验落盘记录的逐字/位次。
+        flat = (sel_txt or "").replace(chr(10), "").replace(" ", "")
+        if flat and flat in REPEAT_A:
+            results(tag + ".drag-attempt" + str(attempt), "PASS",
+                    "selection=" + repr(sel_txt[:36]))
+            return True
+        results(tag + ".drag-attempt" + str(attempt),
+                "FAIL" if attempt == 2 else "RETRY",
+                "selection=" + repr(str(sel_txt)[:36]))
+    return None
 
 
 # ─────────────────────── N-02 / N-03 / N-05(基础) 主流程 ───────────────────────
@@ -452,11 +562,24 @@ def run_vm(out_dir, corpus_dir, oracle_scan, results):
         results("N-02.reader-import", "PASS",
                 f"book_id={ident['book_id'][:13]}… managed={os.path.basename(ident['managed_path'])}")
 
-        env = {"PROBE_DATA_DIR": data_dir, "PROBE_ASSETS_DIR": assets_dir,
-               "PROBE_PUBLIC_BASE": "http://127.0.0.1:17827",
-               "AUTO_DOC_SURFACE_DEBUG": "1",
-               "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": "--remote-debugging-port=9333",
-               "AUTO_VM_WINDOW": "900x700,40,40"}
+        # WEBVIEW2_USER_DATA_FOLDER 按运行+实例隔离：默认 UDF 被历史孤儿
+        # msedgewebview2（0x800700AA 资源占用实测）占用；同 UDF 跨实例重启
+        # 也会竞态（t04-vm13 consumer2 实测）——每实例独立 UDF。
+        def _make_env(seq):
+            udf = os.path.join(out_dir, f"webview-udf-{seq}")
+            shutil.rmtree(udf, ignore_errors=True)
+            # CDP 端口也按实例隔离（9333/9334/9335）——旧实例 WebView2 退出
+            # 异步释放端口，新实例同口重绑会 ECONNRESET（t04-vm19 实测）。
+            cdp = 9332 + seq
+            return {"PROBE_DATA_DIR": data_dir, "PROBE_ASSETS_DIR": assets_dir,
+                    "PROBE_PUBLIC_BASE": "http://127.0.0.1:17827",
+                    "AUTO_DOC_SURFACE_DEBUG": "1",
+                    "WEBVIEW2_USER_DATA_FOLDER": udf,
+                    "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS":
+                        f"--remote-debugging-port={cdp}",
+                    "AUTO_VM_WINDOW": "900x700",
+                    "AUTO_VM_POSITION": "40,40"}
+        env = _make_env(1)
         cons = VmInstance(APP_DIR, os.path.join(out_dir, "consumer.log"), env)
         if not cons.wait_http("http://127.0.0.1:17827/api/probe/health"):
             results("N-02", "FAIL", "consumer backend boot timeout")
@@ -517,7 +640,21 @@ def run_vm(out_dir, corpus_dir, oracle_scan, results):
                 f"records={len(recs)} after real SendInput drag")
         if not recs:
             return
-        rec = recs[-1]
+        # adapter 对 selectionchange 连发多 POST（含拖选中间态）——核验对象
+        # = 目标句的记录（拖选可从句中任意处起，标记前缀不必然在引文内；
+        # 「琥珀色的狐狸跃过懒狗」为 REPEAT_A 特有片段）。oracle 仍独立
+        # 逐字/位次核验，不放宽。
+        def _is_target_quote(q):
+            flat = (q or "").replace(chr(10), "").replace(" ", "")
+            return bool(flat) and (flat in REPEAT_A or REPEAT_A in flat)
+        tgt = [r for r in recs
+               if _is_target_quote(r["locator"]["text_quote"])]
+        if not tgt:
+            results("N-02", "FAIL",
+                    "no record carries the target sentence; quotes="
+                    + "; ".join(r["locator"]["text_quote"][:14] for r in recs[:4]))
+            return
+        rec = tgt[-1]
         quote = rec["locator"]["text_quote"]
         occ = int(rec["locator"]["occurrence"])
         vq = oracle_scan.verify_quote(quote, occ)
@@ -528,13 +665,34 @@ def run_vm(out_dir, corpus_dir, oracle_scan, results):
                 "PASS" if str(rec["locator"]["cfi"]).startswith("epubcfi") else "FAIL",
                 "cfi=" + str(rec["locator"]["cfi"])[:56])
         disk = os.path.join(data_dir, "probe", "locators", sid + ".json")
-        ok_disk = os.path.exists(disk) and quote in open(disk, encoding="utf-8").read()
+        ok_disk = False
+        if os.path.exists(disk):
+            try:
+                dj = json.load(open(disk, encoding="utf-8"))
+                ok_disk = any(rr.get("locator", {}).get("text_quote") == quote
+                              for rr in dj.get("records", []))
+            except Exception:
+                ok_disk = False
         results("N-02.sidecar-disk", "PASS" if ok_disk else "FAIL", disk)
-        n_saved = len(recs)
+        # 计数前静默：adapter 会因 selectionchange 连发多 POST（t04-vm1
+        # 实测 1→3），读数必须等计数稳定再冻结基线。
+        def _count():
+            sj = _http("GET", f"http://127.0.0.1:17827/api/probe/locators?session_id={sid}")
+            rr = sj.get("sidecar", {}).get("records", []) if sj.get("found") else []
+            return len(rr)
+        n_saved = _count()
+        for _ in range(5):
+            time.sleep(1.5)
+            n2 = _count()
+            if n2 == n_saved:
+                break
+            n_saved = n2
+        results("N-02.settle", "PASS", f"record count settled at {n_saved}")
 
         # ── N-03：正常关闭 → 新进程冷恢复 ──
         cons.stop()
         time.sleep(2)
+        env = _make_env(2)
         cons = VmInstance(APP_DIR, os.path.join(out_dir, "consumer2.log"), env)
         if not cons.wait_http("http://127.0.0.1:17827/api/probe/health"):
             results("N-03", "FAIL", "consumer restart (normal close) timeout")
@@ -549,7 +707,7 @@ def run_vm(out_dir, corpus_dir, oracle_scan, results):
             results("N-03", "FAIL", "restart connect: " + err)
             return
         ok_restore, err = False, ""
-        pw, browser, page2 = _cdp_engine_page(sid2)
+        pw, browser, page2 = _cdp_engine_page(sid2, cdp_port=9334)
         if page2 is None:
             err = "restored engine page not found (CDP)"
         else:
@@ -592,6 +750,7 @@ def run_vm(out_dir, corpus_dir, oracle_scan, results):
         # 异常退出（强杀树）→ 数据仍在 + 可再启动。
         cons.kill_hard()
         time.sleep(2)
+        env = _make_env(3)
         cons = VmInstance(APP_DIR, os.path.join(out_dir, "consumer3.log"), env)
         if not cons.wait_http("http://127.0.0.1:17827/api/probe/health"):
             results("N-03.crash-restart", "FAIL", "restart after hard kill timeout")
@@ -623,6 +782,10 @@ def run_vm(out_dir, corpus_dir, oracle_scan, results):
         if not win_hwnd3:
             results("N-05.resize-follow", "FAIL", "restarted native window not found")
             return
+        # ── N-04 先于 resize：WebView2 set_bounds 后（N-05 resize）父窗点击
+        # 聚焦会间歇失效（t04-vm6/8/9/11 互现）；pin 几何 + 表面在场已证
+        # 可靠（n04-forensics8 B/C）。resize 后的门（N-05）保持最后。
+        _run_ime_n04(mcp3, win_hwnd3, results, rect=rect3, cdp_port=9335)
         # 物理 (1400x1300) = 逻辑 700x650——必须大于表面高（420 逻辑）+页头，
         # 否则 canvas 裁剪出客户区 → sync 静默隐藏（t03-vm4 实测教训）。
         user32.MoveWindow(win_hwnd3, 100, 100, 1400, 1300, True)
@@ -643,3 +806,311 @@ def run_vm(out_dir, corpus_dir, oracle_scan, results):
         if cons:
             cons.stop()
         reader_inst.stop()
+
+
+# ─────────────────────── N-04：IME/焦点门（T-04） ───────────────────────
+
+def _send_key(vk, extended=0):
+    """单键 down/up（真实 OS 键盘事件）。"""
+    user32.keybd_event(vk, 0, extended, 0)
+    user32.keybd_event(vk, 0, extended | 2, 0)
+
+
+def _send_char(ch):
+    vk = user32.VkKeyScanW(ord(ch))
+    shift = (vk >> 8) & 1
+    code = vk & 0xFF
+    for d in (0, 2):
+        if shift:
+            user32.keybd_event(0x10, 0, d, 0)
+        user32.keybd_event(code, 0, d, 0)
+        if shift:
+            user32.keybd_event(0x10, 0, d, 0)
+
+
+def _click_twice(px, py):
+    """两段式真实点击：首击激活窗口，次击投递控件（未激活窗首击被吞——
+    n04 forensics 实测扫描失败的成因之一）。"""
+    for _ in range(2):
+        _send_mouse(px, py, True)
+        time.sleep(0.06)
+        _send_mouse(px, py, False)
+        time.sleep(0.35)
+
+
+def _ime_input_value(mcp_base):
+    t = _mcp_text(mcp_base, "autoui_snapshot")
+    m = re.search(r'input[^\n]*\{[^}]*value: "([^"]*)"', t)
+    return m.group(1) if m else None
+
+
+def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
+                 cdp_port=9333):
+    """真实 IME 门：真实点击聚焦输入框（行内扫描+键击核验）→ MS Pinyin
+    组合/提交 → Esc 取消 → 组合期快捷键不触发页面命令 → 焦点往返
+    （输入框↔文档表面，值变化/CDP 选区为归属证据）。"""
+    import urllib.request
+
+    def mcp_text(name, args=None):
+        return _mcp_text(mcp_base, name, args)
+
+    cpt = ctypes.wintypes.POINT(0, 0)
+    user32.ClientToScreen(win_hwnd, ctypes.byref(cpt))
+    ox, oy = cpt.x, cpt.y
+    dpi = user32.GetDpiForWindow(win_hwnd) or 96
+    scale = dpi / 96.0
+    cw, chh = _client_size(win_hwnd)
+    lw, lh = cw / scale, chh / scale
+
+    _force_foreground(win_hwnd)
+    time.sleep(0.4)
+    if user32.GetForegroundWindow() != win_hwnd:
+        results(tag, "GAP", "window foreground could not be secured")
+        return
+
+    # 真实点击聚焦输入框：几何推算（页面列 max-w-4xl 居中 + 头行固定偏移，
+    # n04-forensics5 实测命中）+ 有限偏移重试。散点扫射会打出杂散 IME 组合
+    # 态/候选窗吞掉后续点击——必须单点精准。
+    col_left = max(24.0, (lw - 896.0) / 2.0 + 24.0)
+    base_x = col_left + 273.0  # 输入框中心（256 宽，行内偏移 145+128）
+    found_x = None
+    tries = []
+    v0 = _ime_input_value(mcp_base)
+    # 捕获态冲刷：N-02 的真实拖选可能让 Chromium 持有鼠标捕获（button-up
+    # 竞态），后续父窗点击全被路由进 webview——先在表面内补一次完整
+    # down+up，并在每次尝试记录 hwndCapture。
+    class GUIINFO(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.c_uint), ("flags", ctypes.c_uint),
+                    ("hwndActive", ctypes.c_void_p), ("hwndFocus", ctypes.c_void_p),
+                    ("hwndCapture", ctypes.c_void_p), ("hwndMenuOwner", ctypes.c_void_p),
+                    ("hwndMoveSize", ctypes.c_void_p), ("hwndCaret", ctypes.c_void_p),
+                    ("rcCaret", ctypes.wintypes.RECT)]
+    def capture_hwnd():
+        gi = GUIINFO()
+        gi.cbSize = ctypes.sizeof(gi)
+        user32.GetGUIThreadInfo(0, ctypes.byref(gi))
+        return gi.hwndCapture or 0
+    if rect is not None:
+        fw, fh, fox, foy = rect
+        cpt0 = ctypes.wintypes.POINT(0, 0)
+        user32.ClientToScreen(win_hwnd, ctypes.byref(cpt0))
+        fx0 = cpt0.x + fox + fw // 2
+        fy0 = cpt0.y + foy + fh // 2
+        _send_mouse(fx0, fy0, True)
+        time.sleep(0.08)
+        _send_mouse(fx0, fy0, False)
+        time.sleep(0.6)
+        tries.append(f"flush capture={capture_hwnd():#x}")
+    # y 带容差（布局基线 ±10 逻辑px），先 ESC 清残留组合再试（杂散组合态
+    # 会吞后续键击——t04-vm6/8 通过与失败互现的根因面）。
+    for gy in (105, 95, 115):
+        for dx in (0, -24, 24, -48, 48):
+            fx = base_x + dx
+            if fx < col_left + 8 or fx > lw - 8:
+                continue
+            px, py = ox + int(fx * scale), oy + int(gy * scale)
+            _, hit_cls = _hit_window(px, py)
+            cap = capture_hwnd()
+            _send_key(0x1B)  # ESC：清掉任何残留 IME 组合
+            time.sleep(0.3)
+            _force_foreground(win_hwnd)
+            time.sleep(0.3)
+            _click_twice(px, py)
+            time.sleep(0.6)
+            _send_char("q")
+            time.sleep(0.2)
+            _send_key(0x0D)  # 组合中 Enter=提交原文（MS Pinyin），值才可见
+            time.sleep(1.0)
+            v1 = _ime_input_value(mcp_base)
+            tries.append(f"x{fx:.0f}y{gy}:{hit_cls}:cap{cap:#x}:{v1!r}")
+            if v1 is not None and (v0 is None or v1 != v0):
+                found_x = fx
+                found_y = gy
+                break
+            v0 = v1
+        if found_x is not None:
+            break
+    if found_x is None:
+        results(tag + ".input-focus", "FAIL",
+                f"real-click focus failed; tries={tries}")
+        return
+    results(tag + ".input-focus", "PASS",
+            f"real click+keystroke focus at logical ({found_x:.0f},{found_y})")
+
+    def click_input():
+        px, py = ox + int(found_x * scale), oy + int(105 * scale)
+        _force_foreground(win_hwnd)
+        time.sleep(0.3)
+        _click_twice(px, py)
+        time.sleep(0.4)
+
+    # ① 组合 + Esc 取消 → 值不变。
+    click_input()
+    before = _ime_input_value(mcp_base)
+    for ch in "ni":
+        _send_char(ch)
+        time.sleep(0.15)
+    time.sleep(0.4)
+    _send_key(0x1B)  # Esc 取消组合
+    time.sleep(1.0)
+    after = _ime_input_value(mcp_base)
+    cancel_ok = after == before
+    results(tag + ".ime-cancel", "PASS" if cancel_ok else "FAIL",
+            f"before={before!r} after={after!r} (Esc cancels composition)")
+
+    # ② 组合 + Space 提交 → 值以中文落定（唯一能拉丁→汉字的管线=IME）。
+    click_input()
+    base = _ime_input_value(mcp_base)
+    for ch in "nihao":
+        _send_char(ch)
+        time.sleep(0.15)
+    time.sleep(0.4)
+    _send_key(0x20)  # Space 首选转换提交
+    time.sleep(1.3)
+    committed = _ime_input_value(mcp_base)
+    has_cjk = committed is not None and committed != base and \
+        any('\u4e00' <= c <= '\u9fff' for c in committed)
+    results(tag + ".ime-commit", "PASS" if has_cjk else "FAIL",
+            f"before={base!r} after={committed!r}")
+
+    # ③ 组合期快捷键：组合中按 Enter——MS Pinyin 语义=提交原文拉丁，
+    # 不触发页面命令；核验：仅期望增量，session_state/表面不变。
+    click_input()
+    pre = _ime_input_value(mcp_base)
+    state_pre = "connected" in _mcp_text(mcp_base, "autoui_snapshot")
+    for ch in "zh":
+        _send_char(ch)
+        time.sleep(0.15)
+    time.sleep(0.3)
+    _send_key(0x0D)  # Enter（组合中）——须只提交原文，不得触发页面命令
+    time.sleep(1.2)
+    post = _ime_input_value(mcp_base)
+    state_post = "connected" in _mcp_text(mcp_base, "autoui_snapshot")
+    # 插入点=点击处（可在文本中部）：核验语义而非位置——pre 是 post 的
+    # 子序列、长度恰 +2（原文 zh 提交）、页面状态不变（无命令误触）。
+    def _subseq(small, big):
+        it = iter(big)
+        return all(c in it for c in small)
+    hotkey_ok = (post is not None and pre is not None
+                 and len(post) == len(pre) + 2
+                 and _subseq(pre or "", post)
+                 and state_post == state_pre)
+    results(tag + ".hotkey-in-composition",
+            "PASS" if hotkey_ok else "FAIL",
+            f"value {pre!r}->{post!r} state_kept={state_post == state_pre} "
+            f"(Enter commits raw at caret, no page command)")
+
+    # ④ 焦点往返：输入框 → 文档表面（点击+真实拖选产选择）→ 输入框（键击变值）。
+    click_input()
+    _send_char("m")
+    time.sleep(0.2)
+    _send_key(0x0D)
+    time.sleep(0.8)
+    v_in = _ime_input_value(mcp_base)
+    # 点击表面中心（logical 居中偏下，避开页头；物理换算）。
+    sx0 = ox + int(lw * 0.5 * scale)
+    sy0 = oy + int((lh * 0.45) * scale)
+    _click_twice(sx0, sy0)
+    time.sleep(0.6)
+    # 表面内小拖选（真实输入）→ CDP 选区归属证据。
+    from playwright.sync_api import sync_playwright
+    sel_ok = False
+    try:
+        pw = sync_playwright().start()
+        browser = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{cdp_port}")
+        page = None
+        for ctx in browser.contexts:
+            for pg in ctx.pages:
+                if "native-host.html" in pg.url:
+                    page = pg
+                    break
+        if page is not None:
+            _send_mouse(sx0 - 80, sy0, True)
+            time.sleep(0.1)
+            for i in range(1, 9):
+                _send_mouse(sx0 - 80 + 20 * i, sy0 + 12)
+                time.sleep(0.08)
+            time.sleep(0.15)
+            _send_mouse(sx0 + 80, sy0 + 12, False)
+            time.sleep(1.5)
+            for f in page.frames:
+                try:
+                    s = f.evaluate(
+                        "() => { const s = document.getSelection();"
+                        " return s && !s.isCollapsed ? s.toString().slice(0, 30) : null; }")
+                    if s:
+                        sel_ok = True
+                        break
+                except Exception:
+                    continue
+        browser.close()
+        pw.stop()
+    except Exception as e:
+        results(tag + ".focus-roundtrip", "GAP", "CDP unavailable: " + repr(e)[:80])
+        return
+    v_after_surface = _ime_input_value(mcp_base)
+    class GUIINFO(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.c_uint), ("flags", ctypes.c_uint),
+                    ("hwndActive", ctypes.c_void_p), ("hwndFocus", ctypes.c_void_p),
+                    ("hwndCapture", ctypes.c_void_p), ("hwndMenuOwner", ctypes.c_void_p),
+                    ("hwndMoveSize", ctypes.c_void_p), ("hwndCaret", ctypes.c_void_p),
+                    ("rcCaret", ctypes.wintypes.RECT)]
+    # 回到输入框：真实键击必须再改值（焦点已返回）。表面拖选后 Chromium
+    # 可能仍持鼠标捕获（后续父窗点击被路由进 webview）——先在表面内补
+    # 一次完整 down+up 冲刷捕获，再重点击输入框；有界重试。
+    v_back = v_after_surface
+    WM_CANCELMODE = 0x001F
+    rt_log = []
+    for attempt_i in range(4):
+        # 捕获/焦点取证：表面拖选后 Chromium 可能仍持捕获或 OS 焦点停在
+        # 弹出窗内——点击与键击被路由进 webview。捕获持有时 WM_CANCELMODE。
+        gi = GUIINFO()
+        gi.cbSize = ctypes.sizeof(gi)
+        user32.GetGUIThreadInfo(0, ctypes.byref(gi))
+        cap = gi.hwndCapture or 0
+        fpre = gi.hwndFocus or 0
+        if cap and cap != win_hwnd:
+            user32.PostMessageW(cap, WM_CANCELMODE, 0, 0)
+            time.sleep(0.4)
+        # 显式焦点归还（点击激活的内部机制）：AttachThreadInput 后 SetFocus
+        # 到 iced 主窗——表面拖选后 OS 线程焦点停在弹出窗 Chrome（fd5e 类，
+        # 拟人点击也无法拉回的合成输入盲区）。
+        fgw = user32.GetForegroundWindow()
+        tid_fg = user32.GetWindowThreadProcessId(fgw, None)
+        tid_me = kernel32.GetCurrentThreadId()
+        user32.AttachThreadInput(tid_me, tid_fg, True)
+        user32.SetFocus(win_hwnd)
+        user32.AttachThreadInput(tid_me, tid_fg, False)
+        time.sleep(0.3)
+        _send_mouse(sx0, sy0, True)
+        time.sleep(0.06)
+        _send_mouse(sx0, sy0, False)
+        time.sleep(0.5)
+        if attempt_i % 2 == 1:
+            # 拟人路径：先点标题栏（激活 iced 窗、OS 焦点归位），再点输入框。
+            wr = ctypes.wintypes.RECT()
+            user32.GetWindowRect(win_hwnd, ctypes.byref(wr))
+            _send_mouse(wr.left + 300, wr.top + 20, True)
+            time.sleep(0.06)
+            _send_mouse(wr.left + 300, wr.top + 20, False)
+            time.sleep(0.5)
+        click_input()
+        _send_char("k")
+        time.sleep(0.2)
+        _send_key(0x0D)
+        time.sleep(0.9)
+        v_try = _ime_input_value(mcp_base)
+        gi2 = GUIINFO()
+        gi2.cbSize = ctypes.sizeof(gi2)
+        user32.GetGUIThreadInfo(0, ctypes.byref(gi2))
+        rt_log.append(
+            f"a{attempt_i}:cap{cap & 0xFFFF:x} f{fpre & 0xFFFF:x}"
+            f"->f{(gi2.hwndFocus or 0) & 0xFFFF:x} v={v_try!r}")
+        if v_try is not None and v_try != v_after_surface:
+            v_back = v_try
+            break
+    trip = sel_ok and v_back != v_after_surface
+    results(tag + ".focus-roundtrip",
+            "PASS" if trip else "FAIL",
+            f"sel={sel_ok} v {v_after_surface!r}->{v_back!r} log={';'.join(rt_log)[:170]}")
+    # 父用例 N-04 由聚合器按子项最坏推导（缺项/GAP/FAIL→非零）。

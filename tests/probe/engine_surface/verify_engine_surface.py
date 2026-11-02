@@ -389,8 +389,9 @@ def run_surface(ctx):
         from driver_vm import run_vm
         oracle = BookScan(os.path.join(ctx["corpus_dir"], "probe-alpha.epub"))
         run_vm(ctx["out_dir"], ctx["corpus_dir"], oracle, record)
-        # N-04 待 T-04（真实 IME 取证），vm profile 显式 not_run。
-        record("N-04", "not_run", "IME forensics lands with T-04")
+        # N-04 由 run_vm 尾段执行（真实 IME 门）；驱动早退未触达时显式 not_run。
+        if not any(r["case"].startswith("N-04") for r in RECORDS):
+            record("N-04", "not_run", "driver exited before the N-04 gate")
 
 
 CASES = {"surface": run_surface, "n10": lambda ctx: n10_aggregator_selftest()}
