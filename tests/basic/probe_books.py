@@ -42,8 +42,12 @@ def _write(path, opf_title, files):
     return path
 
 
-def probe_images(out_dir):
-    """R-02：双扁平碰撞 + 含空格名 + 不支持类型。标题 Probe Book 2。"""
+def probe_images(out_dir, overwrite=True):
+    """R-02：双扁平碰撞 + 含空格名 + 不支持类型。标题 Probe Book 2。
+    overwrite=False：文件已存在时不重写（R-06(vm) 反例夹具副本注入）。"""
+    path = os.path.join(out_dir, 'probe-images.epub')
+    if not overwrite and os.path.exists(path):
+        return path
     opf = ('<?xml version="1.0" encoding="UTF-8"?>'
            '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">'
            '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Probe Book 2</dc:title>'
@@ -67,7 +71,7 @@ def probe_images(out_dir):
            '<p>Space third.</p><p><img src="img with space.png" alt="space"/></p>'
            '<p>SVG fourth (unsupported).</p><p><img src="bad.svg" alt="svg"/></p>'
            '</body></html>')
-    return _write(os.path.join(out_dir, 'probe-images.epub'), 'Probe Book 2', [
+    return _write(path, 'Probe Book 2', [
         ('META-INF/container.xml', _CONTAINER),
         ('OEBPS/content.opf', opf), ('OEBPS/nav.xhtml', nav), ('OEBPS/ch1.xhtml', ch1),
         ('OEBPS/a/b_c.png', RED), ('OEBPS/a_b/c.png', BLUE),
@@ -75,9 +79,13 @@ def probe_images(out_dir):
     ])
 
 
-def probe_links(out_dir):
+def probe_links(out_dir, overwrite=True):
     """R-03：同章锚/跨章 fragment/子目录相对基准/诚实拒绝面（外部、缺章、
-    未知 fragment）。标题 Probe Book 4。"""
+    未知 fragment）。标题 Probe Book 4。
+    overwrite=False：文件已存在时不重写（R-06(vm) 反例夹具副本注入）。"""
+    path = os.path.join(out_dir, 'probe-links.epub')
+    if not overwrite and os.path.exists(path):
+        return path
     opf = ('<?xml version="1.0" encoding="UTF-8"?>'
            '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">'
            '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Probe Book 4</dc:title>'
@@ -114,19 +122,22 @@ def probe_links(out_dir):
            '<p id="target">第三章目标段（子目录锚）。</p>'
            '<p>回引第一章<a href="../ch1.xhtml#fn1">脚注一</a>在此。</p>'
            '</body></html>')
-    return _write(os.path.join(out_dir, 'probe-links.epub'), 'Probe Book 4', [
+    return _write(path, 'Probe Book 4', [
         ('META-INF/container.xml', _CONTAINER),
         ('OEBPS/content.opf', opf), ('OEBPS/nav.xhtml', nav),
         ('OEBPS/ch1.xhtml', ch1), ('OEBPS/ch2.xhtml', ch2), ('OEBPS/sub/ch3.xhtml', ch3),
     ])
 
 
-def generate_all(out_dir):
-    """生成全部探针书 → [(path, title, author), ...]（导入清单）。"""
+def generate_all(out_dir, overwrite=True):
+    """生成全部探针书 → [(path, title, author), ...]（导入清单）。
+    overwrite=False：已存在的夹具不重写——R-06(vm) 反例以此把毁损
+    夹具副本原样交给驱动导入（驱动自管 out-dir，默认重生成会还原
+    变异使负控失效，026 R-06vm rc=0 根因）。"""
     os.makedirs(out_dir, exist_ok=True)
     return [
-        (probe_images(out_dir), 'Probe Book 2', 'T02'),
-        (probe_links(out_dir), 'Probe Book 4', 'T03'),
+        (probe_images(out_dir, overwrite), 'Probe Book 2', 'T02'),
+        (probe_links(out_dir, overwrite), 'Probe Book 4', 'T03'),
     ]
 
 

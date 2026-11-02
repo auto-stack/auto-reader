@@ -365,7 +365,9 @@ def r06_mutation_vm(auto_bin, home):
                      cwd=ROOT, timeout=1200)
     open(os.path.join(home, "native-control.log"), "w", encoding="utf-8").write(out)
     check("R-06(vm) pristine control passes (0 FAIL)", r == 0, f"rc={r} log={home}/native-control.log")
-    # 反例：毁损夹具 PNG → oracle 必须真实失败
+    # 反例：毁损夹具 PNG → oracle 必须真实失败。驱动以 --no-regen 导入
+    # out-dir 内既有（毁损）夹具副本——026 实测：驱动默认重生成会先还原
+    # 变异（rc=0 根因），变异必须真正抵达被测应用。
     _corrupt_fixture_pngs(probe_img)
     mut_dir2 = os.path.join(home, "native-mutated2")
     os.makedirs(mut_dir2, exist_ok=True)
@@ -375,7 +377,8 @@ def r06_mutation_vm(auto_bin, home):
     time.sleep(8)
     r, out = run_cmd([sys.executable, os.path.join(ROOT, "tests", "native",
                                                    "test_native_standalone_ui.py"),
-                      "--auto-bin", auto_bin, "--app-dir", ROOT, "--out-dir", mut_dir2],
+                      "--auto-bin", auto_bin, "--app-dir", ROOT, "--out-dir", mut_dir2,
+                      "--no-regen"],
                      cwd=ROOT, timeout=1200)
     open(os.path.join(home, "native-mutated.log"), "w", encoding="utf-8").write(out)
     check("R-06(vm) mutated images make native pixel oracle FAIL (nonzero)", r != 0,

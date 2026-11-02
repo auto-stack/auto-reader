@@ -289,6 +289,8 @@ def main():
     ap.add_argument("--app-dir", default=os.path.abspath(os.path.join(HERE, "..", "..")))
     ap.add_argument("--auto-bin", default=os.environ.get("AUTO_BIN", r"D:\autostack\auto-man\target\debug\auto.exe"))
     ap.add_argument("--out-dir", default=None)
+    ap.add_argument("--no-regen", action="store_true",
+                    help="不重生成 out-dir 内既有夹具（R-06(vm) 反例经毁损夹具副本注入）")
     args = ap.parse_args()
 
     run = uuid.uuid4().hex[:8]
@@ -305,7 +307,7 @@ def main():
         record("NS-01 mcp channel ready", cli is not None)
         if cli is None:
             raise SystemExit(2)
-        for p, t, a in generate_all(data_dir):
+        for p, t, a in generate_all(data_dir, overwrite=not args.no_regen):
             o = http("POST", "/api/library/import", {"path": p, "author": a, "force": False})
             record(f"NS-01 fixture import {t}", o.get("code") == "ok", o)
         books = http("GET", "/api/library/books")
