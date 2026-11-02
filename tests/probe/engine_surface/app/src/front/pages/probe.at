@@ -11,6 +11,7 @@ widget probe {
     model {
         var surface_url str = ""
         var session_state str = "idle"
+        var ime_text str = ""
     }
 
     view {
@@ -26,6 +27,12 @@ widget probe {
                     text "连接会话" {}
                 }
                 text .session_state { style: "text-sm text-muted-foreground" }
+                input {
+                    value: .ime_text
+                    placeholder: "IME 目标输入框"
+                    style: "px-3 py-2 border border-border rounded-lg text-sm text-foreground w-64"
+                }
+                text .ime_text { style: "text-xs text-muted-foreground max-w-40 truncate" }
             }
             text "PLAN-029 document surface — native VM doc-surface below (vue track keeps remote-frame)" {
                 style: "text-sm text-muted-foreground"
