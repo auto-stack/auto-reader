@@ -373,16 +373,24 @@ def run_surface(ctx):
     """按 profile 驱动已实现面。未实现必需父用例显式 not_run（聚合 exit3，
     不冒充通过）——T-02..T-08 逐个替换为真实执行。"""
     profile = ctx["profile"]
-    pending = ["N-05", "N-10", "N-11", "N-12"] if profile == "vue" else \
-        ["N-01", "N-02", "N-03", "N-04", "N-05", "N-06", "N-07", "N-08",
-         "N-09", "N-10", "N-11", "N-12"]
-    for cid in pending:
-        record(cid, "not_run", "pending later task (T-02..T-09 rebuild)")
     if profile == "vue":
+        for cid in ["N-05", "N-10", "N-11", "N-12"]:
+            record(cid, "not_run", "pending later task (T-05/07/08/09)")
         from driver_vue import run_vue
         oracle = BookScan(os.path.join(ctx["corpus_dir"], "probe-alpha.epub"))
         run_vue(ctx["out_dir"], ctx["corpus_dir"], oracle, REPEAT_A, record)
-    # vm 臂：T-02 起以真实 AutoUI 原生 VM 消费者重建（026 独立宿主流程退役）。
+    else:
+        # PLAN-029 T-03：vm 臂 = 真实 AutoUI 原生 VM 消费者（026 独立宿主流程
+        # 退役）。N-01/04/06（输入通道对照/IME/无障碍）与 N-07/08（实例/生命
+        # 周期）、N-09 后端负控、N-10 实况负控、N-11 变异、N-12 旧门仍待
+        # T-04..T-09；N-05 仅有 resize 跟随子项（完整几何门随 T-05）。
+        for cid in ["N-01", "N-05", "N-06", "N-07", "N-09", "N-10", "N-11", "N-12"]:
+            record(cid, "not_run", "pending later task (T-04..T-09)")
+        from driver_vm import run_vm
+        oracle = BookScan(os.path.join(ctx["corpus_dir"], "probe-alpha.epub"))
+        run_vm(ctx["out_dir"], ctx["corpus_dir"], oracle, record)
+        # N-04 待 T-04（真实 IME 取证），vm profile 显式 not_run。
+        record("N-04", "not_run", "IME forensics lands with T-04")
 
 
 CASES = {"surface": run_surface, "n10": lambda ctx: n10_aggregator_selftest()}
