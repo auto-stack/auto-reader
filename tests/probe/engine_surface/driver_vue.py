@@ -94,7 +94,7 @@ def mount_and_wait(page, ident, sid):
 
 
 def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
-    """V-01/V-02/V-03(vue) + V-06/V-07 HTTP 负控。results = record(case,outcome,detail)。"""
+    """N-02/V-02/V-03(vue) + V-06/V-07 HTTP 负控。results = record(case,outcome,detail)。"""
     from playwright.sync_api import sync_playwright
 
     data_dir = os.path.join(out_dir, "probe-data")
@@ -103,7 +103,7 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
         shutil.rmtree(d, ignore_errors=True)
     assets_dir = os.environ.get("PROBE_ASSETS_DIR", "")
     if not os.path.isfile(os.path.join(assets_dir, "foliate-view.js")):
-        results("V-01", "GAP", "engine assets missing: " + assets_dir)
+        results("N-02", "GAP", "engine assets missing: " + assets_dir)
         return
 
     epub = os.path.join(corpus_dir, "probe-alpha.epub")
@@ -112,20 +112,20 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
     cons = None
     try:
         if not reader_inst.wait("http://127.0.0.1:17825/api/library/books"):
-            results("V-01", "FAIL", "reader boot timeout")
+            results("N-02", "FAIL", "reader boot timeout")
             return
         r = http("POST", "http://127.0.0.1:17825/api/library/import",
                  {"path": epub.replace("\\", "/"), "author": "PLAN-026", "force": False},
                  timeout=120)
         s = json.dumps(r, ensure_ascii=False)
         if '"book_id"' not in s:
-            results("V-01", "FAIL", "real import contract: " + s[:200])
+            results("N-02", "FAIL", "real import contract: " + s[:200])
             return
         books = http("GET", "http://127.0.0.1:17825/api/library/books")
         bl = books.get("books") if isinstance(books, dict) else books
         target = next((b for b in bl if b.get("format") == "epub"), None)
         if target is None:
-            results("V-01", "FAIL", "no epub in library: " + json.dumps(bl, ensure_ascii=False)[:200])
+            results("N-02", "FAIL", "no epub in library: " + json.dumps(bl, ensure_ascii=False)[:200])
             return
         bj = http("GET", "http://127.0.0.1:17825/api/library/books/" + target["book_id"])
         ident = {"book_id": bj["book_id"], "source_hash": bj["source_hash"],
@@ -133,17 +133,17 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
                  "title": bj.get("title", ""),
                  "size": os.path.getsize(bj["managed_path"])
                  if os.path.exists(bj["managed_path"]) else 0}
-        results("V-01.reader-import", "PASS",
+        results("N-02.reader-import", "PASS",
                 f"book_id={ident['book_id'][:13]}… hash={str(ident['source_hash'])[:20]}… "
                 f"managed={os.path.basename(ident['managed_path'])}")
 
         cons = Instance(APP_DIR, os.path.join(out_dir, "consumer.log"),
                         {"PROBE_DATA_DIR": data_dir, "PROBE_ASSETS_DIR": assets_dir})
         if not cons.wait("http://127.0.0.1:17827/api/probe/health"):
-            results("V-01", "FAIL", "consumer backend boot timeout")
+            results("N-02", "FAIL", "consumer backend boot timeout")
             return
         if not _wait_front():
-            results("V-01", "FAIL", "consumer vite front not ready (60s)")
+            results("N-02", "FAIL", "consumer vite front not ready (60s)")
             return
 
         reg = http("POST", "http://127.0.0.1:17827/api/probe/register",
@@ -151,14 +151,14 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
                     "managed_path": ident["managed_path"], "title": ident.get("title", ""),
                     "book_bytes": ident["size"]})
         if not reg.get("ok"):
-            results("V-01", "FAIL", "register: " + json.dumps(reg, ensure_ascii=False)[:200])
+            results("N-02", "FAIL", "register: " + json.dumps(reg, ensure_ascii=False)[:200])
             return
         sid = "vue-sess-" + str(int(time.time()))
         sess = http("POST", "http://127.0.0.1:17827/api/probe/session",
                     {"session_id": sid, "book_id": ident["book_id"],
                      "source_hash": ident["source_hash"], "engine": ENGINE_REVISION})
         if not sess.get("ok"):
-            results("V-01", "FAIL", "session: " + json.dumps(sess)[:160])
+            results("N-02", "FAIL", "session: " + json.dumps(sess)[:160])
             return
 
         with sync_playwright() as pw:
@@ -166,16 +166,16 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             ready, load_ms = mount_and_wait(page, ident, sid)
             if not ready:
-                results("V-01", "FAIL", "engine not mounted (title=" + page.title() + ")")
+                results("N-02", "FAIL", "engine not mounted (title=" + page.title() + ")")
                 return
             spine = page.evaluate("() => window.__probe.book.sections.length")
-            results("V-01.engine-mount", "PASS",
+            results("N-02.engine-mount", "PASS",
                     f"engine={ENGINE_REVISION} spine={spine} loadMs={load_ms} (budget 15000)")
             if load_ms > 15000:
-                results("V-01.engine-load-budget", "FAIL", f"loadMs={load_ms}")
+                results("N-02.engine-load-budget", "FAIL", f"loadMs={load_ms}")
             in_host = page.evaluate(
                 "() => !!document.querySelector('[data-remote-frame] foliate-view')")
-            results("V-01.surface-in-host", "PASS" if in_host else "FAIL",
+            results("N-02.surface-in-host", "PASS" if in_host else "FAIL",
                     "foliate-view inside [data-remote-frame]=" + str(in_host))
             page.wait_for_timeout(1500)
             img_ok = page.evaluate("""() => {
@@ -187,7 +187,7 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
                 }
                 return {ok: false, w: 0, h: 0, none: true};
             }""")
-            results("V-01.image-decode", "PASS" if img_ok.get("ok") else "FAIL",
+            results("N-02.image-decode", "PASS" if img_ok.get("ok") else "FAIL",
                     f"natural={img_ok.get('w')}x{img_ok.get('h')} (expect 96x64)")
             note = page.evaluate("""() => {
                 const cs = window.__probe.view.renderer.getContents();
@@ -196,7 +196,7 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
                 }
                 return false;
             }""")
-            results("V-01.footnote-present", "PASS" if note else "FAIL",
+            results("N-02.footnote-present", "PASS" if note else "FAIL",
                     "章内注 visible=" + str(note))
 
             # ── V-02：真实拖选第二处重复句（不代选；跨行路径）──
@@ -215,7 +215,7 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
                 if tframe is None:
                     time.sleep(1)
             if tframe is None:
-                results("V-02", "FAIL", "target text not found in any frame (10s)")
+                results("N-02", "FAIL", "target text not found in any frame (10s)")
                 return
             para = tframe.locator(f"text={repeat_a[:18]}").last
             para.wait_for(state="attached", timeout=10000)
@@ -242,7 +242,7 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
                 page.wait_for_timeout(700)
                 bb = _para_box()
             if bb is None:
-                results("V-02", "FAIL", "target paragraph box unresolved after paging")
+                results("N-02", "FAIL", "target paragraph box unresolved after paging")
                 return
             # 分栏渲染下目标段可能部分位于可视区外：拖选限制在
             # remote-frame 可视交集内（真实拖选不代选，选区为可见子串）。
@@ -269,7 +269,7 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
                     break
                 time.sleep(0.4)
             if not ev:
-                results("V-02", "FAIL", "no locator event after real drag (5s)")
+                results("N-02", "FAIL", "no locator event after real drag (5s)")
                 return
             respj = ev["resp"]
             for _ in range(2):
@@ -279,22 +279,22 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
                     except Exception:
                         break
             accepted = respj.get("accepted") is True
-            results("V-02.real-drag-event", "PASS" if accepted else "FAIL",
+            results("N-02.real-drag-event", "PASS" if accepted else "FAIL",
                     "resp=" + json.dumps(respj, ensure_ascii=False)[:200])
             quote_sel = ev["msg"]["text_quote"]
             occ_eng = ev["msg"]["occurrence"]
             cfi_sel = ev["msg"]["cfi"]
             vq = oracle_scan.verify_quote(quote_sel, occ_eng)
-            results("V-02.quote-oracle", "PASS" if vq.get("ok") else "FAIL",
+            results("N-02.quote-oracle", "PASS" if vq.get("ok") else "FAIL",
                     f"occ={occ_eng} pos={vq.get('position')} occurrences={vq.get('occurrences')}")
-            results("V-02.cfi-present", "PASS" if str(cfi_sel).startswith("epubcfi") else "FAIL",
+            results("N-02.cfi-present", "PASS" if str(cfi_sel).startswith("epubcfi") else "FAIL",
                     "cfi=" + str(cfi_sel)[:60])
             side = http("GET", f"http://127.0.0.1:17827/api/probe/locators?session_id={sid}")
             n_rec = len(side.get("sidecar", {}).get("records", [])) if side.get("found") else 0
-            results("V-02.sidecar-http", "PASS" if n_rec >= 1 else "FAIL", f"records={n_rec}")
+            results("N-02.sidecar-http", "PASS" if n_rec >= 1 else "FAIL", f"records={n_rec}")
             disk = os.path.join(data_dir, "probe", "locators", sid + ".json")
             ok_disk = os.path.exists(disk) and quote_sel in open(disk, encoding="utf-8").read()
-            results("V-02.sidecar-disk", "PASS" if ok_disk else "FAIL", disk)
+            results("N-02.sidecar-disk", "PASS" if ok_disk else "FAIL", disk)
             browser.close()
 
         # ── V-03：冷重启恢复 ──
@@ -304,10 +304,10 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
         cons = Instance(APP_DIR, os.path.join(out_dir, "consumer2.log"),
                         {"PROBE_DATA_DIR": data_dir, "PROBE_ASSETS_DIR": assets_dir})
         if not cons.wait("http://127.0.0.1:17827/api/probe/health"):
-            results("V-03", "FAIL", "consumer restart timeout")
+            results("N-03", "FAIL", "consumer restart timeout")
             return
         if not _wait_front():
-            results("V-03", "FAIL", "consumer vite front not ready after restart")
+            results("N-03", "FAIL", "consumer vite front not ready after restart")
             return
         sid2 = sid + "r"
         http("POST", "http://127.0.0.1:17827/api/probe/session",
@@ -318,7 +318,7 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             ready, _ = mount_and_wait(page, ident, sid2)
             if not ready:
-                results("V-03", "FAIL", "engine not mounted after restart")
+                results("N-03", "FAIL", "engine not mounted after restart")
                 return
             page.evaluate("() => { window.__probe.target = %s; return 1; }"
                           % json.dumps(quote_sel))
@@ -343,7 +343,7 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
                         break
                 err = r
                 time.sleep(1.5)
-            results("V-03.cold-restart-restore", "PASS" if goto_ok else "FAIL",
+            results("N-03.cold-restart-restore", "PASS" if goto_ok else "FAIL",
                     f"goto={err or 'ok'} target-visible={goto_ok} (deadline 30s)")
             browser.close()
 
@@ -351,10 +351,10 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
         n0 = len(http("GET", f"http://127.0.0.1:17827/api/probe/locators?session_id={sid}")
                  .get("sidecar", {}).get("records", []))
         negatives = [
-            ("V-06.bad-session", {"session_id": "evil-sess-9999"}, "rejected_bad_session"),
-            ("V-06.bad-document", {"book_id": "uuid-OTHER"}, "rejected_bad_document"),
-            ("V-06.stale-seq", {"seq": 1}, "rejected_stale_seq"),
-            ("V-06.bad-schema", {"schema_version": 2}, "rejected_bad_schema"),
+            ("N-09.bad-session", {"session_id": "evil-sess-9999"}, "rejected_bad_session"),
+            ("N-09.bad-document", {"book_id": "uuid-OTHER"}, "rejected_bad_document"),
+            ("N-09.stale-seq", {"seq": 1}, "rejected_stale_seq"),
+            ("N-09.bad-schema", {"schema_version": 2}, "rejected_bad_schema"),
         ]
         for case, override, want in negatives:
             msg = {"schema_version": 1, "kind": "locator_select", "session_id": sid,
@@ -369,24 +369,24 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
             results(case, "PASS" if okn else "FAIL", json.dumps(r, ensure_ascii=False)[:140])
         n1 = len(http("GET", f"http://127.0.0.1:17827/api/probe/locators?session_id={sid}")
                  .get("sidecar", {}).get("records", []))
-        results("V-06.zero-disk-on-reject", "PASS" if n1 == n0 else "FAIL",
+        results("N-09.zero-disk-on-reject", "PASS" if n1 == n0 else "FAIL",
                 f"before={n0} after={n1}")
         try:
             urllib.request.urlopen(
                 "http://127.0.0.1:17827/api/probe/document/uuid-NOPE/file", timeout=10)
-            results("V-07.unregistered-404", "FAIL", "served unregistered doc")
+            results("N-09.unregistered-404", "FAIL", "served unregistered doc")
         except urllib.error.HTTPError as e:
-            results("V-07.unregistered-404", "PASS" if e.code == 404 else "FAIL",
+            results("N-09.unregistered-404", "PASS" if e.code == 404 else "FAIL",
                     f"code={e.code}")
         try:
             urllib.request.urlopen(
                 "http://127.0.0.1:17827/api/probe/asset/..%2F..%2Fprobe-alpha.epub", timeout=10)
-            results("V-07.path-escape", "FAIL", "served escape path")
+            results("N-09.path-escape", "FAIL", "served escape path")
         except urllib.error.HTTPError as e:
-            results("V-07.path-escape", "PASS" if e.code in (400, 403, 404) else "FAIL",
+            results("N-09.path-escape", "PASS" if e.code in (400, 403, 404) else "FAIL",
                     f"code={e.code}")
         except Exception as e:  # noqa: BLE001
-            results("V-07.path-escape", "PASS", "transport refused: " + repr(e)[:80])
+            results("N-09.path-escape", "PASS", "transport refused: " + repr(e)[:80])
 
         # ── V-09：内容损坏后的错锚（同 session，受管内容被改写）──
         # 复制 alpha 并把 ch1 正文「十七」改写为「十八」（zip 级精准替换），
@@ -407,7 +407,7 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
                        "managed_path": mutated.replace("\\", "/"), "title": "mutated",
                        "book_bytes": msize})
             if not r.get("ok"):
-                results("V-09.mutated-register", "FAIL", json.dumps(r, ensure_ascii=False)[:160])
+                results("N-09.mutated-register", "FAIL", json.dumps(r, ensure_ascii=False)[:160])
                 return
             sid9 = sid + "m"
             http("POST", "http://127.0.0.1:17827/api/probe/session",
@@ -423,10 +423,10 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
                         "text_quote": q_orig, "occurrence": 1,
                         "context_before": "", "context_after": "", "seq": 1, "ts": 1})
             ok_rej = rj.get("accepted") is False and                 "quote_not_found" in json.dumps(rj, ensure_ascii=False)
-            results("V-09.stale-quote-rejected", "PASS" if ok_rej else "FAIL",
+            results("N-09.stale-quote-rejected", "PASS" if ok_rej else "FAIL",
                     json.dumps(rj, ensure_ascii=False)[:160])
             side9 = http("GET", f"http://127.0.0.1:17827/api/probe/locators?session_id={sid9}")
-            results("V-09.zero-disk-on-stale",
+            results("N-09.zero-disk-on-stale",
                     "PASS" if not side9.get("found") else "FAIL",
                     "sidecar found=" + str(side9.get("found")))
             rj2 = http("POST", "http://127.0.0.1:17827/api/probe/locator",
@@ -436,11 +436,11 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
                          "resource_index": 0, "cfi": "epubcfi(/6/4)", "range_cfi": "",
                          "text_quote": q_mut, "occurrence": 1,
                          "context_before": "", "context_after": "", "seq": 2, "ts": 2})
-            results("V-09.mutated-control-accepted",
+            results("N-09.mutated-control-accepted",
                     "PASS" if rj2.get("accepted") is True else "FAIL",
                     json.dumps(rj2, ensure_ascii=False)[:160])
         except Exception as e:  # noqa: BLE001
-            results("V-09", "FAIL", repr(e)[:160])
+            results("N-09", "FAIL", repr(e)[:160])
     finally:
         if cons:
             cons.stop()
