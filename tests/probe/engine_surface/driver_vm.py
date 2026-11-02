@@ -1022,8 +1022,14 @@ def run_vm(out_dir, corpus_dir, oracle_scan, results):
             _run_t05_gates(out_dir, mcp3, sid3, win_hwnd3, oracle_scan,
                            results, n_saved)
         # ── T-06 门：双实例/关闭/迟到/崩溃/坏tool/占口（N-07/08 + N-10 实况）──
-        _run_n07_n08(out_dir, cons, sid3, win_hwnd3, oracle_scan, results,
-                     n_saved, ident_a=ident, corpus_dir=corpus_dir, mcp_a=mcp3)
+        # 异常防护：DPI 交互等待等长延迟后实例可能退化（t09-final-vm2 实测
+        # 17825 REFUSED 打断聚合）——具名失败并继续，不让单腿异常毁掉
+        # 整段记录。
+        try:
+            _run_n07_n08(out_dir, cons, sid3, win_hwnd3, oracle_scan, results,
+                         n_saved, ident_a=ident, corpus_dir=corpus_dir, mcp_a=mcp3)
+        except Exception as e:  # noqa: BLE001
+            results("N-07", "FAIL", "n07/n08 gate exception: " + repr(e)[:160])
     finally:
         if cons:
             cons.stop()
