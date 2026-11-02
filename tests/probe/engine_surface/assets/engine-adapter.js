@@ -149,10 +149,13 @@ export async function mountProbe(opts) {
         say('locator result: ' + body)
     }
 
-    view.addEventListener('load', ({ detail }) => {
-        const { doc, index } = detail
-        window.__probe.sectionIndex = index
-        say('section loaded index=' + index)
+    // 订阅去重：同一 section doc 只接一套 listener（load 重放/重排重建
+    // 文档时重复接线会造成双 POST）。
+    const subscribed = new WeakSet()
+
+    const subscribeSection = (index, doc) => {
+        if (!doc || subscribed.has(doc)) return
+        subscribed.add(doc)
         // 键盘选择路径（Ctrl+A 真实输入时 selectionchange 触发回传）。
         doc.addEventListener('selectionchange', () => {
             const s = doc.getSelection()
@@ -160,9 +163,10 @@ export async function mountProbe(opts) {
             clearTimeout(doc.__selT)
             doc.__selT = setTimeout(() => { onSectionMouseUp(index, doc) }, 400)
         })
+        doc.addEventListener('mouseup', () => { onSectionMouseUp(index, doc) })
+        doc.addEventListener('keydown', onKey)
         // 输入可达性探针：真实指针按下经 fetch 回报（iframe 无 window.ipc，
         // 2026-11-02 实测 wry 仅主 frame 注入——HTTP 面让驱动可在消费日志验证）。
-        doc.addEventListener('keydown', onKey)
         doc.addEventListener('pointerdown', () => {
             fetch('/api/probe/locator', {
                 method: 'POST',
@@ -177,13 +181,22 @@ export async function mountProbe(opts) {
                 }),
             }).catch(() => {})
         })
+    }
+
+    view.addEventListener('load', ({ detail }) => {
+        const { doc, index } = detail
+        window.__probe.sectionIndex = index
+        say('section loaded index=' + index)
+        // 重排/翻页重建 section 文档时 load 重放——订阅经 WeakSet 去重后
+        // 对新旧 doc 都成立（PLAN-029 T-09：mouseup 此前只在挂载循环接，
+        // 后载章节缺即时 mouseup 面）。
+        subscribeSection(index, doc)
     })
 
-    // 已装载章节直接挂 mouseup（init 期间 load 事件早于本订阅——2026-11-02
+    // 已装载章节直接挂（init 期间 load 事件早于本订阅——2026-11-02
     // 实测：getContents 有 3 个 doc 而 events 为 0，正是订阅时序缺口）。
     for (const c of view.renderer.getContents()) {
-        c.doc.addEventListener('mouseup', () => { onSectionMouseUp(c.index, c.doc) })
-        c.doc.addEventListener('keydown', onKey)
+        subscribeSection(c.index, c.doc)
     }
 
     // 状态面：探针页的状态文本。

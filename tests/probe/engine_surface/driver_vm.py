@@ -1066,6 +1066,26 @@ def _ime_input_value(mcp_base):
     return m.group(1) if m else None
 
 
+def _ime_input_bounds(mcp_base):
+    """IME 输入框的实时布局 bbox（窗口逻辑 px；autoui_snapshot
+    include_bounds 的 input 记录 bbox: { x, y, w, h }）。解析失败返回
+    None——调用方回退扫描期坐标并在日志暴露快照形态。"""
+    t = _mcp_text_safe(mcp_base, "autoui_snapshot",
+                       {"mode": "rendered", "include_bounds": True})
+    m = re.search(
+        r'input\s+#vnode_\d+\s*\{[^"]*?bbox:\s*\{\s*x:\s*([\d.eE+-]+),\s*'
+        r'y:\s*([\d.eE+-]+),\s*w:\s*([\d.eE+-]+),\s*h:\s*([\d.eE+-]+)', t)
+    if m:
+        return tuple(float(g) for g in m.groups())
+    # 解析失败：暴露 input 记录原文片段（一次运行即可校准正则）
+    m2 = re.search(r'input\s+#vnode_\d+[^\n]{0,220}', t)
+    if m2:
+        print("[n04] input record unparsed bbox:", m2.group(0)[:200])
+    else:
+        print("[n04] no input record in snapshot (len=%d)" % len(t))
+    return None
+
+
 def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
                  cdp_port=9333):
     """真实 IME 门：真实点击聚焦输入框（行内扫描+键击核验）→ MS Pinyin
@@ -1160,11 +1180,21 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
             f"real click+keystroke focus at logical ({found_x:.0f},{found_y})")
 
     def click_input():
-        px, py = ox + int(found_x * scale), oy + int(105 * scale)
+        # 输入框实时 bbox 优先（布局可能随内容/状态位移）：解析失败回退
+        # 扫描期坐标。
+        b = _ime_input_bounds(mcp_base)
+        if b:
+            bx, by, bw, bh = b
+            px = ox + int((bx + bw / 2) * scale)
+            py = oy + int((by + bh / 2) * scale)
+        else:
+            px = ox + int(found_x * scale)
+            py = oy + int(105 * scale)
         _force_foreground(win_hwnd)
         time.sleep(0.3)
         _click_twice(px, py)
         time.sleep(0.4)
+        return px, py
 
     # ① 组合 + Esc 取消 → 值不变。
     click_input()
@@ -1325,11 +1355,10 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
             time.sleep(0.06)
             _send_mouse(wr.left + 300, wr.top + 20, False)
             time.sleep(0.5)
-        click_input()
+        ipt_px, ipt_py = click_input()
         # 输入点落窗取证：命中类名 + 弹窗矩形 + 前台——区分「点击被弹出窗
         # 截走（几何/置顶）」与「点击达主窗但键击未达模型（组件焦点/IME）」。
-        ipt_px = ox + int(found_x * scale)
-        ipt_py = oy + int(105 * scale)
+        live_b = _ime_input_bounds(mcp_base)
         _, ipt_cls = _hit_window(ipt_px, ipt_py)
         fg_now = user32.GetForegroundWindow() or 0
         try:
@@ -1349,7 +1378,7 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
             f"a{attempt_i}:cap{cap & 0xFFFF:x} w{win_hwnd & 0xFFFF:x}"
             f" f{fpre & 0xFFFF:x}->f{(gi2.hwndFocus or 0) & 0xFFFF:x}"
             f" fg{fg_now & 0xFFFF:x} hit({ipt_px},{ipt_py})={ipt_cls[:24]}"
-            f" pop={popup_rect} v={v_try!r}")
+            f" bbox={live_b} pop={popup_rect} v={v_try!r}")
         if v_try is not None and v_try != v_after_surface:
             v_back = v_try
             break
