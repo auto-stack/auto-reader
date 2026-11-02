@@ -288,34 +288,33 @@ def _run_vue_n05(page, results, oracle_scan, repeat_a, shot_dir, anchor_cfi):
             results("N-05.pixel-decode", "FAIL", f"{name}: {repr(e)[:80]}")
             return None
 
-    # ① 重排（vue 轨）：三个触发通道在当前形态下均不可用——
-    #   a) body 字号注入：分页器不观察内容字号，页表失真 → next() 定位越界
-    #      /拖选落空（t09-vuediag10、t09-vueiso5..9 实测）；
-    #   b) gap 属性：巨列形态下 innerW 爆炸（t09-vueiso11）；
-    #   c) viewport resize：生成页列盒宽固定（seam 627px 在 1280/1680/900
-    #      视口下不变，t09-vueiso12/13/14 实测），无版面盒变化。
-    # 重排维度由 vm 轨 N-05.font-reflow 覆盖（T-05/dry2 全绿）。vue 轨此腿
-    # 记 GAP（机制不可用，非 oracle 失败），聚合保持非零，不冒充通过。
+    # ① 重排（vue 轨=视口尺寸重排）：页面列 max-w-2xl(672px) 钳制下，seam
+    # 在 ≥672 视口恒 627px——resize 必须**跌破钳制**（560 < 672）才产生
+    # 真实重排（t09-vuediag11 实测：seam 627→512、colW 529→423，分页器
+    # ResizeObserver 一级通道全量重算）。此前向 1680/900 的 resize 均未
+    # 破钳，被误判为「触发不可用」。
     if not _vue_anchor_target(page, anchor_cfi):
-        results("N-05.reflow", "GAP", "pre-reflow goTo anchor failed")
+        results("N-05.reflow", "FAIL", "pre-reflow goTo anchor failed")
         return
     host0 = page.locator("[data-remote-frame]").bounding_box()
-    page.set_viewport_size({"width": 1680, "height": 1000})
+    page.set_viewport_size({"width": 560, "height": 900})
     page.wait_for_timeout(1500)
     host1 = page.locator("[data-remote-frame]").bounding_box()
-    page.set_viewport_size({"width": 1280, "height": 900})
-    page.wait_for_timeout(1000)
     moved = (host0 and host1 and abs(host1["width"] - host0["width"]) > 8)
+    results("N-05.reflow-move",
+            "PASS" if moved else "FAIL",
+            f"seam {host0 and round(host0['width'])}px -> {host1 and round(host1['width'])}px"
+            " (layout box must move)")
     if not moved:
-        results("N-05.reflow", "GAP",
-                f"vue-track reflow trigger unavailable: seam {host0 and round(host0['width'])}"
-                f"px fixed across viewport change; font/gap channels break paginator page table"
-                " (§10 0f); font-size variant covered by vm arm")
+        results("N-05.reflow", "FAIL", "resize below column cap produced no reflow")
         return
     if not _vue_anchor_target(page, "epubcfi(/6/2!/4/2)"):
-        results("N-05.reflow", "GAP", "post-reflow goTo anchor failed")
+        results("N-05.reflow", "FAIL", "post-reflow goTo anchor failed")
         return
+    # 锚到段首（forward-only 可达性）→ 真实拖选重命中
     _vue_drag_and_verify(page, results, oracle_scan, "N-05.reflow", repeat_a)
+    page.set_viewport_size({"width": 1280, "height": 900})
+    page.wait_for_timeout(1200)
 
     # ② 翻页滚动：锚回 → next() 离开 → prev() 回（滚动位姿已变）→ 真实拖选
     _vue_anchor_target(page, anchor_cfi)
