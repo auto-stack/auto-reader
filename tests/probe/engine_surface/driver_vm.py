@@ -195,6 +195,15 @@ def _mcp_text(base, name, args=None):
     return v["result"]["content"][0].get("text", "")
 
 
+def _mcp_text_safe(base, name, args=None):
+    """轮询专用：端点瞬时不可连（announce 先于 listener 就绪/端口释放竞态，
+    green5 实测 10061）返回空串，不让轮询循环直接崩出。"""
+    try:
+        return _mcp_text(base, name, args)
+    except Exception:
+        return ""
+
+
 def _wait_mcp(log_path, deadline=90):
     t0 = time.monotonic()
     while time.monotonic() - t0 < deadline:
@@ -267,10 +276,10 @@ class VmInstance:
 
 
 def _wait_tree(mcp_base, deadline=40):
-    """等待原生树就绪（首帧构建；快照过早返回空树）。"""
+    """等待原生树就绪（首帧构建；快照过早返回空树；瞬时拒连重试）。"""
     t0 = time.monotonic()
     while time.monotonic() - t0 < deadline:
-        snap = _mcp_text(mcp_base, "autoui_snapshot")
+        snap = _mcp_text_safe(mcp_base, "autoui_snapshot")
         if "连接会话" in snap:
             return snap
         time.sleep(1.5)
@@ -289,7 +298,7 @@ def _connect_session(mcp_base, sid, log_path):
         return None, "MCP press failed: " + act[:120]
     okc = False
     for _ in range(10):
-        if "connected" in _mcp_text(mcp_base, "autoui_snapshot"):
+        if "connected" in _mcp_text_safe(mcp_base, "autoui_snapshot"):
             okc = True
             break
         time.sleep(1)
@@ -576,7 +585,12 @@ def run_vm(out_dir, corpus_dir, oracle_scan, results):
                     "AUTO_DOC_SURFACE_DEBUG": "1",
                     "WEBVIEW2_USER_DATA_FOLDER": udf,
                     "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS":
-                        f"--remote-debugging-port={cdp}",
+                        # force-renderer-accessibility：Chromium 可达性树按需
+                        # 激活对纯 UIA 客户端查询未生效（red2 实测 17 节点只见
+                        # 窗口壳）——屏读/ Narrator 实效等价开关；UIA 读取的
+                        # 仍是真实系统树，非 DOM ARIA。
+                        f"--remote-debugging-port={cdp} "
+                        f"--force-renderer-accessibility",
                     "AUTO_VM_WINDOW": "900x700",
                     "AUTO_VM_POSITION": "40,40"}
         env = _make_env(1)
@@ -802,6 +816,11 @@ def run_vm(out_dir, corpus_dir, oracle_scan, results):
         followed = last is not None and last != rect3 and last[2] < 400
         results("N-05.resize-follow", "PASS" if followed else "FAIL",
                 f"before={rect3} after={last}")
+        if followed:
+            # ── T-05 扩展门：字体重排/滚动重拖/遮挡/隐藏展示/UIA/键盘
+            # （+交互 DPI 门，PROBE_DPI_INTERACTIVE=1）──
+            _run_t05_gates(out_dir, mcp3, sid3, win_hwnd3, oracle_scan,
+                           results, n_saved)
     finally:
         if cons:
             cons.stop()
@@ -839,7 +858,7 @@ def _click_twice(px, py):
 
 
 def _ime_input_value(mcp_base):
-    t = _mcp_text(mcp_base, "autoui_snapshot")
+    t = _mcp_text_safe(mcp_base, "autoui_snapshot")
     m = re.search(r'input[^\n]*\{[^}]*value: "([^"]*)"', t)
     return m.group(1) if m else None
 
@@ -1114,3 +1133,861 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
             "PASS" if trip else "FAIL",
             f"sel={sel_ok} v {v_after_surface!r}->{v_back!r} log={';'.join(rt_log)[:170]}")
     # 父用例 N-04 由聚合器按子项最坏推导（缺项/GAP/FAIL→非零）。
+
+
+# ─────────────────────── N-05/N-06 扩展门（T-05） ───────────────────────
+# 坐标纪律：屏幕几何一律驱动侧实测（EnumWindows 命中 doc_surface.rs 注册的
+# 弹出窗类 AutoUIDocSurfacePopup + GetWindowRect 物理矩形），不以日志行为
+# 坐标基准（T-02 子表面形态的 create 行按客户区相对口径解析，57cf408a 弹出
+# 窗形态同一行已是屏幕绝对——两种口径并存，只有驱动侧实测与真实窗口一致）。
+# 内容坐标：弹出窗物理宽 / webview css innerWidth = 内容→屏幕比例；行盒经
+# JS Range 量测（量测用途，非代选——选择仍为真实 SendInput）。
+
+POPUP_CLASS = "AutoUIDocSurfacePopup"
+
+
+def _find_popup_hwnd():
+    """doc-surface 弹出窗（按注册类名+可见性）。隐藏后必须查无——该函数
+    即 N-05 隐藏门的真值来源。"""
+    hits = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    def cb(h, _l):
+        buf = ctypes.create_unicode_buffer(64)
+        user32.GetClassNameW(h, buf, 64)
+        if buf.value == POPUP_CLASS and user32.IsWindowVisible(h):
+            hits.append(h)
+        return True
+
+    user32.EnumWindows(cb, None)
+    return hits[0] if hits else None
+
+
+def _win_rect(hwnd):
+    """GetWindowRect 物理 (x, y, w, h)。弹出窗无边框客户区=窗口矩形。"""
+    r = ctypes.wintypes.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(r))
+    return (r.left, r.top, r.right - r.left, r.bottom - r.top)
+
+
+def _screen_pixel(x, y):
+    """GDI 屏幕取样（DWM 合成后的真实像素，遮挡/显隐的真值探针）。
+    GetPixel 属 gdi32（user32 无此导出——red2 实测 AttributeError）。"""
+    hdc = user32.GetDC(0)
+    c = ctypes.windll.gdi32.GetPixel(hdc, int(x), int(y))
+    user32.ReleaseDC(0, hdc)
+    if c < 0:  # CLR_INVALID
+        return (-1, -1, -1)
+    return (c & 0xFF, (c >> 8) & 0xFF, (c >> 16) & 0xFF)
+
+
+_OCCLUDE_CLS = None
+
+
+def _overlay_window(x, y, w, h):
+    """驱动自有真实遮挡窗：WS_POPUP topmost 纯色底——语义等价其他应用浮窗
+    覆盖（弹出窗非 topmost、z 跟随 owner，被浮窗盖住与普通窗口一致）。
+    返回 (hwnd, brush)；用完必须 _drop_overlay。"""
+    global _OCCLUDE_CLS
+    WS_POPUP, WS_VISIBLE = 0x80000000, 0x10000000
+    WS_EX_TOPMOST = 0x8
+    # CreateSolidBrush/DeleteObject 属 gdi32（red2/3 同族误置 user32）。
+    brush = ctypes.windll.gdi32.CreateSolidBrush(0x000000FF)  # COLORREF 0x00bbggrr = 红
+    if not _OCCLUDE_CLS:
+        class WNDCLASSW(ctypes.Structure):
+            _fields_ = [("style", ctypes.c_uint), ("lpfnWndProc", ctypes.c_void_p),
+                        ("cbClsExtra", ctypes.c_int), ("cbWndExtra", ctypes.c_int),
+                        ("hInstance", ctypes.c_void_p), ("hIcon", ctypes.c_void_p),
+                        ("hCursor", ctypes.c_void_p), ("hbrBackground", ctypes.c_void_p),
+                        ("lpszMenuName", ctypes.c_void_p), ("lpszClassName", ctypes.c_wchar_p)]
+        wc = WNDCLASSW()
+        wc.lpfnWndProc = ctypes.cast(user32.DefWindowProcW, ctypes.c_void_p).value
+        wc.hInstance = kernel32.GetModuleHandleW(None)
+        wc.hbrBackground = ctypes.c_void_p(brush)
+        wc.lpszClassName = "AutoUIProbeOccluder"
+        atom = user32.RegisterClassW(ctypes.byref(wc))
+        if not atom:
+            user32.DeleteObject(brush)
+            raise OSError("RegisterClassW(occluder) failed")
+        _OCCLUDE_CLS = wc.lpszClassName
+    hwnd = user32.CreateWindowExW(WS_EX_TOPMOST, _OCCLUDE_CLS, "probe-occluder",
+                                  WS_POPUP | WS_VISIBLE, int(x), int(y),
+                                  int(w), int(h), 0, 0,
+                                  kernel32.GetModuleHandleW(None), 0)
+    if not hwnd:
+        user32.DeleteObject(brush)
+        raise OSError("CreateWindowExW(occluder) failed")
+    return hwnd, brush
+
+
+def _drop_overlay(hwnd, brush):
+    if hwnd:
+        user32.DestroyWindow(hwnd)
+    if brush:
+        ctypes.windll.gdi32.DeleteObject(brush)
+
+
+# 行盒量测（页面级 css 坐标，frameElement 偏移并入）——与 N-02 同源口径。
+_JS_LINE = """([marker, vw, vh]) => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const hits = [];
+    let n;
+    while ((n = walker.nextNode())) {
+        let i = 0;
+        while ((i = n.data.indexOf(marker, i)) >= 0) {
+            hits.push([n, i]);
+            i += marker.length;
+        }
+    }
+    if (hits.length < 2) return null;
+    const [node, off] = hits[1];
+    const end = node.data.indexOf('\\u3002', off);
+    const r = document.createRange();
+    r.setStart(node, off);
+    r.setEnd(node, end > 0 ? end + 1 : off + marker.length);
+    const rects = r.getClientRects();
+    const fe = frameElement ? frameElement.getBoundingClientRect() : {left: 0, top: 0};
+    for (const b of rects) {
+        const x = b.left + fe.left, y = b.top + fe.top;
+        if (b.width > 40 && b.height > 6 && x >= -4 && y >= -4
+            && x + b.width <= vw + 4 && y + b.height <= vh + 4) {
+            return {x, y, width: b.width, height: b.height};
+        }
+    }
+    return null;
+}"""
+_JS_SEL = """() => { const s = document.getSelection();
+    return s && !s.isCollapsed ? s.toString() : null; }"""
+_JS_FIRST_LINE = """() => {
+    // 逐字符量测（同行连续段）：整节点 rect 口径取到"句尾句号行"（green4
+    // 选区塌缩成单字符）；首末可见字符跨度跨行时 40% 高度拖选也会塌缩
+    // （green7 实测 3 字符短句）——取最长同行连续段，拖选必落同一行内。
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let n;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    while ((n = walker.nextNode())) {
+        const t = n.data;
+        if (t.trim().length < 8) continue;
+        const fe = frameElement ? frameElement.getBoundingClientRect() : {left: 0, top: 0};
+        const vis = [];
+        for (let i = 0; i < t.length; i++) {
+            if (!t[i].trim()) continue;
+            const r = document.createRange();
+            r.setStart(n, i);
+            r.setEnd(n, i + 1);
+            const b = r.getBoundingClientRect();
+            const x = b.left + fe.left, y = b.top + fe.top;
+            if (b.width > 0 && b.height > 6 && x >= 0 && y >= 0
+                && x + b.width <= vw && y + b.height <= vh) {
+                vis.push({ x, y, w: b.width, h: b.height });
+            }
+        }
+        // 最长同行连续段（y 差≤2px）——跨行 box 的 40% 高度拖选会塌缩
+        // （green7 实测 3 字符短句），拖选必须落在同一行内。
+        let best = null, run = [];
+        for (const v of vis) {
+            if (run.length && Math.abs(v.y - run[run.length - 1].y) > 2) {
+                if (!best || run.length > best.length) best = run;
+                run = [];
+            }
+            run.push(v);
+        }
+        if (!best || run.length > best.length) best = run;
+        if (best && best.length >= 6) {
+            const x1 = best[best.length - 1].x + best[best.length - 1].w;
+            return { x: best[0].x, y: best[0].y, width: x1 - best[0].x,
+                     height: best[0].h,
+                     text: t.slice(best[0].i, best[best.length - 1].i + 1)
+                               .slice(0, 24) + '…' };
+        }
+    }
+    return null;
+}"""
+
+
+def _measure_target_line(page, deadline=15):
+    """翻页至目标句可见并返回其页面级行盒（css）。每轮重找 frame——分页会
+    换章节 iframe（N-02 同纪律）。"""
+    vw = page.evaluate("() => window.innerWidth")
+    vh = page.evaluate("() => window.innerHeight")
+    for _ in range(12):
+        for f in page.frames:
+            try:
+                if REPEAT_A_MARKER not in f.content():
+                    continue
+                lb = f.evaluate(_JS_LINE, [REPEAT_A_MARKER, vw, vh])
+                if lb:
+                    return lb
+            except Exception:
+                continue
+        try:
+            page.evaluate("() => window.__probe.view.renderer.next()")
+        except Exception:
+            pass
+        page.wait_for_timeout(900)
+    return None
+
+
+def _popup_owner(x, y):
+    """含屏幕点的弹出窗的 owner（iced 主窗）——前台核验用。"""
+    h = _find_popup_hwnd()
+    if not h:
+        return None
+    r = _win_rect(h)
+    if not (r[0] <= x < r[0] + r[2] and r[1] <= y < r[1] + r[3]):
+        return None
+    return user32.GetWindow(h, 4)  # GW_OWNER
+
+
+def _drag_line(page, popup_rect, line, owner_hwnd):
+    """量测行盒 → 真实拖选（2 段式，逐点移动）；返回 CDP 读到的选区文本。"""
+    px, py, pw, _ph = popup_rect
+    vw = page.evaluate("() => window.innerWidth")
+    scale = pw / max(1, vw)
+    bx = px + line["x"] * scale
+    by = py + line["y"] * scale
+    bw = line["width"] * scale
+    bh = line["height"] * scale
+    _, cls0 = _hit_window(bx + bw * 0.3, by + bh * 0.4)
+    if not (("Chrome" in cls0) or ("WRY" in cls0.upper())):
+        return None, "hit=" + cls0
+    for _ in range(3):
+        _force_foreground(owner_hwnd)
+        time.sleep(0.4)
+        if user32.GetForegroundWindow() == owner_hwnd:
+            break
+    else:
+        return None, "foreground lost"
+    sxp, syp = bx + bw * 0.30, by + bh * 0.40
+    exp_, eyp = bx + bw * 0.92, by + bh * 0.75
+    _send_mouse(sxp, syp)
+    time.sleep(0.25)
+    _send_mouse(sxp, syp, down=True)
+    time.sleep(0.2)
+    for i in range(1, 13):
+        _send_mouse(sxp + (exp_ - sxp) * i / 12, syp + (eyp - syp) * i / 12)
+        time.sleep(0.1)
+    time.sleep(0.2)
+    _send_mouse(exp_, eyp, down=False)
+    time.sleep(2.2)
+    sel = None
+    for f in page.frames:
+        try:
+            r = f.evaluate(_JS_SEL)
+        except Exception:
+            r = None
+        if r:
+            sel = r
+            break
+    return sel, None
+
+
+def _poll_target_record(sid, base_count, deadline=12):
+    """sidecar 记录数超过基线后，返回最新目标句记录（无则 None）。"""
+    t0 = time.monotonic()
+    recs = []
+    while time.monotonic() - t0 < deadline:
+        sj = _http("GET", f"http://127.0.0.1:17827/api/probe/locators?session_id={sid}")
+        recs = sj.get("sidecar", {}).get("records", []) if sj.get("found") else []
+        if len(recs) > base_count:
+            time.sleep(1.5)  # selectionchange 连发中间态——等计数稳定
+            sj = _http("GET", f"http://127.0.0.1:17827/api/probe/locators?session_id={sid}")
+            recs = sj.get("sidecar", {}).get("records", []) if sj.get("found") else []
+            break
+        time.sleep(1)
+    tgt = [r for r in recs
+           if (r["locator"]["text_quote"] or "").replace(chr(10), "").replace(" ", "")
+           and ((r["locator"]["text_quote"].replace(chr(10), "").replace(" ", "")
+                 in REPEAT_A) or (REPEAT_A in r["locator"]["text_quote"]))]
+    return (tgt[-1] if tgt else None), len(recs)
+
+
+def _drag_current_and_verify(page, win_hwnd3, oracle_scan, sid3, base_count,
+                             turn=False):
+    """当前可视首行 → 真实拖选 → 新记录 oracle 核验（任意段，非目标句专用；
+    red3 教训：scroll-redrag 翻页后目标句在前方页，前向 walk 永不回头——
+    几何门一律用当前位置，不依赖句位）。turn=True 时先翻页（next() 直到首
+    行文本变化≤4轮——拖选页可能是章节尾页，next() 空转复选同段被去重
+    green6 实测）；拖选前补一次完整 down+up 冲刷遗留鼠标捕获（t04 教训，
+    green6 hide-show 空选区实证）。返回 (ok, note, new_base)。"""
+    def _first():
+        for f in page.frames:
+            try:
+                fl_ = f.evaluate(_JS_FIRST_LINE)
+            except Exception:
+                fl_ = None
+            if fl_:
+                return fl_
+        return None
+    if turn:
+        fl0 = _first()
+        for _ in range(4):
+            try:
+                page.evaluate("() => window.__probe.view.renderer.next()")
+            except Exception:
+                pass
+            page.wait_for_timeout(1200)
+            fl1 = _first()
+            if fl1 and (fl0 is None or fl1["text"] != fl0["text"]):
+                break
+            fl0 = fl1
+    fl = _first()
+    if not fl:
+        return False, "no visible line", base_count
+    if fl.get("width", 0) < 40:
+        return False, f"degenerate line box w={fl.get('width')}", base_count
+    popup = _find_popup_hwnd()
+    if not popup:
+        return False, "popup window gone", base_count
+    rect = _win_rect(popup)
+    vw = page.evaluate("() => window.innerWidth")
+    scale = rect[2] / max(1, vw)
+    fx = rect[0] + fl["x"] * scale + 4
+    fy = rect[1] + (fl["y"] + fl["height"] * 0.5) * scale
+    _send_mouse(fx, fy, True)
+    time.sleep(0.08)
+    _send_mouse(fx, fy, False)
+    time.sleep(0.6)
+    sel, err = _drag_line(page, rect, fl, win_hwnd3)
+    # 持续轮询到 oracle 通过或超时。认领口径（dpi5 教训：纯计数 delta 会被
+    # 乱序/先行到达的记录吸收）——候选 = oracle 通过 且【quote 与本次 CDP
+    # 选区逐字一致（去空白）或 为 base 之后的新记录】；中间态跨栏拼接记录
+    # （oracle 拒）自然过滤。
+    sel_flat = (sel or "").replace(chr(10), "").replace(" ", "")
+    t0 = time.monotonic()
+    ok = False
+    note = f"sel={str(sel)[:20]!r} err={err}"
+    recs2 = []
+    # 45s：adapter 回传 = 400ms 去抖 + countOccurrences 全书 createDocument
+    # 扫描——DPI 切换/多章装载后实测晚到 20-30s（dpi4 sidecar 实证）。
+    while time.monotonic() - t0 < 45 and not ok:
+        sj = _http("GET", f"http://127.0.0.1:17827/api/probe/locators?session_id={sid3}")
+        recs2 = sj.get("sidecar", {}).get("records", []) if sj.get("found") else []
+        for idx, r in enumerate(recs2):
+            q = (r["locator"]["text_quote"] or "").replace(chr(10), "").replace(" ", "")
+            if not q or (REPEAT_A_MARKER in q):
+                continue  # 目标句记录由专用门核验，这里要新段
+            if idx < base_count and not (sel_flat and q == sel_flat):
+                continue  # 旧记录且非本次选区
+            vq = oracle_scan.verify_quote(r["locator"]["text_quote"],
+                                          int(r["locator"]["occurrence"]))
+            if vq.get("ok"):
+                ok = True
+                how = "sel-exact" if (sel_flat and q == sel_flat) else "new-record"
+                note += f" [{how}] quote={q[:14]!r} oracle_ok pos={vq.get('position')}"
+                break
+        time.sleep(1.5 if recs2 else 1)
+    return ok, note, max(base_count, len(recs2))
+
+
+def _run_t05_gates(out_dir, mcp3, sid3, win_hwnd3, oracle_scan, results,
+                   base_count):
+    """T-05 扩展门：字体重排/滚动重拖/遮挡/隐藏展示/系统无障碍/键盘访问。
+    在 resize-follow 之后执行（窗口已 MoveWindow 至 1400x1300@100,100）。"""
+    popup = _find_popup_hwnd()
+    if not popup:
+        results("N-05.popup-found", "FAIL",
+                "AutoUIDocSurfacePopup window not visible after resize")
+        return
+    popup_rect = _win_rect(popup)
+    results("N-05.popup-found", "PASS",
+            f"GetWindowRect={popup_rect}")
+    pw5, browser5, page5 = _cdp_engine_page(sid3, cdp_port=9335)
+    if page5 is None:
+        results("N-05", "FAIL", "engine page not reachable via CDP for T-05 gates")
+        if browser5:
+            browser5.close()
+        if pw5:
+            pw5.stop()
+        return
+
+    def close_cdp():
+        try:
+            browser5.close()
+            pw5.stop()
+        except Exception:
+            pass
+
+    try:
+        # ── N-05.font-reflow：真实字号重排（章节 body font-size 翻倍）→
+        # 行盒位移 → 新几何上真实拖选重命中目标原文 ──
+        lb0 = _measure_target_line(page5)
+        if not lb0:
+            results("N-05.font-reflow", "FAIL", "target line never visible")
+            return
+        frame_t = None
+        for f in page5.frames:
+            try:
+                if REPEAT_A_MARKER in f.content():
+                    frame_t = f
+                    break
+            except Exception:
+                continue
+        if frame_t is None:
+            results("N-05.font-reflow", "FAIL", "target frame lost")
+            return
+        frame_t.evaluate("() => { document.body.style.fontSize = '200%'; }")
+        page5.wait_for_timeout(2000)
+        lb1 = _measure_target_line(page5)
+        if not lb1:
+            results("N-05.font-reflow", "FAIL", "target line lost after reflow")
+            return
+        moved = (abs(lb1["y"] - lb0["y"]) > 4 or abs(lb1["x"] - lb0["x"]) > 4
+                 or abs(lb1["width"] - lb0["width"]) > 4)
+        results("N-05.font-reflow.reflowed", "PASS" if moved else "FAIL",
+                f"before=({lb0['x']:.0f},{lb0['y']:.0f},{lb0['width']:.0f}) "
+                f"after=({lb1['x']:.0f},{lb1['y']:.0f},{lb1['width']:.0f})")
+        if not moved:
+            return
+        popup_rect = _win_rect(_find_popup_hwnd()) if _find_popup_hwnd() else popup_rect
+        sel, err = _drag_line(page5, popup_rect, lb1, win_hwnd3)
+        rec, n_recs = _poll_target_record(sid3, base_count)
+        ok = bool(sel) and rec is not None
+        if ok:
+            vq = oracle_scan.verify_quote(rec["locator"]["text_quote"],
+                                          int(rec["locator"]["occurrence"]))
+            ok = bool(vq.get("ok"))
+            note = f"sel={str(sel)[:24]!r} occ={rec['locator']['occurrence']} oracle_ok={vq.get('ok')}"
+        else:
+            note = f"sel={str(sel)[:24]!r} err={err} recs={n_recs}"
+        results("N-05.font-reflow.redrag", "PASS" if ok else "FAIL", note)
+        if not ok:
+            return
+        base_count = n_recs
+
+        # ── N-05.scroll-redrag：CDP 翻页（许可口径：CDP 用于翻页/只读观察，
+        # 非代选）→ 内容重定位断言（首可视行文本必须变化）→ 真实拖选可视
+        # 新段 → 独立 oracle 逐字/位次核验。键盘翻页路径归 N-06.keyboard。──
+        def _first_line():
+            for f in page5.frames:
+                try:
+                    fl_ = f.evaluate(_JS_FIRST_LINE)
+                except Exception:
+                    fl_ = None
+                if fl_:
+                    return fl_
+            return None
+        def _loc():
+            try:
+                return page5.evaluate(
+                    "() => { const l = window.__probe.view.lastLocation;"
+                    " return l ? (l.cfi + '|' + (l.pageItem ? l.pageItem.fraction : '')) : null; }")
+            except Exception:
+                return None
+        loc0 = _loc()
+        turned = False
+        for _ in range(4):
+            page5.evaluate("() => window.__probe.view.renderer.next()")
+            page5.wait_for_timeout(1200)
+            if _loc() != loc0:
+                turned = True
+                break
+        if not turned:
+            results("N-05.scroll-redrag", "FAIL",
+                    f"view never relocated after 4 page turns (cfi stuck at {str(loc0)[:40]!r})")
+        else:
+            ok, note, base_count = _drag_current_and_verify(
+                page5, win_hwnd3, oracle_scan, sid3, base_count)
+            results("N-05.scroll-redrag", "PASS" if ok else "FAIL",
+                    f"turned={turned} {note}")
+
+        # ── N-06.uia-content：系统 UIA 树（PowerShell UIAutomationClient，
+        # 屏读同源 API）从弹出窗定位正文文本——非 DOM ARIA、非 CDP ──
+        _run_n06_uia(popup, out_dir, results)
+
+        # ── N-06.keyboard-operate：UIA 焦点操作入文档 + 真实键盘翻页往返 ──
+        _run_n06_keyboard(popup, out_dir, page5, results)
+
+        # ── N-05.occlusion：真实 topmost 遮挡窗覆盖弹出窗 → 像素取证 →
+        # 撤除 → 内容恢复（像素）+ 真实拖选当前可视段重命中 ──
+        popup_rect = _win_rect(popup)
+        cx = popup_rect[0] + popup_rect[2] * 0.5
+        cy = popup_rect[1] + popup_rect[3] * 0.5
+        p_before = _screen_pixel(cx, cy)
+        # 遮挡前先跳 ch3：遮挡拖选位置与 ch1 前向路径（scroll-redrag）永不
+        # 相交——同选区重复选择被消费端去重（green10 实测 14s 零记录）。
+        try:
+            page5.evaluate("() => window.__probe.view.goTo(2)")
+        except Exception:
+            pass
+        page5.wait_for_timeout(1500)
+        ov, br = _overlay_window(popup_rect[0], popup_rect[1],
+                                 popup_rect[2], popup_rect[3])
+        time.sleep(1.2)
+        p_during = _screen_pixel(cx, cy)
+        covered = p_during == (255, 0, 0)  # COLORREF 低字节=R → 红=(255,0,0)
+        _drop_overlay(ov, br)
+        time.sleep(1.5)
+        p_after = _screen_pixel(cx, cy)
+        restored = p_after != (255, 0, 0)
+        results("N-05.occlusion.cover", "PASS" if covered else "FAIL",
+                f"before={p_before} during={p_during} after={p_after} (occluder red)")
+        if restored and not covered:
+            # 覆盖失败：occluder 没盖住（z 序/几何问题）——门失败，不继续。
+            results("N-05.occlusion.redrag", "FAIL",
+                    "occluder did not cover the popup; redrag meaningless")
+        else:
+            # 翻一页取新段——同段重复选择被消费端去重（green3 实测 new=0）。
+            ok, note, base_count = _drag_current_and_verify(
+                page5, win_hwnd3, oracle_scan, sid3, base_count, turn=True)
+            results("N-05.occlusion.redrag", "PASS" if ok else "FAIL",
+                    f"restored={restored} {note}")
+
+        # ── N-05.hide-show：MCP press 断开表面 → url 空路径 → 弹出窗必须
+        # 真隐藏（真值=_find_popup_hwnd 查无+像素非内容）；重连 → 再现 +
+        # 真实拖选重命中 ──
+        snap = _mcp_text(mcp3, "autoui_snapshot")
+        mb = re.search(r'button #(\S+) "断开表面"', snap)
+        if not mb:
+            results("N-05.hide-show", "FAIL", "Disconnect button not in MCP tree")
+            return
+        _mcp_text(mcp3, "autoui_action", {"element_id": mb.group(1), "action": "press"})
+        time.sleep(2.0)
+        gone = _find_popup_hwnd() is None
+        cx = popup_rect[0] + popup_rect[2] * 0.5
+        cy = popup_rect[1] + popup_rect[3] * 0.5
+        p_hidden = _screen_pixel(cx, cy)
+        results("N-05.hide-show.hidden", "PASS" if gone else "FAIL",
+                f"popup_visible={not gone} pixel_at_center={p_hidden}")
+        if not gone:
+            # 弹出窗仍可见 = url 空路径未真隐藏（宿主接缝缺陷——修复前红）。
+            results("N-05.hide-show", "FAIL",
+                    "popup window still visible with empty surface url")
+            return
+        mc = re.search(r'button #(\S+) "连接会话"', _mcp_text(mcp3, "autoui_snapshot"))
+        if not mc:
+            results("N-05.hide-show", "FAIL", "Connect button not in MCP tree")
+            return
+        act = _mcp_text(mcp3, "autoui_action", {"element_id": mc.group(1), "action": "press"})
+        if "status: ok" not in act:
+            results("N-05.hide-show", "FAIL", "Connect press failed: " + act[:80])
+            return
+        back = None
+        for _ in range(20):
+            back = _find_popup_hwnd()
+            if back:
+                break
+            time.sleep(1)
+        if not back:
+            results("N-05.hide-show", "FAIL", "popup did not re-appear after Connect (20s)")
+            return
+        time.sleep(2.5)
+        rect_show = _win_rect(back)
+        p_back = _screen_pixel(rect_show[0] + rect_show[2] * 0.5,
+                               rect_show[1] + rect_show[3] * 0.5)
+        results("N-05.hide-show.reshow", "PASS",
+                f"rect={rect_show} pixel={p_back}")
+        page5 = None
+        # 双 sync_playwright 实例在 py3.14 冲突（asyncio loop 错误，green3
+        # 实测）——先关 browser5 再开 page6 的连接。
+        close_cdp()
+        pw6, browser6, page6 = _cdp_engine_page(sid3, cdp_port=9335, deadline=45)
+        if page6 is None:
+            results("N-05.hide-show.redrag", "FAIL", "engine page lost after reshow")
+            if browser6:
+                browser6.close()
+            if pw6:
+                pw6.stop()
+            return
+        ok, note, base_count = _drag_current_and_verify(
+            page6, win_hwnd3, oracle_scan, sid3, base_count, turn=True)
+        results("N-05.hide-show.redrag", "PASS" if ok else "FAIL", note)
+
+        # ── N-05.dpi-change（交互门，PROBE_DPI_INTERACTIVE=1 才执行）：
+        # 用户经系统设置切换显示缩放 → 驱动检测 → 弹出窗/内容随新 DPI →
+        # 真实拖选重命中；恢复后复验。预算语义：用户节奏单独计时（检测
+        # 600s+恢复 600s），不计入 600s 自动链预算——计划 §5.2 语义修订。──
+        if os.environ.get("PROBE_DPI_INTERACTIVE") == "1":
+            _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results)
+        else:
+            results("N-05.dpi-change", "not_run",
+                    "interactive gate: rerun with PROBE_DPI_INTERACTIVE=1 "
+                    "(user-assisted display-scale change, 600s windows)")
+        # page6 的 CDP 连接在 DPI 门用完后再关（dpi2 实测：先关后用=
+        # "Event loop is closed" 崩溃）。
+        try:
+            browser6.close()
+            pw6.stop()
+        except Exception:
+            pass
+    finally:
+        close_cdp()
+
+
+def _run_n06_uia(popup, out_dir, results):
+    """N-06.uia-content：系统 UIA（PowerShell UIAutomationClient）从弹出窗
+    HWND 走系统树，定位正文文本（目标句片段）。Chromium 可达性按需激活——
+    UIA 客户端走查即触发 WM_GETOBJECT 路径；样本树同时落盘供诊断。"""
+    frag = "琥珀色的狐狸"
+    ps1 = os.path.join(out_dir, "n06-uia.ps1")
+    out_json = os.path.join(out_dir, "n06-uia.json")
+    with open(ps1, "w", encoding="utf-8-sig") as f:
+        f.write(_UIA_PS1)
+    found = False
+    note = ""
+    r = None
+    for attempt in range(3):
+        try:
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                 "-File", ps1, "-Hwnd", str(popup), "-Fragment", frag,
+                 "-Out", out_json],
+                capture_output=True, encoding="utf-8", errors="replace", timeout=180)
+        except subprocess.TimeoutExpired:
+            results("N-06.uia-content", "GAP", "UIA walk timed out (180s)")
+            return
+        try:
+            j = json.loads(open(out_json, encoding="utf-8-sig").read())
+            found = bool(j.get("hit"))
+        except Exception:
+            found = False
+        if found:
+            break
+        time.sleep(3)  # 可达性树激活/装载时序波动（green8 实测 29 节点无正文）
+    note = f"rc={r.returncode if r else -1} attempt={attempt + 1}"
+    if os.path.exists(out_json):
+        try:
+            j = json.loads(open(out_json, encoding="utf-8-sig").read())
+            hit = j.get("hit")
+            found = bool(hit)
+            chain = " <- ".join(f"{c.get('c')}:{c.get('t')}"
+                                for c in (j.get("chain") or [])[:6])
+            note += f" nodes={j.get('count')} hit={json.dumps(hit, ensure_ascii=False)[:120]} chain={chain[:140]}"
+            if not found and j.get("error"):
+                note += " err=" + str(j.get("error"))[:80]
+        except Exception as e:
+            note += " parse:" + repr(e)[:60]
+    else:
+        note += " stderr=" + (r.stderr or "")[:120]
+    results("N-06.uia-content", "PASS" if found else "FAIL", note)
+
+
+def _run_n06_keyboard(popup, out_dir, page5, results):
+    """N-06.keyboard-operate：UIA SetFocus 操作文档元素（系统树操作）→
+    焦点核验（GUI 线程焦点落在弹出窗子树）→ 真实 ArrowRight/Left 翻页往返
+    （CDP lastLocation 为页位真值）。"""
+    out_json = os.path.join(out_dir, "n06-uia-focus.json")
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", os.path.join(out_dir, "n06-uia.ps1"), "-Hwnd", str(popup),
+             "-Fragment", "", "-Out", out_json, "-Mode", "focus"],
+            capture_output=True, encoding="utf-8", errors="replace", timeout=180)
+    except subprocess.TimeoutExpired:
+        results("N-06.keyboard-operate", "GAP", "UIA focus walk timed out (180s)")
+        return
+    focus_el = None
+    try:
+        j = json.loads(open(out_json, encoding="utf-8-sig").read())
+        focus_el = j.get("hit")
+        uia_err = j.get("error")
+        uia_count = j.get("count")
+        uia_sample = (j.get("sample") or [])[:6]
+    except Exception as e:
+        uia_err, uia_count, uia_sample = repr(e)[:80], None, []
+    focus_path = "uia"
+    if not focus_el:
+        # 回退：真实点击文档可视区（真实输入把焦点送进内容——用户自然路径）。
+        focus_path = "real-click-fallback"
+        pr = _win_rect(popup)
+        fx = pr[0] + pr[2] * 0.5
+        fy = pr[1] + pr[3] * 0.5
+        _send_mouse(fx, fy)
+        time.sleep(0.2)
+        _send_mouse(fx, fy, down=True)
+        time.sleep(0.08)
+        _send_mouse(fx, fy, down=False)
+        time.sleep(0.8)
+    # 焦点核验：GUI 线程焦点必须落在弹出窗子树（系统焦点 ≠ 仅 CDP 断言）。
+    class GUIINFO(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.c_uint), ("flags", ctypes.c_uint),
+                    ("hwndActive", ctypes.c_void_p), ("hwndFocus", ctypes.c_void_p),
+                    ("hwndCapture", ctypes.c_void_p), ("hwndMenuOwner", ctypes.c_void_p),
+                    ("hwndMoveSize", ctypes.c_void_p), ("hwndCaret", ctypes.c_void_p),
+                    ("rcCaret", ctypes.wintypes.RECT)]
+    time.sleep(1.0)
+    gi = GUIINFO()
+    gi.cbSize = ctypes.sizeof(gi)
+    user32.GetGUIThreadInfo(0, ctypes.byref(gi))
+    fh = gi.hwndFocus or 0
+    in_popup = bool(fh) and bool(user32.IsChild(popup, fh))
+    results("N-06.keyboard-operate.uia-focus", "PASS" if in_popup else "FAIL",
+            f"path={focus_path} el={json.dumps(focus_el, ensure_ascii=False)[:70]} "
+            f"hwndFocus={fh:#x} in_popup_tree={in_popup}")
+    if not in_popup:
+        return
+    # 真实键盘翻页往返：ArrowRight → 页位变化；ArrowLeft → 回到原页位。
+    def _loc():
+        try:
+            return page5.evaluate(
+                "() => { const l = window.__probe.view.lastLocation;"
+                " return l ? (l.cfi + '|' + (l.pageItem ? l.pageItem.fraction : '')) : null; }")
+        except Exception:
+            return None
+    loc0 = _loc()
+    _send_key(0x27)  # ArrowRight
+    time.sleep(1.5)
+    loc1 = _loc()
+    _send_key(0x25)  # ArrowLeft
+    time.sleep(1.5)
+    loc2 = _loc()
+    turned = loc1 is not None and loc0 is not None and loc1 != loc0
+    back = loc2 == loc0
+    results("N-06.keyboard-operate", "PASS" if (turned and back) else "FAIL",
+            f"loc0={str(loc0)[:36]} right={str(loc1)[:36]} turned={turned} "
+            f"back={back} (real ArrowRight/Left)")
+
+
+def _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results):
+    """N-05.dpi-change（交互门）：用户经系统设置切换显示缩放 → 驱动自动
+    检测（每秒轮询 iced 窗 DPI，150s 窗口）→ 弹出窗/内容随新 DPI（真值：
+    GetWindowRect vs CDP innerWidth×新scale）→ 真实拖选重命中目标原文 →
+    提示恢复 → 复验。预算语义：用户节奏单独计时，见计划 §5.2 语义修订。"""
+    def _popup():
+        h = _find_popup_hwnd()
+        return (h, _win_rect(h)) if h else (None, None)
+
+    dpi0 = user32.GetDpiForWindow(win_hwnd3) or 96
+    # 检测窗 600s：用户节奏（AskUserQuestion 协调往返 + 设置操作）远超短窗
+    # ——首跑 150s 实测超时（用户已切、窗口先关）。预算语义修订见计划 §5.2。
+    print(f">>> N-05.dpi-change: 请在 设置>系统>屏幕 将显示缩放改为其他档位"
+          f"（当前 DPI={dpi0}，600 秒内）<<<", flush=True)
+    dpi1 = None
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < 600:
+        d = user32.GetDpiForWindow(win_hwnd3)
+        if d != dpi0:
+            dpi1 = d
+            break
+        time.sleep(1)
+    if not dpi1:
+        results("N-05.dpi-change", "GAP",
+                f"display scale not changed within 600s (dpi stayed {dpi0})")
+        return
+    time.sleep(5)  # winit WM_DPICHANGED 重排 + doc-surface sync + WebView2 栅格化
+    pop, prect = _popup()
+    vw = page6.evaluate("() => window.innerWidth")
+    vh = page6.evaluate("() => window.innerHeight")
+    exp_w = (vw * dpi1 / 96.0) if vw else 0
+    tracked = bool(pop) and prect and abs(prect[2] - exp_w) <= 6
+    results("N-05.dpi-change.track", "PASS" if tracked else "FAIL",
+            f"dpi {dpi0}->{dpi1} popup={prect} innerWidth={vw} expected_w={exp_w:.0f}")
+    if not tracked:
+        return
+    # 当前位置拖选 + oracle（位置依赖教训：视口可在任意章——dpi3 实测 ch3
+    # 上目标句前向 walk 永不达；track 门已证几何跟随，此处证输入重命中）。
+    ok, note, base_count = _drag_current_and_verify(
+        page6, win_hwnd3, oracle_scan, sid3, base_count, turn=True)
+    results("N-05.dpi-change.redrag", "PASS" if ok else "FAIL", note)
+    print(">>> 请恢复显示缩放回原档位（600 秒内）<<<", flush=True)
+    t0 = time.monotonic()
+    restored = False
+    while time.monotonic() - t0 < 600:
+        if user32.GetDpiForWindow(win_hwnd3) == dpi0:
+            restored = True
+            break
+        time.sleep(1)
+    if not restored:
+        results("N-05.dpi-change.restore", "GAP", "scale not restored within 600s")
+        return
+    time.sleep(5)
+    pop2, prect2 = _popup()
+    back = bool(pop2) and prect2 and abs(prect2[2] - vw * dpi0 / 96.0) <= 6
+    results("N-05.dpi-change.restore", "PASS" if back else "FAIL",
+            f"popup={prect2} expected_w={vw * dpi0 / 96.0:.0f}")
+
+
+_UIA_PS1 = r"""param(
+    [long]$Hwnd,
+    [string]$Fragment,
+    [string]$Out,
+    [string]$Mode = 'find'
+)
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+
+$root = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$Hwnd)
+$result = [ordered]@{
+    root = @{ name = $root.Current.Name; class = $root.Current.ClassName
+              type = $root.Current.ControlType.ProgrammaticName }
+    count = 0
+    hit = $null
+    chain = @()
+    sample = @()
+    error = $null
+}
+function ElemInfo($el) {
+    $name = ''
+    $cls = ''
+    $typ = ''
+    $kbd = $false
+    try { $name = $el.Current.Name } catch {}
+    try { $cls = $el.Current.ClassName } catch {}
+    try { $typ = $el.Current.ControlType.ProgrammaticName } catch {}
+    try { $kbd = $el.Current.IsKeyboardFocusable } catch {}
+    @{ n = $name; c = $cls; t = $typ; k = $kbd }
+}
+try {
+    if ($Mode -eq 'focus') {
+        # 找第一个可键入焦点/文档类元素并 SetFocus（系统树操作）。
+        $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+        $stack = [System.Collections.Stack]::new()
+        $stack.Push(@($root, 0))
+        while ($stack.Count -gt 0 -and $result.count -lt 2500) {
+            $entry = $stack.Pop()
+            $el = $entry[0]; $depth = $entry[1]
+            $result.count++
+            $info = ElemInfo $el
+            # ProgrammaticName 形如 ControlType.Document（red3 实测误写
+            # '*DocumentControl*' 永不命中）——文本/文档容器均可作焦点锚。
+            $isDoc = ($info.t -like '*Document*')
+            if (($info.k -and $depth -gt 1) -or $isDoc) {
+                try {
+                    $el.SetFocus()
+                    $result.hit = @{ c = $info.c; t = $info.t; n = $info.n.Substring(0, [Math]::Min(60, $info.n.Length)); k = $info.k }
+                } catch { $result.error = $_.Exception.Message }
+                break
+            }
+            if ($result.sample.Count -lt 40) { $result.sample += @{ d = $depth; t = $info.t; c = $info.c; k = $info.k } }
+            $child = $walker.GetFirstChild($el)
+            while ($null -ne $child) {
+                $stack.Push(@($child, $depth + 1))
+                $child = $walker.GetNextSibling($child)
+            }
+        }
+    } else {
+        $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+        $stack = [System.Collections.Stack]::new()
+        $stack.Push(@($root, 0))
+        while ($stack.Count -gt 0 -and $result.count -lt 2500) {
+            $entry = $stack.Pop()
+            $el = $entry[0]; $depth = $entry[1]
+            $result.count++
+            $info = ElemInfo $el
+            if ($result.sample.Count -lt 150) {
+                $result.sample += @{ d = $depth; t = $info.t; c = $info.c
+                                     n = $info.n.Substring(0, [Math]::Min(60, $info.n.Length)) }
+            }
+            if ($info.n -and $info.n.Contains($Fragment)) {
+                $result.hit = @{ c = $info.c; t = $info.t
+                                 n = $info.n.Substring(0, [Math]::Min(120, $info.n.Length)) }
+                $cur = $el
+                while ($null -ne $cur) {
+                    $ci = ElemInfo $cur
+                    $result.chain += @{ c = $ci.c; t = $ci.t }
+                    if ($result.chain.Count -ge 12) { break }
+                    $cur = $walker.GetParent($cur)
+                }
+                break
+            }
+            $child = $walker.GetFirstChild($el)
+            while ($null -ne $child) {
+                $stack.Push(@($child, $depth + 1))
+                $child = $walker.GetNextSibling($child)
+            }
+        }
+    }
+} catch { $result.error = $_.Exception.Message }
+$result | ConvertTo-Json -Depth 5 | Set-Content -Path $Out -Encoding UTF8"""
+

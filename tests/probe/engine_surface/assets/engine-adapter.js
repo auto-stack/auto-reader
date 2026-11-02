@@ -68,6 +68,22 @@ export async function mountProbe(opts) {
     window.__probe = { view, book, engine: ENGINE_REVISION, events: [], loadMs }
 
     say('engine loaded in ' + loadMs + 'ms, spine=' + book.sections.length)
+
+    // N-06 键盘可达接缝（PLAN-029 T-05）：foliate-js 无键处理（翻页是宿主
+    // 应用职责）——adapter 接 ArrowLeft/Right、PageUp/Down → 翻页；host 页
+    // 与章节 iframe 两级都挂（系统焦点落在哪一级都能翻页；red3 实测 iframe
+    // 键事件不冒泡到 host 页，必须两级各挂）。
+    const onKey = e => {
+        const k = e.key
+        if (k !== 'ArrowRight' && k !== 'ArrowLeft'
+            && k !== 'PageDown' && k !== 'PageUp') return
+        e.preventDefault()
+        if (k === 'ArrowRight' || k === 'PageDown') view.renderer.next()
+        else view.renderer.prev()
+        say('keyboard turn: ' + k)
+    }
+    window.addEventListener('keydown', onKey)
+
     const onSectionMouseUp = async (index, doc) => {
         const sel = doc.getSelection()
         if (!sel || sel.isCollapsed || sel.rangeCount === 0) return
@@ -146,6 +162,7 @@ export async function mountProbe(opts) {
         })
         // 输入可达性探针：真实指针按下经 fetch 回报（iframe 无 window.ipc，
         // 2026-11-02 实测 wry 仅主 frame 注入——HTTP 面让驱动可在消费日志验证）。
+        doc.addEventListener('keydown', onKey)
         doc.addEventListener('pointerdown', () => {
             fetch('/api/probe/locator', {
                 method: 'POST',
@@ -166,6 +183,7 @@ export async function mountProbe(opts) {
     // 实测：getContents 有 3 个 doc 而 events 为 0，正是订阅时序缺口）。
     for (const c of view.renderer.getContents()) {
         c.doc.addEventListener('mouseup', () => { onSectionMouseUp(c.index, c.doc) })
+        c.doc.addEventListener('keydown', onKey)
     }
 
     // 状态面：探针页的状态文本。

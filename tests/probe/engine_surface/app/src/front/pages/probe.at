@@ -5,8 +5,11 @@
 // 引擎资产与受管文档；选区 fetch 直达 back/api.at 的 .at 消费 handler。
 // vue 轨保持原 remote-frame 接缝（PLAN-760 宿主接管契约）不动——
 // doc-surface 在 vue 轨退化为透传 div（未知 tag 宿主回退），旧链零改动。
+// PLAN-029 T-05：新增 Disconnect（断开表面）——surface_url 置空驱动组件
+// url 空路径，供 N-05 隐藏/展示生命周期门实测（弹出窗必须随 url 空真隐藏，
+// 展示后引擎可重载、选区链可复用）。
 widget probe {
-    msg { Init, Connect }
+    msg { Init, Connect, Disconnect }
 
     model {
         var surface_url str = ""
@@ -25,6 +28,11 @@ widget probe {
                     onclick: .Connect
                     style: "px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium"
                     text "连接会话" {}
+                }
+                button {
+                    onclick: .Disconnect
+                    style: "px-4 py-2 bg-secondary text-secondary-foreground rounded-lg text-sm font-medium"
+                    text "断开表面" {}
                 }
                 text .session_state { style: "text-sm text-muted-foreground" }
                 input {
@@ -54,6 +62,10 @@ widget probe {
 
     on {
         .Init -> {
+            .session_state = "idle"
+        }
+        .Disconnect -> {
+            .surface_url = ""
             .session_state = "idle"
         }
         .Connect -> {

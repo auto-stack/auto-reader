@@ -381,11 +381,12 @@ def run_surface(ctx):
         run_vue(ctx["out_dir"], ctx["corpus_dir"], oracle, REPEAT_A, record)
     else:
         # PLAN-029 T-03：vm 臂 = 真实 AutoUI 原生 VM 消费者（026 独立宿主流程
-        # 退役）。N-01/04/06（输入通道对照/IME/无障碍）与 N-07/08（实例/生命
-        # 周期）、N-09 后端负控、N-10 实况负控、N-11 变异、N-12 旧门仍待
-        # T-04..T-09；N-05 仅有 resize 跟随子项（完整几何门随 T-05）。
-        for cid in ["N-01", "N-05", "N-06", "N-07", "N-09", "N-10", "N-11", "N-12"]:
-            record(cid, "not_run", "pending later task (T-04..T-09)")
+        # 退役）。N-05 完整几何门（重排/滚动/遮挡/隐藏/DPI）与 N-06 系统无
+        # 障碍已随 T-05 落入 driver_vm（run_vm 尾段）；N-01/07/08（输入通道
+        # 对照/实例/生命周期）、N-09 后端负控、N-10 实况负控、N-11 变异、
+        # N-12 旧门仍待 T-06..T-09。
+        for cid in ["N-01", "N-07", "N-09", "N-10", "N-11", "N-12"]:
+            record(cid, "not_run", "pending later task (T-06..T-09)")
         from driver_vm import run_vm
         oracle = BookScan(os.path.join(ctx["corpus_dir"], "probe-alpha.epub"))
         run_vm(ctx["out_dir"], ctx["corpus_dir"], oracle, record)
