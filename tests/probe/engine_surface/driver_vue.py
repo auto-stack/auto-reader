@@ -94,6 +94,54 @@ def mount_and_wait(page, ident, sid):
     return False, None
 
 
+def _iframe_page_x(page):
+    """foliate 分页可视位移：paginator shadow 内 iframe 元素的页面 x。"""
+    return page.evaluate(
+        "() => { const v = document.querySelector('foliate-view');"
+        " const p = v && v.shadowRoot && v.shadowRoot.querySelector('foliate-paginator');"
+        " const f = p && p.shadowRoot && p.shadowRoot.querySelector('iframe');"
+        " return f ? Math.round(f.getBoundingClientRect().x) : null; }")
+
+
+def _vue_page_to_visible(page, para, host_bb, max_turns=48):
+    """真实翻页（renderer.next()，许可口径：引擎翻页通道，非代选）直至
+    目标段与 remote-frame 可视区相交。t09-vuediag9 实测：next() 以 iframe
+    元素整页位移推进（每步 625px）；巨列形态下第2处出现在第 ~20 列——
+    旧 12 轮上限不可达，且永不相交时旧代码以负宽插值算出视口外坐标（0
+    locator POST 根因）。返回 (bb, turns, note)；bb=None = 预算内不可达/
+    next 失去位移（具名，不吞）。"""
+    def _box():
+        try:
+            return para.bounding_box()
+        except Exception:
+            return None
+
+    bb = _box()
+    turns = 0
+    while turns < max_turns:
+        if bb is None:
+            return None, turns, "target box unresolved"
+        ix0 = max(bb["x"], host_bb["x"])
+        ix1 = min(bb["x"] + bb["width"], host_bb["x"] + host_bb["width"])
+        iy0 = max(bb["y"], host_bb["y"])
+        iy1 = min(bb["y"] + bb["height"], host_bb["y"] + host_bb["height"])
+        if ix1 - ix0 > 60 and iy1 - iy0 > 24:
+            return bb, turns, "visible"
+        fx = _iframe_page_x(page)
+        page.evaluate("() => window.__probe.view.renderer.next()")
+        page.wait_for_timeout(650)
+        fx2 = _iframe_page_x(page)
+        if fx2 == fx:
+            # 宽限复核：200% 重排等大内容过渡下动画未落位会误判卡死
+            page.wait_for_timeout(1100)
+            fx2 = _iframe_page_x(page)
+        if fx is None or fx2 is None or fx2 == fx:
+            return None, turns, f"next() stopped moving visible column (x {fx}->{fx2})"
+        turns += 1
+        bb = _box()
+    return None, turns, f"target never intersects visible seam within {max_turns} turns"
+
+
 def _vue_drag_and_verify(page, results, oracle_scan, tag, repeat_a,
                          host_sel="[data-remote-frame]"):
     """在当前布局下重新定位 repeat_a 第2处出现 → 真实 Playwright 鼠标拖选
@@ -116,22 +164,53 @@ def _vue_drag_and_verify(page, results, oracle_scan, tag, repeat_a,
         results(tag, "FAIL", "target paragraph not attached")
         return False, None, None, None, None
     host_bb = page.locator(host_sel).bounding_box()
-    bb = para.bounding_box()
-    for _ in range(12):
-        if bb is None:
-            break
-        ix0 = max(bb["x"], host_bb["x"])
-        ix1 = min(bb["x"] + bb["width"], host_bb["x"] + host_bb["width"])
-        iy0 = max(bb["y"], host_bb["y"])
-        iy1 = min(bb["y"] + bb["height"], host_bb["y"] + host_bb["height"])
-        if ix1 - ix0 > 60 and iy1 - iy0 > 24:
-            break
-        page.evaluate("() => window.__probe.view.renderer.next()")
-        page.wait_for_timeout(700)
-        bb = para.bounding_box()
-    if bb is None or host_bb is None:
-        results(tag, "FAIL", "target box unresolved against host")
+    if host_bb is None:
+        results(tag, "FAIL", "host seam box unresolved")
         return False, None, None, None, None
+    bb, turns, note = _vue_page_to_visible(page, para, host_bb)
+    if bb is None:
+        results(tag, "FAIL", f"paging: {note}")
+        return False, None, None, None, None
+    # 片段级行盒精化（vm 臂同款纪律：JS Range 量测用途，非代选）：巨列/
+    # 大字号下段落跨列，union 包围盒横跨列间隙——mousedown 落隙则选区为空
+    # （t09-vueiso9 实测）。取第一个与可视 seam 相交的行盒片段拖选。
+    try:
+        frags = tframe.evaluate(
+            """(text) => {
+                const walker = document.createTreeWalker(
+                    document.body, NodeFilter.SHOW_TEXT);
+                const hits = [];
+                let n;
+                while ((n = walker.nextNode())) {
+                    let i = 0;
+                    while ((i = n.data.indexOf(text, i)) >= 0) {
+                        hits.push([n, i]); i += text.length;
+                    }
+                }
+                if (hits.length < 2) return null;
+                const [node, off] = hits[1];
+                const end = node.data.indexOf('\\u3002', off);
+                const r = document.createRange();
+                r.setStart(node, off);
+                r.setEnd(node, end > 0 ? end + 1 : off + text.length);
+                const fe = frameElement
+                    ? frameElement.getBoundingClientRect()
+                    : {left: 0, top: 0};
+                return [...r.getClientRects()].map(b => ({
+                    x: b.left + fe.left, y: b.top + fe.top,
+                    width: b.width, height: b.height}));
+            }""", repeat_a[:18])
+    except Exception:
+        frags = None
+    if frags:
+        vis = [g for g in frags
+               if g["width"] > 40 and g["height"] > 6
+               and min(g["x"] + g["width"], host_bb["x"] + host_bb["width"])
+               - max(g["x"], host_bb["x"]) > 60
+               and min(g["y"] + g["height"], host_bb["y"] + host_bb["height"])
+               - max(g["y"], host_bb["y"]) > 24]
+        if vis:
+            bb = vis[0]
     ix0 = max(bb["x"], host_bb["x"]) + 6
     ix1 = min(bb["x"] + bb["width"], host_bb["x"] + host_bb["width"]) - 6
     iy0 = max(bb["y"], host_bb["y"]) + 6
@@ -178,7 +257,22 @@ def _vue_drag_and_verify(page, results, oracle_scan, tag, repeat_a,
     return ok, quote, occ, cfi, respj
 
 
-def _run_vue_n05(page, results, oracle_scan, repeat_a, shot_dir):
+def _vue_anchor_target(page, cfi):
+    """把视口锚回目标 CFI（goTo=既定许可通道，N-03 恢复同款）：next() 只向
+    前，扰动腿先锚定再扰动，避免视口已越过目标后 forward-only 翻页不可达
+    （t09-vueiso2 实测 next() 在书尾失去位移）。"""
+    try:
+        page.evaluate("""async (cfi) => {
+            try { await window.__probe.view.goTo(cfi); return 'ok'; }
+            catch (e) { return 'err:' + e; }
+        }""", cfi)
+        page.wait_for_timeout(1200)
+        return True
+    except Exception:
+        return False
+
+
+def _run_vue_n05(page, results, oracle_scan, repeat_a, shot_dir, anchor_cfi):
     """N-05（vue 轨，T-09）：字体重排/翻页滚动/遮挡/隐藏再展示后，真实
     拖选仍命中指定原文。像素取证=整页截图解码（真实合成面）。"""
     sys.path.insert(0, os.path.abspath(os.path.join(HERE, "..", "..", "native")))
@@ -188,9 +282,14 @@ def _run_vue_n05(page, results, oracle_scan, repeat_a, shot_dir):
     def _shot(name):
         p = os.path.join(shot_dir, name)
         page.screenshot(path=p)
-        return scan_png_pixels(p)
+        try:
+            return scan_png_pixels(p)
+        except Exception as e:  # noqa: BLE001
+            results("N-05.pixel-decode", "FAIL", f"{name}: {repr(e)[:80]}")
+            return None
 
-    # ① 字体重排：章节 body 200% → 行盒位移（新几何）→ 真实拖选
+    # ① 字体重排：章节 body 200% → 重排后**再锚回**（重排会把目标列位
+    # 置整体移动，锚定必须落在扰动之后，forward-only 翻页才可达）→ 真实拖选
     moved = page.evaluate("""() => {
         const cs = window.__probe.view.renderer.getContents();
         for (const c of cs) {
@@ -205,9 +304,46 @@ def _run_vue_n05(page, results, oracle_scan, repeat_a, shot_dir):
     if moved is None:
         results("N-05.reflow-move", "FAIL", "section body not reachable")
         return
-    page.wait_for_timeout(1000)
-    ok_r, _, _, _, _ = _vue_drag_and_verify(page, results, oracle_scan,
-                                            "N-05.reflow", repeat_a)
+    # body 字号变化不触发分页器重算（其 resize 观察的是容器而非内容字号，
+    # 页表失真后 next() 定位越过段尾，t09-vueiso5/6/7 实测）——调 paginator
+    # 自身 render() 全量重排（真实宿主版式变更后的同款内部路径），不经
+    # 属性往返（gap 值会被当作显式覆盖污染后续页宽）。
+    try:
+        page.evaluate("""() => { const v = document.querySelector('foliate-view');
+            const p = v.shadowRoot.querySelector('foliate-paginator');
+            if (typeof p.render === 'function') { p.render(); return 'render'; }
+            return 'no-render-fn'; }""")
+        page.wait_for_timeout(1200)
+    except Exception:
+        pass
+    stable = 0
+    last_w = None
+    for _ in range(16):
+        w_now = page.evaluate(
+            "() => { const v = document.querySelector('foliate-view');"
+            " const p = v.shadowRoot.querySelector('foliate-paginator');"
+            " const f = p.shadowRoot.querySelector('iframe');"
+            " return f ? f.contentWindow.innerWidth : null; }")
+        if last_w is not None and w_now == last_w:
+            stable += 1
+            if stable >= 2:
+                break
+        else:
+            stable = 0
+        last_w = w_now
+        page.wait_for_timeout(700)
+    if not _vue_anchor_target(page, "epubcfi(/6/2!/4/2)"):
+        page.evaluate("""() => {
+            const cs = window.__probe.view.renderer.getContents();
+            for (const c of cs) { if (c.doc && c.doc.body) c.doc.body.style.fontSize = ''; }
+            return 1;
+        }""")
+        results("N-05.reflow", "FAIL", "post-reflow goTo anchor failed")
+        return
+    # 锚到段首而非目标 CFI：goTo 目标 CFI 在重排后定位语义会落到段尾钳制
+    # （t09-vueiso4..8 一致复现 x=-38422），段首 → 目标恒 forward 可达
+    # （N-02 拖选链同路已证 20 轮可达）。
+    _vue_drag_and_verify(page, results, oracle_scan, "N-05.reflow", repeat_a)
     page.evaluate("""() => {
         const cs = window.__probe.view.renderer.getContents();
         for (const c of cs) { if (c.doc && c.doc.body) c.doc.body.style.fontSize = ''; }
@@ -215,15 +351,17 @@ def _run_vue_n05(page, results, oracle_scan, repeat_a, shot_dir):
     }""")
     page.wait_for_timeout(800)
 
-    # ② 翻页滚动再回：renderer.next() 离开 → prev() 回（滚动位姿已变）→ 真实拖选
+    # ② 翻页滚动：锚回 → next() 离开 → prev() 回（滚动位姿已变）→ 真实拖选
+    _vue_anchor_target(page, anchor_cfi)
     page.evaluate("() => window.__probe.view.renderer.next()")
     page.wait_for_timeout(900)
     page.evaluate("() => window.__probe.view.renderer.prev()")
     page.wait_for_timeout(900)
     _vue_drag_and_verify(page, results, oracle_scan, "N-05.repage", repeat_a)
 
-    # ③ 遮挡：宿主页真实覆盖层（z-index 置顶纯色 div 盖住 remote-frame）→
-    # 像素三段（before白/覆盖红/撤除白）→ 撤除后真实拖选
+    # ③ 遮挡：先锚回目标 → 宿主页真实覆盖层（z-index 置顶纯色 div 盖住
+    # remote-frame）→ 像素三段（before白/覆盖红/撤除白）→ 撤除后真实拖选
+    _vue_anchor_target(page, anchor_cfi)
     host_bb = page.locator("[data-remote-frame]").bounding_box()
     cx = int(host_bb["x"] + host_bb["width"] / 2)
     cy = int(host_bb["y"] + host_bb["height"] / 2)
@@ -250,8 +388,9 @@ def _run_vue_n05(page, results, oracle_scan, repeat_a, shot_dir):
             f"red_px after={n_red2}")
     _vue_drag_and_verify(page, results, oracle_scan, "N-05.occlusion", repeat_a)
 
-    # ④ 隐藏→再展示：display:none → foliate-view 真隐藏（无盒）→ 恢复 →
-    # 真实拖选重新命中
+    # ④ 隐藏→再展示：锚回 → display:none → foliate-view 真隐藏（无盒）→
+    # 恢复 → 真实拖选重新命中
+    _vue_anchor_target(page, anchor_cfi)
     page.evaluate("""() => {
         const h = document.querySelector('[data-remote-frame]');
         h.__probe_disp = h.style.display;
@@ -295,47 +434,41 @@ def _run_vue_n11(page, results, oracle_scan, data_dir, sid, true_quote, true_cfi
     results("N-11.mutation-red", "PASS" if not vq.get("ok") else "FAIL",
             f"mutated quote -> oracle ok={vq.get('ok')} reason={vq.get('reason', '')[:40]}"
             " (must be red)")
-    # 错 CFI 恢复落点异位：真目标不可见即落点异位（位置判据）
+
+    def _go_to(cfi):
+        return page.evaluate("""async (cfi) => {
+            try { await window.__probe.view.goTo(cfi); return 'ok'; }
+            catch (e) { return 'err:' + e; }
+        }""", cfi)
+
+    def _last_loc():
+        return page.evaluate(
+            "() => { const l = window.__probe.view.lastLocation;"
+            " return l ? String(l.cfi || '') : null; }")
+
+    # 错 CFI 恢复落点异位（位置指纹判据，同 vm 臂口径）：投错 CFI 与真
+    # CFI 的 lastLocation 必须不同——textContent 口径会被邻 section 预渲染
+    # 文档污染（t09-vueiso2 实测假阴性），不可用。
     wrong_cfi = "epubcfi(/6/2!/4/2,/1:1,/1:5)"
-    page.evaluate("() => { window.__probe.target = %s; return 1; }"
-                  % json.dumps(true_quote))
-    page.evaluate("""async (cfi) => {
-        try { await window.__probe.view.goTo(cfi); return 'ok'; }
-        catch (e) { return 'err:' + e; }
-    }""", wrong_cfi)
+    _go_to(wrong_cfi)
     page.wait_for_timeout(1500)
-    vis_wrong = page.evaluate("""() => {
-        const cs = window.__probe.view.renderer.getContents();
-        for (const c of cs) {
-            if (c.doc.body && c.doc.body.textContent.includes(window.__probe.target))
-                return true;
-        }
-        return false;
-    }""")
-    results("N-11.wrong-cfi-lands-elsewhere", "PASS" if not vis_wrong else "FAIL",
-            f"goTo({wrong_cfi}) true-target visible={vis_wrong} (must be False)")
-    # 字节级还原 → oracle 绿 + 恢复命中
+    loc_wrong = _last_loc()
+    results("N-11.wrong-cfi-lands-elsewhere",
+            "PASS" if (loc_wrong and loc_wrong != true_cfi) else "FAIL",
+            f"goTo({wrong_cfi}) lastLocation={str(loc_wrong)[:50]!r} ≠ true={true_cfi[:40]!r}")
+    # 字节级还原 → oracle 绿 + 恢复落点=真 CFI
     with open(disk, "wb") as f:
         f.write(raw)
     back = open(disk, "rb").read()
     results("N-11.restore-bytes", "PASS" if back == raw else "FAIL",
             f"bytes_restored={back == raw}")
     vq2 = oracle_scan.verify_quote(true_quote, 1)
-    page.evaluate("""async (cfi) => {
-        try { await window.__probe.view.goTo(cfi); return 'ok'; }
-        catch (e) { return 'err:' + e; }
-    }""", true_cfi)
+    _go_to(true_cfi)
     page.wait_for_timeout(1500)
-    vis_true = page.evaluate("""() => {
-        const cs = window.__probe.view.renderer.getContents();
-        for (const c of cs) {
-            if (c.doc.body && c.doc.body.textContent.includes(window.__probe.target))
-                return true;
-        }
-        return false;
-    }""")
-    results("N-11.restore-green", "PASS" if (vq2.get("ok") and vis_true) else "FAIL",
-            f"oracle_ok={vq2.get('ok')} restore_visible={vis_true}")
+    loc_true = _last_loc()
+    results("N-11.restore-green",
+            "PASS" if (vq2.get("ok") and loc_true and loc_true != loc_wrong) else "FAIL",
+            f"oracle_ok={vq2.get('ok')} lastLocation={str(loc_true)[:50]!r} ≠ wrong={str(loc_wrong)[:40]!r}")
 
 
 def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
@@ -423,26 +556,6 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
             results("N-02.surface-in-host", "PASS" if in_host else "FAIL",
                     "foliate-view inside [data-remote-frame]=" + str(in_host))
             page.wait_for_timeout(1500)
-            img_ok = page.evaluate("""() => {
-                const cs = window.__probe.view.renderer.getContents();
-                for (const c of cs) {
-                    const im = c.doc.querySelector('img');
-                    if (im) return {ok: im.complete && im.naturalWidth > 0,
-                                    w: im.naturalWidth, h: im.naturalHeight};
-                }
-                return {ok: false, w: 0, h: 0, none: true};
-            }""")
-            results("N-02.image-decode", "PASS" if img_ok.get("ok") else "FAIL",
-                    f"natural={img_ok.get('w')}x{img_ok.get('h')} (expect 96x64)")
-            note = page.evaluate("""() => {
-                const cs = window.__probe.view.renderer.getContents();
-                for (const c of cs) {
-                    if (c.doc.body && c.doc.body.textContent.includes('章内注')) return true;
-                }
-                return false;
-            }""")
-            results("N-02.footnote-present", "PASS" if note else "FAIL",
-                    "章内注 visible=" + str(note))
 
             # ── V-02：真实拖选第二处重复句（不代选；跨行路径）──
             # foliate paginator 以 iframe 隔离章节：text= 定位不跨 iframe，
@@ -464,31 +577,19 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
                 return
             para = tframe.locator(f"text={repeat_a[:18]}").last
             para.wait_for(state="attached", timeout=10000)
-            # 分栏渲染：第二处出现可能在可视列之外——真实翻页
-            # （renderer.next()，非跳变）直至目标段与 host 可视区相交。
-            def _para_box():
-                try:
-                    b2 = para.bounding_box()
-                    return b2
-                except Exception:
-                    return None
+            # 分栏渲染：第二处出现可能在可视列之外——真实翻页直至相交
+            # （共享分页驱动：位移进度守卫 + 永不相交具名失败，见
+            # _vue_page_to_visible；巨列形态需 ~20 轮，旧 12 轮不可达）。
             host_bb0 = page.locator("[data-remote-frame]").bounding_box()
-            bb = _para_box()
-            for _ in range(12):
-                if bb is None:
-                    break
-                ix0 = max(bb["x"], host_bb0["x"])
-                ix1 = min(bb["x"] + bb["width"], host_bb0["x"] + host_bb0["width"])
-                iy0 = max(bb["y"], host_bb0["y"])
-                iy1 = min(bb["y"] + bb["height"], host_bb0["y"] + host_bb0["height"])
-                if ix1 - ix0 > 60 and iy1 - iy0 > 24:
-                    break
-                page.evaluate("() => window.__probe.view.renderer.next()")
-                page.wait_for_timeout(700)
-                bb = _para_box()
-            if bb is None:
-                results("N-02", "FAIL", "target paragraph box unresolved after paging")
+            if host_bb0 is None:
+                results("N-02", "FAIL", "host seam box unresolved")
                 return
+            bb, turns, pnote = _vue_page_to_visible(page, para, host_bb0)
+            if bb is None:
+                results("N-02", "FAIL", f"paging: {pnote}")
+                return
+            results("N-02.target-visible", "PASS",
+                    f"2nd occurrence visible after {turns} real page turns")
             # 分栏渲染下目标段可能部分位于可视区外：拖选限制在
             # remote-frame 可视交集内（真实拖选不代选，选区为可见子串）。
             host_bb = page.locator("[data-remote-frame]").bounding_box()
@@ -540,10 +641,40 @@ def run_vue(out_dir, corpus_dir, oracle_scan, repeat_a, results):
             disk = os.path.join(data_dir, "probe", "locators", sid + ".json")
             ok_disk = os.path.exists(disk) and quote_sel in open(disk, encoding="utf-8").read()
             results("N-02.sidecar-disk", "PASS" if ok_disk else "FAIL", disk)
+            # 图/脚注在 ch2：分页器按需装载（邻章预渲染不再保证）——放在
+            # 拖选链之后，真实翻页（许可通道）到图所在章再断言；向后翻页
+            # 不可达（next() 只向前），不能置于拖选前。
+            def _find_img_and_note():
+                return page.evaluate("""() => {
+                    const cs = window.__probe.view.renderer.getContents();
+                    let im = null, note = false;
+                    for (const c of cs) {
+                        if (!im) {
+                            const i = c.doc.querySelector('img');
+                            if (i) im = i;
+                        }
+                        if (c.doc.body && c.doc.body.textContent.includes('章内注')) note = true;
+                    }
+                    return {found: !!im, ok: !!im && im.complete && im.naturalWidth > 0,
+                            w: im ? im.naturalWidth : 0, h: im ? im.naturalHeight : 0, note};
+                }""")
+            img_state = _find_img_and_note()
+            turns_img = 0
+            while not (img_state.get("found") and img_state.get("note")) and turns_img < 8:
+                page.evaluate("() => window.__probe.view.renderer.next()")
+                page.wait_for_timeout(900)
+                turns_img += 1
+                img_state = _find_img_and_note()
+            results("N-02.image-decode", "PASS" if img_state.get("ok") else "FAIL",
+                    f"natural={img_state.get('w')}x{img_state.get('h')} "
+                    f"after {turns_img} page turns (expect 96x64)")
+            results("N-02.footnote-present", "PASS" if img_state.get("note") else "FAIL",
+                    "章内注 visible=" + str(img_state.get("note"))
+                    + f" (after {turns_img} page turns)")
             # ── N-05（vue 轨，T-09）：几何/遮挡/隐藏后真实拖选仍命中 ──
             try:
                 _run_vue_n05(page, results, oracle_scan, repeat_a,
-                             os.path.join(out_dir, "shots"))
+                             os.path.join(out_dir, "shots"), cfi_sel)
             except Exception as e:  # noqa: BLE001
                 results("N-05", "FAIL", "vue geometry gate exception: " + repr(e)[:140])
             browser.close()

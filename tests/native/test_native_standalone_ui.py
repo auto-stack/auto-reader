@@ -239,8 +239,10 @@ def scan_png_pixels(path):
     if not w or not idat:
         return None
     raw = zlib.decompress(idat)
-    stride = w * (4 if True else 3)
-    bpp = 4
+    # 行距按真实色型：2=RGB(3B/px) 6=RGBA(4B/px)——Playwright 整页截图为
+    # RGB(ctype 2)，旧固定 stride=4 在 RGB 上越界（t09-vueiso3 实测）。
+    bpp = 4 if ctype == 6 else 3
+    stride = w * bpp
     out = []
     prev = bytearray(stride)
     p = 0
@@ -270,7 +272,7 @@ def scan_png_pixels(path):
                 line[i] = (line[i] + pr) & 0xFF
         prev = line
         for x in range(w):
-            o = x * 4
+            o = x * bpp
             out.append((line[o], line[o + 1], line[o + 2]))
     return out
 
