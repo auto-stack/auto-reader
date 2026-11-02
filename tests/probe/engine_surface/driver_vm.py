@@ -28,6 +28,9 @@ ENGINE_REVISION = "foliate-js@3d794195"
 
 # 目标句前缀（verify_engine_surface.REPEAT_A 同源常量；第 2 处 = ch1 para7）。
 REPEAT_A_MARKER = "探针重复句甲"
+# beta 第二书目标句（gen_corpus REPEAT_B；全书 3 处，第 2 处=ch1 段内）。
+from gen_corpus import REPEAT_B  # noqa: E402  逐字同源（emoji 手抄必错）
+REPEAT_B_MARKER = REPEAT_B[:6]
 # 完整目标句（verify_engine_surface.REPEAT_A 同源；oracle 逐字核验用）。
 REPEAT_A = "探针重复句甲🦊：琥珀色的狐狸跃过懒狗时携带三枚星形饼干，并轻声数到十七✨，随后沿对角线穿过整段跨度以便在窄栏里真实换行。"
 
@@ -236,17 +239,19 @@ def _wait_surface_created(log_path, deadline=45):
 
 
 class VmInstance:
-    """真实 AutoUI 原生 VM 消费实例（auto run -r vm --no-merge 拆分模式）。"""
+    """真实 AutoUI 原生 VM 消费实例（auto run -r vm --no-merge 拆分模式）。
+    extra_args：双实例端口覆盖通道（T-00 冻结：-B/-F CLI；MCP 用
+    AUTOUI_MCP_PORT env 钉端口——服务端有 busy 回退链，双实例必须显式钉）。"""
 
-    def __init__(self, cwd, log_path, env):
+    def __init__(self, cwd, log_path, env, extra_args=None):
         self.log_path = log_path
         self.log = open(log_path, "w", encoding="utf-8", errors="replace")
         e = dict(os.environ)
         e.update(env)
         auto = os.environ.get("PROBE_AUTO_BIN", "auto")
         self.proc = subprocess.Popen(
-            [auto, "run", "-r", "vm", "--no-merge"], cwd=cwd, env=e,
-            stdout=self.log, stderr=subprocess.STDOUT)
+            [auto, "run", "-r", "vm", "--no-merge", *(extra_args or [])],
+            cwd=cwd, env=e, stdout=self.log, stderr=subprocess.STDOUT)
 
     def wait_http(self, url, deadline=90):
         t0 = time.monotonic()
@@ -821,6 +826,9 @@ def run_vm(out_dir, corpus_dir, oracle_scan, results):
             # （+交互 DPI 门，PROBE_DPI_INTERACTIVE=1）──
             _run_t05_gates(out_dir, mcp3, sid3, win_hwnd3, oracle_scan,
                            results, n_saved)
+        # ── T-06 门：双实例/关闭/迟到/崩溃/坏tool/占口（N-07/08 + N-10 实况）──
+        _run_n07_n08(out_dir, cons, sid3, win_hwnd3, oracle_scan, results,
+                     n_saved, ident_a=ident, corpus_dir=corpus_dir, mcp_a=mcp3)
     finally:
         if cons:
             cons.stop()
@@ -1146,8 +1154,9 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
 POPUP_CLASS = "AutoUIDocSurfacePopup"
 
 
-def _find_popup_hwnd():
-    """doc-surface 弹出窗（按注册类名+可见性）。隐藏后必须查无——该函数
+def _find_popup_hwnd(owner_pid=None):
+    """doc-surface 弹出窗（按注册类名+可见性；owner_pid 给定时按 owner 进程
+    作用域化——双实例并存下全局首个命中是错窗）。隐藏后必须查无——该函数
     即 N-05 隐藏门的真值来源。"""
     hits = []
 
@@ -1155,12 +1164,38 @@ def _find_popup_hwnd():
     def cb(h, _l):
         buf = ctypes.create_unicode_buffer(64)
         user32.GetClassNameW(h, buf, 64)
-        if buf.value == POPUP_CLASS and user32.IsWindowVisible(h):
-            hits.append(h)
+        if buf.value != POPUP_CLASS or not user32.IsWindowVisible(h):
+            return True
+        if owner_pid is not None:
+            opid = ctypes.c_uint()
+            ow = user32.GetWindow(h, 4)  # GW_OWNER
+            user32.GetWindowThreadProcessId(ow, ctypes.byref(opid)) if ow else None
+            if opid.value != owner_pid:
+                return True
+        hits.append(h)
         return True
 
     user32.EnumWindows(cb, None)
     return hits[0] if hits else None
+
+
+def _probe_window_pids():
+    """全部探针主窗 pid（双实例：标题同名，靠 pid 集合区分）。"""
+    pids = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    def cb(h, _l):
+        t_ = ctypes.create_unicode_buffer(128)
+        user32.GetWindowTextW(h, t_, 128)
+        if "引擎表面探针" in t_.value and user32.IsWindowVisible(h):
+            p_ = ctypes.c_uint()
+            user32.GetWindowThreadProcessId(h, ctypes.byref(p_))
+            if p_.value not in pids:
+                pids.append(p_.value)
+        return True
+
+    user32.EnumWindows(cb, None)
+    return pids
 
 
 def _win_rect(hwnd):
@@ -1293,7 +1328,9 @@ _JS_FIRST_LINE = """() => {
             run.push(v);
         }
         if (!best || run.length > best.length) best = run;
-        if (best && best.length >= 6) {
+        // 视口底部 35% 是脚注/页脚区（t06-vm3 实测 beta 拖选落进跨栏拼接
+        // '跨章注与复' 垃圾选区，oracle 拒）——正文行取上部 65%。
+        if (best && best.length >= 6 && best[0].y <= vh * 0.65) {
             const x1 = best[best.length - 1].x + best[best.length - 1].w;
             return { x: best[0].x, y: best[0].y, width: x1 - best[0].x,
                      height: best[0].h,
@@ -1305,17 +1342,17 @@ _JS_FIRST_LINE = """() => {
 }"""
 
 
-def _measure_target_line(page, deadline=15):
+def _measure_target_line(page, deadline=15, marker=REPEAT_A_MARKER):
     """翻页至目标句可见并返回其页面级行盒（css）。每轮重找 frame——分页会
-    换章节 iframe（N-02 同纪律）。"""
+    换章节 iframe（N-02 同纪律）。marker 可换书（beta=REPEAT_B）。"""
     vw = page.evaluate("() => window.innerWidth")
     vh = page.evaluate("() => window.innerHeight")
     for _ in range(12):
         for f in page.frames:
             try:
-                if REPEAT_A_MARKER not in f.content():
+                if marker not in f.content():
                     continue
-                lb = f.evaluate(_JS_LINE, [REPEAT_A_MARKER, vw, vh])
+                lb = f.evaluate(_JS_LINE, [marker, vw, vh])
                 if lb:
                     return lb
             except Exception:
@@ -1348,9 +1385,8 @@ def _drag_line(page, popup_rect, line, owner_hwnd):
     by = py + line["y"] * scale
     bw = line["width"] * scale
     bh = line["height"] * scale
-    _, cls0 = _hit_window(bx + bw * 0.3, by + bh * 0.4)
-    if not (("Chrome" in cls0) or ("WRY" in cls0.upper())):
-        return None, "hit=" + cls0
+    # 前台先行：A2 重启等时点其新窗会盖在 B 弹出窗上方（t06-vm6 实测
+    # hit=Window Class）——owner 提前台后弹出窗随帧 z 跟随浮起，再 hit-test。
     for _ in range(3):
         _force_foreground(owner_hwnd)
         time.sleep(0.4)
@@ -1358,6 +1394,10 @@ def _drag_line(page, popup_rect, line, owner_hwnd):
             break
     else:
         return None, "foreground lost"
+    time.sleep(1.0)  # 弹出窗 z 跟随与 WebView2 合成宽限
+    _, cls0 = _hit_window(bx + bw * 0.3, by + bh * 0.4)
+    if not (("Chrome" in cls0) or ("WRY" in cls0.upper())):
+        return None, "hit=" + cls0
     sxp, syp = bx + bw * 0.30, by + bh * 0.40
     exp_, eyp = bx + bw * 0.92, by + bh * 0.75
     _send_mouse(sxp, syp)
@@ -1403,7 +1443,8 @@ def _poll_target_record(sid, base_count, deadline=12):
 
 
 def _drag_current_and_verify(page, win_hwnd3, oracle_scan, sid3, base_count,
-                             turn=False):
+                             turn=False, owner_pid=None,
+                             base_url="http://127.0.0.1:17827"):
     """当前可视首行 → 真实拖选 → 新记录 oracle 核验（任意段，非目标句专用；
     red3 教训：scroll-redrag 翻页后目标句在前方页，前向 walk 永不回头——
     几何门一律用当前位置，不依赖句位）。turn=True 时先翻页（next() 直到首
@@ -1436,7 +1477,7 @@ def _drag_current_and_verify(page, win_hwnd3, oracle_scan, sid3, base_count,
         return False, "no visible line", base_count
     if fl.get("width", 0) < 40:
         return False, f"degenerate line box w={fl.get('width')}", base_count
-    popup = _find_popup_hwnd()
+    popup = _find_popup_hwnd(owner_pid)
     if not popup:
         return False, "popup window gone", base_count
     rect = _win_rect(popup)
@@ -1461,7 +1502,7 @@ def _drag_current_and_verify(page, win_hwnd3, oracle_scan, sid3, base_count,
     # 45s：adapter 回传 = 400ms 去抖 + countOccurrences 全书 createDocument
     # 扫描——DPI 切换/多章装载后实测晚到 20-30s（dpi4 sidecar 实证）。
     while time.monotonic() - t0 < 45 and not ok:
-        sj = _http("GET", f"http://127.0.0.1:17827/api/probe/locators?session_id={sid3}")
+        sj = _http("GET", f"{base_url}/api/probe/locators?session_id={sid3}")
         recs2 = sj.get("sidecar", {}).get("records", []) if sj.get("found") else []
         for idx, r in enumerate(recs2):
             q = (r["locator"]["text_quote"] or "").replace(chr(10), "").replace(" ", "")
@@ -1475,6 +1516,54 @@ def _drag_current_and_verify(page, win_hwnd3, oracle_scan, sid3, base_count,
                 ok = True
                 how = "sel-exact" if (sel_flat and q == sel_flat) else "new-record"
                 note += f" [{how}] quote={q[:14]!r} oracle_ok pos={vq.get('position')}"
+                break
+        time.sleep(1.5 if recs2 else 1)
+    return ok, note, max(base_count, len(recs2))
+
+
+def _drag_target_and_verify(page, win_hwnd, oracle_scan, sid, base_count,
+                            owner_pid=None, base_url="http://127.0.0.1:17827",
+                            marker=REPEAT_A_MARKER, full=REPEAT_A,
+                            want_occ=None):
+    """已知目标句的确定性拖选核验（N-02 同款机制，任意书）：行盒量测（第2处
+    出现）→ 真实拖选 → sidecar 记录中找目标句片段 → oracle 逐字/位次。
+    返回 (ok, note, new_base)。"""
+    lb = _measure_target_line(page, marker=marker)
+    if not lb:
+        return False, "target line never visible", base_count
+    popup = _find_popup_hwnd(owner_pid)
+    if not popup:
+        return False, "popup window gone", base_count
+    rect = _win_rect(popup)
+    vw = page.evaluate("() => window.innerWidth")
+    scale = rect[2] / max(1, vw)
+    fx = rect[0] + lb["x"] * scale + 4
+    fy = rect[1] + (lb["y"] + lb["height"] * 0.5) * scale
+    _send_mouse(fx, fy, True)
+    time.sleep(0.08)
+    _send_mouse(fx, fy, False)
+    time.sleep(0.6)
+    sel, err = _drag_line(page, rect, lb, win_hwnd)
+    t0 = time.monotonic()
+    ok = False
+    note = f"sel={str(sel)[:20]!r} err={err}"
+    recs2 = []
+    while time.monotonic() - t0 < 45 and not ok:
+        sj = _http("GET", f"{base_url}/api/probe/locators?session_id={sid}")
+        recs2 = sj.get("sidecar", {}).get("records", []) if sj.get("found") else []
+        for idx, r in enumerate(recs2):
+            q = (r["locator"]["text_quote"] or "").replace(chr(10), "").replace(" ", "")
+            if not q or not (q in full or full in q):
+                continue  # 只要目标句片段（书内已知 3 处，第2处为拖选目标）
+            if idx < base_count:
+                continue
+            vq = oracle_scan.verify_quote(r["locator"]["text_quote"],
+                                          int(r["locator"]["occurrence"]))
+            if vq.get("ok") and (want_occ is None
+                                 or int(r["locator"]["occurrence"]) == want_occ):
+                ok = True
+                note += (f" quote={q[:14]!r} occ={r['locator']['occurrence']} "
+                         f"oracle_ok pos={vq.get('position')}")
                 break
         time.sleep(1.5 if recs2 else 1)
     return ok, note, max(base_count, len(recs2))
@@ -1895,6 +1984,391 @@ def _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results):
     back = bool(pop2) and prect2 and abs(prect2[2] - vw * dpi0 / 96.0) <= 6
     results("N-05.dpi-change.restore", "PASS" if back else "FAIL",
             f"popup={prect2} expected_w={vw * dpi0 / 96.0:.0f}")
+
+
+def _http_json(method, url, payload=None, timeout=15):
+    body = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(url, data=body, method=method,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode())
+
+
+def _pid_of(hwnd):
+    pid = ctypes.c_uint()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return pid.value
+
+
+def _largest_window_of_pid(pid):
+    hits = _find_windows_of_pid(pid)
+    return max(hits, key=lambda h: _client_size(h)[0] * _client_size(h)[1]) \
+        if hits else None
+
+
+def _port_open(port, timeout=1.5):
+    import socket
+    s = socket.socket()
+    s.settimeout(timeout)
+    try:
+        s.connect(("127.0.0.1", port))
+        return True
+    except Exception:
+        return False
+    finally:
+        s.close()
+
+
+def _wv_count():
+    out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq msedgewebview2.exe"],
+                         capture_output=True, encoding="utf-8", errors="replace")
+    return out.stdout.count("msedgewebview2.exe")
+
+
+def _run_n07_n08(out_dir, cons_a, sid3, win_hwnd3, oracle_a, results,
+                 base_count, ident_a=None, corpus_dir=None, mcp_a=None):
+    """T-06：N-07 双实例 A/B + 迟到拒绝；N-08 关闭/断链/取消/崩溃 owner 释放
+    （正常腿=WM_CLOSE 真实关窗路径，不靠 taskkill 补）；N-10 坏 tool / 占口
+    专属门。A=现有实例3（alpha，已有记录），B=beta（-B/-F 端口覆盖 +
+    AUTOUI_MCP_PORT 钉端口 + 独立 UDF/CDP/数据目录）。"""
+    from verify_engine_surface import BookScan
+    import shutil
+    import socket
+
+    a_pid = _pid_of(win_hwnd3)
+    data_dir_a = os.path.join(out_dir, "probe-data")
+    assets_dir = os.environ.get("PROBE_ASSETS_DIR", "")
+
+    # ── B 实例（beta，端口覆盖）──
+    beta = os.path.join(corpus_dir or os.path.join(out_dir, "corpus"),
+                        "probe-beta.epub")
+    data_dir_b = os.path.join(out_dir, "probe-data-b")
+    shutil.rmtree(data_dir_b, ignore_errors=True)
+    udf_b = os.path.join(out_dir, "webview-udf-b")
+    shutil.rmtree(udf_b, ignore_errors=True)
+    env_b = {"PROBE_DATA_DIR": data_dir_b, "PROBE_ASSETS_DIR": assets_dir,
+             "PROBE_PUBLIC_BASE": "http://127.0.0.1:17837",
+             "AUTO_DOC_SURFACE_DEBUG": "1",
+             "WEBVIEW2_USER_DATA_FOLDER": udf_b,
+             "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS":
+                 "--remote-debugging-port=9336 --force-renderer-accessibility",
+             "AUTOUI_MCP_PORT": "9347"}
+    cons_b = VmInstance(APP_DIR, os.path.join(out_dir, "consumer-b.log"), env_b,
+                        extra_args=["-B", "17837", "-F", "3017"])
+    page_b = None
+    pw_b = browser_b = None
+    cons_a2 = None
+    sock = None
+    try:
+        if not cons_b.wait_http("http://127.0.0.1:17837/api/probe/health"):
+            results("N-07", "FAIL", "instance B boot timeout (-B 17837)")
+            return
+        mcp_b = _wait_mcp(os.path.join(out_dir, "consumer-b.log"))
+        if not mcp_b:
+            results("N-07", "FAIL", "instance B MCP endpoint not announced")
+            return
+        results("N-07.b-boot", "PASS",
+                "B backend 17837 + MCP pinned 9347 (coexists with A)")
+
+        r_imp = _http("POST", "http://127.0.0.1:17825/api/library/import",
+                      {"path": beta.replace("\\", "/"), "author": "PLAN-029",
+                       "force": False}, timeout=120)
+        # 书目识别用 import 返回的 book_id（管理文件名统一 original.epub，
+        # managed_path 无法区分 alpha/beta——初版按路径匹配是错的）。
+        m_bid = re.search(r'"book_id"\s*:\s*"([^"]+)"', json.dumps(r_imp))
+        assert m_bid, "beta import returned no book_id"
+        bj = _http("GET", "http://127.0.0.1:17825/api/library/books/" + m_bid.group(1))
+        _http("POST", "http://127.0.0.1:17837/api/probe/register",
+              {"book_id": bj["book_id"], "source_hash": bj["source_hash"],
+               "managed_path": str(bj["managed_path"]).replace("\\", "/"),
+               "title": "probe-beta",
+               "book_bytes": os.path.getsize(bj["managed_path"])})
+        sid_b = "vm-b-" + str(int(time.time()))
+        _http("POST", "http://127.0.0.1:17837/api/probe/session",
+              {"session_id": sid_b, "book_id": bj["book_id"],
+               "source_hash": bj["source_hash"], "engine": ENGINE_REVISION})
+        rect_b, err = _connect_session(mcp_b, sid_b,
+                                       os.path.join(out_dir, "consumer-b.log"))
+        if not rect_b:
+            results("N-07", "FAIL", "B connect: " + err)
+            return
+        b_pid = next((p for p in _probe_window_pids() if p != a_pid), None)
+        b_hwnd = _largest_window_of_pid(b_pid) if b_pid else None
+        if not b_hwnd:
+            results("N-07", "FAIL", "B native window not found")
+            return
+        results("N-07.b-window", "PASS",
+                f"A_pid={a_pid} B_pid={b_pid} distinct owners")
+
+        oracle_b = BookScan(beta)
+        pw_b, browser_b, page_b = _cdp_engine_page(sid_b, cdp_port=9336)
+        if page_b is None:
+            results("N-07", "FAIL", "B engine page not reachable via CDP")
+            return
+        # B 拖选用已知目标句（REPEAT_B 第2处）——任意首行口径在 beta 标题/
+        # TOC 行盒上产生跨块拼接选区（t06-vm3/vm4 实测 ' 跨章注与复'）。
+        ok, note, base_b = _drag_target_and_verify(
+            page_b, b_hwnd, oracle_b, sid_b, 0, owner_pid=b_pid,
+            base_url="http://127.0.0.1:17837",
+            marker=REPEAT_B_MARKER, full=REPEAT_B, want_occ=2)
+        results("N-07.b-real-selection", "PASS" if ok else "FAIL", note)
+
+        # 隔离：A/B 记录互不串书（独立 oracle 双向核验）。
+        sa = _http("GET", f"http://127.0.0.1:17827/api/probe/locators?session_id={sid3}")
+        ra = sa.get("sidecar", {}).get("records", []) if sa.get("found") else []
+        sb = _http("GET", f"http://127.0.0.1:17837/api/probe/locators?session_id={sid_b}")
+        rb = sb.get("sidecar", {}).get("records", []) if sb.get("found") else []
+        iso = True
+        note = f"A={len(ra)} B={len(rb)}"
+        for r in rb:
+            q = (r["locator"]["text_quote"] or "").strip()
+            if not q:
+                continue
+            if oracle_a.verify_quote(r["locator"]["text_quote"],
+                                     int(r["locator"]["occurrence"])).get("ok"):
+                iso = False
+                note += f" B-quote-in-A={q[:12]!r}"
+                break
+        if iso:
+            for r in ra:
+                q = (r["locator"]["text_quote"] or "").strip()
+                if not q or REPEAT_A_MARKER not in q:
+                    continue
+                if oracle_b.verify_quote(r["locator"]["text_quote"],
+                                         int(r["locator"]["occurrence"])).get("ok"):
+                    iso = False
+                    note += f" A-target-in-B={q[:12]!r}"
+                    break
+        results("N-07.cross-isolation", "PASS" if iso else "FAIL", note)
+
+        # ── N-08 正常关闭 A：WM_CLOSE 真实关窗路径（非 taskkill）──
+        _force_foreground(win_hwnd3)
+        time.sleep(0.4)
+        user32.PostMessageW(win_hwnd3, 0x0010, 0, 0)  # WM_CLOSE
+        t0 = time.monotonic()
+        closed = False
+        while time.monotonic() - t0 < 10:
+            if cons_a.proc.poll() is not None \
+                    and _find_popup_hwnd(a_pid) is None \
+                    and not _port_open(17827, 0.8):
+                closed = True
+                break
+            time.sleep(0.5)
+        poll_state = cons_a.proc.poll()
+        results("N-08.normal-close", "PASS" if closed else "FAIL",
+                f"WM_CLOSE -> proc/port/popup released within 10s={closed} "
+                f"(backend poll={poll_state})")
+        try:
+            _mcp_call(mcp_a, "autoui_snapshot", None, timeout=4)
+            mcp_dead = "still answering"
+        except Exception as e:
+            mcp_dead = "refused: " + type(e).__name__ + ":" + str(e)[:60]
+        bounded = ("refused" in mcp_dead and
+                   ("Connection" in mcp_dead or "URL" in mcp_dead
+                    or "10061" in mcp_dead))
+        results("N-08.old-mcp-bounded", "PASS" if bounded else "FAIL",
+                mcp_dead)
+        if not closed:
+            results("N-07", "FAIL",
+                    "A did not close within 10s; aborting restart/stale flow "
+                    "(stale gates against a live old backend would mislead)")
+            return
+
+        # ── A 新进程重开（旧数据目录持久）+ 旧 session 事件迟到拒绝 ──
+        udf_a2 = os.path.join(out_dir, "webview-udf-a2")
+        shutil.rmtree(udf_a2, ignore_errors=True)
+        env_a2 = {"PROBE_DATA_DIR": data_dir_a, "PROBE_ASSETS_DIR": assets_dir,
+                  "PROBE_PUBLIC_BASE": "http://127.0.0.1:17827",
+                  "AUTO_DOC_SURFACE_DEBUG": "1",
+                  "WEBVIEW2_USER_DATA_FOLDER": udf_a2,
+                  "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS":
+                      "--remote-debugging-port=9337 "
+                      "--force-renderer-accessibility"}
+        cons_a2 = VmInstance(APP_DIR, os.path.join(out_dir, "consumer-a2.log"),
+                             env_a2)
+        if not cons_a2.wait_http("http://127.0.0.1:17827/api/probe/health"):
+            results("N-07", "FAIL", "A restart boot timeout")
+            return
+        mcp_a2 = _wait_mcp(os.path.join(out_dir, "consumer-a2.log"))
+        sid_a2 = sid3 + "n"
+        # alpha 身份直接用调用方传入的 ident_a（同一 reader 数据目录，书目
+        # 不变——N-03 冷恢复同语义）。
+        bj2 = {"book_id": ident_a["book_id"], "source_hash": ident_a["source_hash"],
+               "managed_path": ident_a["managed_path"],
+               "size": ident_a["size"]}
+        _http("POST", "http://127.0.0.1:17827/api/probe/register",
+              {"book_id": bj2["book_id"], "source_hash": bj2["source_hash"],
+               "managed_path": bj2["managed_path"],
+               "title": "probe-alpha",
+               "book_bytes": bj2["size"]})
+        _http("POST", "http://127.0.0.1:17827/api/probe/session",
+              {"session_id": sid_a2, "book_id": bj2["book_id"],
+               "source_hash": bj2["source_hash"], "engine": ENGINE_REVISION})
+        results("N-07.a-restart", "PASS", f"new process, session={sid_a2[:18]}…")
+
+        # 旧 sid3 事件迟到重放：新进程必须拒绝且旧会话文件零写入。
+        old_file = os.path.join(data_dir_a, "probe", "locators", sid3 + ".json")
+        before = open(old_file, "rb").read() if os.path.exists(old_file) else b""
+        ra_all = _http("GET", f"http://127.0.0.1:17827/api/probe/locators?session_id={sid3}")
+        ra_recs = ra_all.get("sidecar", {}).get("records", []) \
+            if ra_all.get("found") else []
+        stale_ok = False
+        note = "no old record available to replay"
+        if ra_recs:
+            src = ra_recs[0]["locator"]
+            replay = {"schema_version": 1, "kind": "locator_select",
+                      "session_id": sid3, "book_id": src.get("book_id", ""),
+                      "source_hash": src.get("source_hash", ""),
+                      "engine": ENGINE_REVISION, "resource_href": "ch1.xhtml",
+                      "resource_index": 0, "cfi": src.get("cfi", ""),
+                      "range_cfi": "", "text_quote": src.get("text_quote", ""),
+                      "occurrence": int(src.get("occurrence", 1)),
+                      "context_before": "", "context_after": "", "seq": 999999,
+                      "ts": int(time.time())}
+            try:
+                resp = _http("POST", "http://127.0.0.1:17827/api/probe/locator",
+                             replay, timeout=10)
+                txt = json.dumps(resp, ensure_ascii=False)
+                accepted = ('"ok": true' in txt and "accepted" in txt) \
+                    or ("saved" in txt and '"ok": false' not in txt)
+                stale_ok = not accepted
+                note = f"resp={txt[:110]}"
+            except urllib.error.HTTPError as e:
+                stale_ok = True  # 具名 4xx/5xx 拒绝
+                note = f"rejected via HTTP {e.code}"
+            except Exception as e:
+                stale_ok = False
+                note = "replay raised: " + repr(e)[:90]
+            after = open(old_file, "rb").read() if os.path.exists(old_file) else b""
+            if after != before:
+                stale_ok = False
+                note += " OLD-SESSION-FILE-WRITTEN"
+            else:
+                note += " zero-write-ok"
+        results("N-07.stale-rejected", "PASS" if stale_ok else "FAIL", note)
+
+        # ── B 继续真实选择（跨 A 全生命周期扰动）──
+        alive_b = cons_b.proc.poll() is None and _find_popup_hwnd(b_pid) is not None
+        if not alive_b:
+            results("N-07.b-continues", "FAIL",
+                    "B window/process disturbed by A churn")
+            return
+        ok, note, base_b = _drag_target_and_verify(
+            page_b, b_hwnd, oracle_b, sid_b, base_b, owner_pid=b_pid,
+            base_url="http://127.0.0.1:17837",
+            marker=REPEAT_B_MARKER, full=REPEAT_B, want_occ=2)
+        results("N-07.b-continues", "PASS" if ok else "FAIL", note)
+
+        # ── N-08 取消腿（B：断开表面 → 表面 10s 内隐藏）──
+        snap_b = _mcp_text(mcp_b, "autoui_snapshot")
+        mb = re.search(r'button #(\S+) "断开表面"', snap_b)
+        if mb:
+            _mcp_text(mcp_b, "autoui_action",
+                      {"element_id": mb.group(1), "action": "press"})
+            t0 = time.monotonic()
+            hidden = False
+            while time.monotonic() - t0 < 10:
+                if _find_popup_hwnd(b_pid) is None:
+                    hidden = True
+                    break
+                time.sleep(0.5)
+            results("N-08.cancel-surface-hide", "PASS" if hidden else "FAIL",
+                    f"Disconnect -> popup hidden within 10s={hidden} "
+                    f"(webview object retained in-process; window freed)")
+        else:
+            results("N-08.cancel-surface-hide", "FAIL",
+                    "Disconnect button missing on B")
+
+        # ── N-08 崩溃腿（A2 强杀：树退出 + 端口释放 + 无孤儿 webview 增长）──
+        wv_pre = _wv_count()
+        cons_a2.kill_hard()
+        t0 = time.monotonic()
+        dead = False
+        while time.monotonic() - t0 < 10:
+            if cons_a2.proc.poll() is not None and not _port_open(17827, 0.8):
+                dead = True
+                break
+            time.sleep(0.5)
+        time.sleep(8)  # webview 进程树退出宽限
+        wv_post = _wv_count()
+        results("N-08.crash-cleanup",
+                "PASS" if dead and wv_post <= wv_pre else "FAIL",
+                f"proc/port dead={dead} webview {wv_pre}->{wv_post} (no orphans)")
+
+        # ── N-10 坏 tool：显式路径不存在 → 无静默回落（MCP 不得宣告）──
+        env_bt = {"PROBE_DATA_DIR": os.path.join(out_dir, "probe-data-bt"),
+                  "PROBE_ASSETS_DIR": assets_dir,
+                  "PROBE_PUBLIC_BASE": "http://127.0.0.1:17847",
+                  "WEBVIEW2_USER_DATA_FOLDER": os.path.join(out_dir, "udf-bt"),
+                  "AUTOUI_MCP_PORT": "9357",
+                  "AUTO_UI_TOOL_BIN": os.path.join(out_dir, "no-such-tool.exe")}
+        inst_bt = VmInstance(APP_DIR, os.path.join(out_dir, "consumer-bt.log"),
+                             env_bt, extra_args=["-B", "17847", "-F", "3027"])
+        time.sleep(20)
+        log_bt = open(os.path.join(out_dir, "consumer-bt.log"),
+                      encoding="utf-8", errors="replace").read()
+        mcp_bt = "AutoUI MCP: listening" in log_bt
+        results("N-10.bad-tool", "FAIL" if mcp_bt else "PASS",
+                f"mcp_announced={mcp_bt} (must be False — no silent fallback); "
+                f"log_tail={log_bt[-120:]!r}")
+        inst_bt.stop()
+
+        # ── N-10 占口：预占后端端口 → 实例不服务、占口者不被杀 ──
+        sock = socket.socket()
+        # 不设 SO_REUSEADDR：Windows 语义下它允许双绑定劫持（应用可能绑上
+        # 同口并正常服务，门会假红）；默认独占绑定=应用 bind 必具名失败。
+        sock.bind(("127.0.0.1", 17848))
+        sock.listen(1)
+        env_oc = {"PROBE_DATA_DIR": os.path.join(out_dir, "probe-data-oc"),
+                  "PROBE_ASSETS_DIR": assets_dir,
+                  "PROBE_PUBLIC_BASE": "http://127.0.0.1:17848",
+                  "WEBVIEW2_USER_DATA_FOLDER": os.path.join(out_dir, "udf-oc"),
+                  "AUTOUI_MCP_PORT": "9358"}
+        inst_oc = VmInstance(APP_DIR, os.path.join(out_dir, "consumer-oc.log"),
+                             env_oc, extra_args=["-B", "17848", "-F", "3037"])
+        time.sleep(20)
+        occ_alive = True
+        try:
+            _http_json("GET", "http://127.0.0.1:17848/api/probe/health", timeout=2)
+            oc_healthy = True  # 我们的哑 socket 不可能答 200——能答=被抢
+        except Exception:
+            oc_healthy = False
+        try:
+            sock.settimeout(0.3)
+            sock.accept()
+        except socket.timeout:
+            pass  # 监听仍在（应用绑不上口是预期）
+        except OSError:
+            occ_alive = False
+        results("N-10.port-occupied",
+                "PASS" if (occ_alive and not oc_healthy) else "FAIL",
+                f"occupant_still_bound={occ_alive} app_serving={oc_healthy} "
+                f"(must be False)")
+        sock.close()
+        sock = None
+        inst_oc.stop()
+    finally:
+        if sock:
+            try:
+                sock.close()
+            except Exception:
+                pass
+        try:
+            if browser_b:
+                browser_b.close()
+            if pw_b:
+                pw_b.stop()
+        except Exception:
+            pass
+        try:
+            cons_b.stop()
+        except Exception:
+            pass
+        if cons_a2 and cons_a2.proc.poll() is None:
+            try:
+                cons_a2.stop()
+            except Exception:
+                pass
 
 
 _UIA_PS1 = r"""param(
