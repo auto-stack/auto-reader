@@ -1,10 +1,10 @@
 # AutoReader：产品总设计与 Readest 覆盖目标
 
-状态：proposed（目标设计）；更新：2026-11-02；目标修订：**Readest coverage v4**（026归档后原生链收口与产品化决策门）。
+状态：proposed（目标设计）；更新：2026-11-03；目标修订：**Readest coverage v5**（029交付前置与007产品化第一期）。
 
 用户于 2026-11-01 明确：AutoReader 要复刻 Readest 开源项目的绝大多数能力。工作顺序为先调整总设计与路线，再通过独立计划详细调研其文档、代码和实际 UI；根据调研再次修订设计与路线，之后确定实施计划。**READER-006 详细调研已交付**：发布分母 257 项能力逐行对照见[能力矩阵](../research/readest/capability-matrix.md)，真机实测见 [UI 研究](../research/readest/ui-study.md)，综合结论与假设核对见[调研报告](../research/readest/report.md)。
 
-现实现以docs/specs/reader及实测为准。P2对应的 [auto-ui/PLAN-026](https://github.com/auto-stack/auto-ui/blob/master/docs/plans/archived/026-reader-engine-embedding-and-locator-probe.md)已交付归档（r1、流程10/10），Vue指定样本选区/保存/冷恢复30/30，原生嵌入/引擎/IPC已证；原生真实输入与应用回传、焦点/IME/无障碍、专属隔离/失败控制仍未全闭合。**下一步先收口原生输入链与必要接缝，再进入完整EPUB产品化**；后续已起草 [auto-ui/PLAN-029](https://github.com/auto-stack/auto-ui/blob/master/docs/plans/029-reader-native-input-and-surface-closure.md)（drafting/r1、0/12），本次不实施功能。归档计数不等于全部能力验收通过。
+现实现以docs/specs/reader及实测为准。026已归档实验，auto-ui/029本地仍executing、9/12，最新回执留有Vue重排GAP、最终冻结验收/独立review/交付待完成；本次不将其改为已完成。已起草 [READER-007：正式EPUB阅读表面接入与定位兼容](../plans/007-epub-product-reader-and-locator-compatibility.md)（drafting/r1、0/13）：029全部必需门、独立review和固定交付cohort齐备后才允许实施。用户确认先起草，本轮仅文档，现有在途WIP保持。
 
 ## 1. 产品定位与成功定义
 
@@ -116,9 +116,9 @@ Notes/Jade 围绕稳定实体引用、资产引用、来源定位、版本化 Ca
 ## 8. 原生收口到EPUB产品化的决策门
 
 1. **已有研究**：006已交付对标，026已归档实验结果；既有合同/回执保留，10/10仅为流程计数。
-2. **下一阶段先收口**：原生真实输入定责、原生VM的.at端到端链、焦点/IME/几何与系统无障碍，以及双实例/迟到/关闭清理与专属失败控制。UI主导、Reader消费；原生链尚未全证，不能直接产品化。正式后续合同为 [auto-ui/PLAN-029](https://github.com/auto-stack/auto-ui/blob/master/docs/plans/029-reader-native-input-and-surface-closure.md)，0/12且未实施；不重开026或复制Reader合同。
+2. **下一阶段先收口**：原生真实输入定责、原生VM的.at端到端链、焦点/IME/几何与系统无障碍，以及双实例/迟到/关闭清理与专属失败控制。UI主导、Reader消费；原生链尚未全证，不能直接产品化。029是既有框架收口合同，本地executing、9/12，完整交付前仍是硬前置；本次不修其合同或重开026。
 3. **守旧门单列**：当前cohort的R-05路由404与R-06vm毁损图负控未失败，复现后按实际owner处理。源码未改不是“与本次无关”的充分证明；若影响后续产品门应先修复/明确前置，不吞失败或修改预期。
-4. **收口后产品化**：绑定真实双端引擎/定位协议，再冻结Locator v2，交付分页/滚动、行内选区标注、搜索回跳、旧库/注释迁移和恢复；仍保留书籍/annotation_id与逐字核验，不由字段存在推导功能完成。
+4. **收口后产品化**：正式草案为[READER-007](../plans/007-epub-product-reader-and-locator-compatibility.md)（0/13）。Reader主导正式reading_page/产品资源/定位数据，先冻结真实CFI/range验证与v1兼容，再交付分页滚动/选区高亮批注/搜索导出/冷恢复。保既有资源边界、书籍/annotation_id与TXT/MD，不强制整库迁移；第一期profile不等于Readest全CSS或全部能力。
 5. **独立分域**：P3书库日用可分期；PDF/漫画、TTS、导出、对照/词典/书源/备份与同步依实际依赖另行立项，范围继续保留，不因026有局限下调覆盖目标。
 
 收口证据必须绑定source/tool/engine，Vue与原生分别列PASS/GAP/未运行并经独立上下文复核；流程状态与能力通过状态分列。当前是文档对账与路线更新，没有新实验/新验收，不修改当前Spec、既有研究报告或旧合同的标准。

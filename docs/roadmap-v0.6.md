@@ -1,12 +1,12 @@
 # AutoReader 路线图：从独立阅读到覆盖 Readest
 
-更新：2026-11-02（**coverage v4：026 归档后先收口原生输入与必要接缝**）。沿用此路径保持链接兼容；长期覆盖目标不等于所有能力必须在 v0.6 一次交付。
+更新：2026-11-03（**coverage v5：029交付门之后进入007正式EPUB产品化**）。沿用此路径保持链接兼容；长期覆盖目标不等于所有能力必须在 v0.6 一次交付。
 
 ## 1. 新目标与决策顺序
 
 以 Readest 开源项目为主要参照，逐步覆盖其绝大多数已核实的能力，涵盖阅读/排版、选区/标注、书库、多格式、辅助阅读、书源、同步与互操作。
 
-当前顺序：**006详细调研已交付 → 026探针已归档 → 先收口原生输入链与必要接缝 → 再确定Locator v2/完整EPUB产品化**。026流程记10/10，不代表双端所有能力已通过。Vue指定样本全链30/30，原生嵌入/引擎装载/IPC已证，真实输入与应用保存/恢复链仍未闭合。后续已建立 [auto-ui/PLAN-029](https://github.com/auto-stack/auto-ui/blob/master/docs/plans/029-reader-native-input-and-surface-closure.md)（drafting/r1、0/12），本次仅起草，未开始实现；Reader不另取号。
+当前顺序：**006调研/026实验已归档 → 029收口全部必需门并独立review/固定版本交付 → READER-007正式EPUB产品化第一期 → 后续分域扩展**。本次核查029仍executing、9/12，最新回执有Vue重排GAP、原生最终冻结跑及final review/交付未闭合；用户确认先起草下一份。007为drafting/r1、0/13，依赖未就绪，不启动实施，不改029的状态或在途工作。
 
 ## 2. 已交付基础
 
@@ -51,16 +51,16 @@
 | 顺序 | 工作 | owner/依赖与收口要求 |
 |---|---|---|
 | 已交付 | 026阅读引擎探针（原P2） | UI主导，Reader实验消费；研究流程已归档，局限保留 |
-| **正式计划已起草** | [auto-ui/PLAN-029 原生输入链与必要接缝收口](https://github.com/auto-stack/auto-ui/blob/master/docs/plans/029-reader-native-input-and-surface-closure.md) | drafting/r1、0/12；UI主导、Reader消费；真实native VM链、严格必需用例集合、旧门与独立上下文review，全部通过后才能交付 |
+| **实施收口中，交付待核** | [auto-ui/PLAN-029](https://github.com/auto-stack/auto-ui/blob/master/docs/plans/029-reader-native-input-and-surface-closure.md) | 本地executing、9/12；多项门已有证据，Vue重排GAP与最终冻结跑/独立review/交付未闭合，不由007补签 |
 | 可独立准备 | P1锚契约核对、P3书库小范围改进 | 仍是候选；v1/注释身份不变，Locator v2正式schema待真实双端契约；同一app单写者顺序推进 |
-| 收口后产品化 | Locator v2与完整EPUB阅读闭环 | 真实原生链、输入/几何/无障碍与生命周期门闭合，再按支持profile交付分页/滚动、行内高亮、搜索回跳、旧数据兼容和冷恢复 |
+| **新计划仅起草** | [READER-007 正式EPUB阅读表面接入与定位兼容](plans/007-epub-product-reader-and-locator-compatibility.md) | drafting/r1、0/13；Reader主导正式书页/产品数据；029全部门/独立review/固定交付后实施，profile为EPUB产品化第一期，不是全部Readest |
 | 后续分域 | PDF/漫画、TTS、导出与互操作（原P4～P6） | 依实际引擎与定位契约分别立项；PDF评估不要求某一路线必成功，TTS不能因引擎可嵌就算已有；系统URI归OS协同 |
 
 其他格式、双书对照、词典/翻译、OPDS、本地备份和跨设备同步继续保留。257是固定发布对照行数，102行待验证与4行待裁定排除不能算成已缺失/已获准排除。各计划先绑定RDT ID和用户任务；功能与平台分列，Linux仍WAIT_DISTRO_M1，不因本次局限降低Readest覆盖目标。
 
 ## 5. 下一阶段范围与产品化退出门
 
-下一阶段正式合同为 [auto-ui/PLAN-029](https://github.com/auto-stack/auto-ui/blob/master/docs/plans/029-reader-native-input-and-surface-closure.md)，正文在UI仓、本仓只留指针，drafting/r1、0/12。它将以下退出门落实为12项任务/12项AC，补齐真实原生VM消费者而不是继续只跑独立iced宿主；不重开026、不另取Reader号。本次未实施：
+以下仍为auto-ui/029的前置退出门，本地状态executing、9/12，未独立review/交付前不能转绿。本次没有接管/重开029或执行下列验收；旧报告中的工具/环境归因以029实测修复回执为准，不能把026旧失败永久当作当前缺陷：
 
 1. **输入定责**：在可控真实桌面会话确认原生焦点/鼠标/键盘输入及选区；采用真实拖选或CDP真实输入对照，记录各输入通道差异。Vue通过不能排除原生宿主/焦点/路由问题，禁止预设“仅自动化环境问题”。JS直接设置Range不能替代真实选择。
 2. **原生端到端链**：固定cohort，在实际AutoUI原生VM消费者中选择重复句第2处，事件经.at核验、隔离sidecar持久化、关闭后新进程恢复同一原文。独立iced/wry spike装载或IPC成功不能替代这条链；HTTP/磁盘只做独立读回，不预写冒充UI保存。
@@ -71,7 +71,18 @@
 
 UI继续拥有宿主/桥/输入/生命周期，Reader拥有受管资产、原文核验、数据与消费者验收；语言/HTTP owner的独立缺口另行明确前置。下一阶段不是移植整个Readest，也不同时做PDF/TTS/云同步或批量v1→CFI迁移。本轮没有运行这些验收，全部必需门通过方可execution_done，并由独立上下文final review后再归档；GAP/未运行/缺case/环境失败必须非零，不能沿用026有条件交付方式。Reader R-05/R-06vm按实际owner定责，必要他仓前置未交付则相关AC不能通过。
 
-## 6. 工程与系统依赖
+## 6. READER-007产品化第一期（条件性草案）
+
+[正式合同](plans/007-epub-product-reader-and-locator-compatibility.md)为drafting/r1、0/13，用户已确认先起草并等待029完整交付。主改面由框架转为产品应用，因此正文在本仓；UI仅留消费指针，不分配另一份框架计划。
+
+- **进入真实产品**：正常书架/reading_page自动装载固定引擎与受管资源，离线可用，无需probe目录、旁路服务或驱动注入。原生启动/HTTP组合必须从029真实交付核实，不能照抄旧命令或用独立iced窗口替代。
+- **完整本期用户任务**：基本正文结构/CSS、目录/图片/脚注、分页/滚动/字号与布局；真实精确选区、高亮批注CRUD/回访、搜索跳转和Markdown来源导出；正常/异常退出后的同原文位置恢复。
+- **定位与旧数据**：先冻结真正CFI/range核验与版本协议，保持v1/annotation_id及TXT/MD兼容；重复句与跨段不能伪造段锚，无法唯一映射则保留v1/needs_relocate，不强制整库迁移。
+- **边界与验收**：保既有30MiB导入/4096 spine/单资源12MiB边界，不能把≤1MiB探针限制冒充产品支持；引擎资源/脚本/远程访问受控。双端正式UI新门、旧APP门和真实变异红→还原绿，独立上下文final review；GAP/缺项不算交付。
+
+007不实施PDF/漫画/TTS/同步/双书对照或全出版物CSS；这些继续保留在长期目标，之后按价值与依赖分期。当前未生成产品资产/数据/新测试结果，也未修改canonical Spec。029交付门未就绪则停在007 T-00之前，不能为了进入产品化而降低前置。
+
+## 7. 工程与系统依赖
 
 使用 D:/autostack/auto-reader 独立 clone main，一 app 一写入者，顺序复审用同一检出；不在 OS 子模块内开发。006 为研究计划：不改当前 Spec、旧 ledger、业务源码或 OS gitlink；Readest 源码检出（D:/autostack/readest）仅作研究只读基线，不在其中开发。后续实施计划按各自 Spec 增量流程沉淀。
 
