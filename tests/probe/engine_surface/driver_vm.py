@@ -1501,9 +1501,9 @@ def _drag_current_and_verify(page, win_hwnd3, oracle_scan, sid3, base_count,
     recs2 = []
     # 45s：adapter 回传 = 400ms 去抖 + countOccurrences 全书 createDocument
     # 扫描——DPI 切换/多章装载后实测晚到 20-30s（dpi4 sidecar 实证）。
-    while time.monotonic() - t0 < 45 and not ok:
-        sj = _http("GET", f"{base_url}/api/probe/locators?session_id={sid3}")
-        recs2 = sj.get("sidecar", {}).get("records", []) if sj.get("found") else []
+    while time.monotonic() - t0 < 60 and not ok:
+        sj = _http_quiet("GET", f"{base_url}/api/probe/locators?session_id={sid3}")
+        recs2 = sj.get("sidecar", {}).get("records", []) if sj and sj.get("found") else []
         for idx, r in enumerate(recs2):
             q = (r["locator"]["text_quote"] or "").replace(chr(10), "").replace(" ", "")
             if not q or (REPEAT_A_MARKER in q):
@@ -1548,9 +1548,9 @@ def _drag_target_and_verify(page, win_hwnd, oracle_scan, sid, base_count,
     ok = False
     note = f"sel={str(sel)[:20]!r} err={err}"
     recs2 = []
-    while time.monotonic() - t0 < 45 and not ok:
-        sj = _http("GET", f"{base_url}/api/probe/locators?session_id={sid}")
-        recs2 = sj.get("sidecar", {}).get("records", []) if sj.get("found") else []
+    while time.monotonic() - t0 < 60 and not ok:
+        sj = _http_quiet("GET", f"{base_url}/api/probe/locators?session_id={sid}")
+        recs2 = sj.get("sidecar", {}).get("records", []) if sj and sj.get("found") else []
         for idx, r in enumerate(recs2):
             q = (r["locator"]["text_quote"] or "").replace(chr(10), "").replace(" ", "")
             if not q or not (q in full or full in q):
@@ -2295,6 +2295,10 @@ def _run_n07_n08(out_dir, cons_a, sid3, win_hwnd3, oracle_a, results,
                 "PASS" if dead and wv_post <= wv_pre else "FAIL",
                 f"proc/port dead={dead} webview {wv_pre}->{wv_post} (no orphans)")
 
+        # ── T-07：N-09 消费端负控 + N-11 变异红→绿（HTTP/磁盘/CDP，无键鼠）──
+        _run_n09_n11(out_dir, mcp_b, sid_b, page_b, oracle_b, results,
+                     base_b, data_dir_b, bj)
+
         # ── N-10 坏 tool：显式路径不存在 → 无静默回落（MCP 不得宣告）──
         env_bt = {"PROBE_DATA_DIR": os.path.join(out_dir, "probe-data-bt"),
                   "PROBE_ASSETS_DIR": assets_dir,
@@ -2370,6 +2374,286 @@ def _run_n07_n08(out_dir, cons_a, sid3, win_hwnd3, oracle_a, results,
             except Exception:
                 pass
 
+
+def _http_quiet(method, url, timeout=8):
+    """轮询专用：后端 locator 校验（全书文本解析）期间串行阻塞可达数十秒
+    （t07-vm4 实测 10060）——失败返回 None，由调用方继续轮询。"""
+    try:
+        return _http(method, url, timeout=timeout)
+    except Exception:
+        return None
+
+
+def _sidecar_bytes(data_dir, sid):
+    fp = os.path.join(data_dir, "probe", "locators", sid + ".json")
+    return open(fp, "rb").read() if os.path.exists(fp) else b""
+
+
+def _sidecar_stable(data_dir, sid, tries=8, gap=3.0):
+    """等 adapter 晚到的回传写盘稳定（t07-vm1 实测 20-30s 延迟）：API 记录
+    数与文件记录数连续两次读数一致且相等才返回。"""
+    last = None
+    for _ in range(tries):
+        sb = _http_quiet("GET",
+                         f"http://127.0.0.1:17837/api/probe/locators?session_id={sid}")
+        api_n = len(sb.get("sidecar", {}).get("records", [])
+                    if sb and sb.get("found") else [])
+        fp = os.path.join(data_dir, "probe", "locators", sid + ".json")
+        try:
+            file_n = len(json.loads(open(fp, encoding="utf-8").read())
+                         .get("records", []))
+        except Exception:
+            file_n = -1
+        cur = (api_n, file_n)
+        if cur == last and cur[0] == cur[1]:
+            return cur
+        last = cur
+        time.sleep(gap)
+    return last
+
+
+def _run_n09_n11(out_dir, mcp_b, sid_b, page_b, oracle_b, results,
+                 base_count, data_dir_b, ident_b):
+    """T-07：N-09 消费端负控（错 book/hash/session/schema/stale_seq/超限/
+    错 kind/错 quote——各配合法对照，拒绝零落盘；href 为不透明元数据按
+    语义断言；资产路径逃逸拒绝、远程脚本零加载、合法本地资产仍用）；
+    N-11 真实已存 locator 变异 → 原始 oracle 实际红 + 恢复失配红 → 还原绿
+    （字节级还原，不污染数据）。全程 HTTP/磁盘/CDP，无桌面键鼠输入。"""
+    import shutil
+
+    # 基线前先等记录流稳定（晚到的 adapter 写盘会击穿字节级零写基线）。
+    stable = _sidecar_stable(data_dir_b, sid_b)
+    before = _sidecar_bytes(data_dir_b, sid_b)
+    sb = _http("GET",
+               f"http://127.0.0.1:17837/api/probe/locators?session_id={sid_b}")
+    recs = sb.get("sidecar", {}).get("records", []) if sb.get("found") else []
+    if not recs:
+        results("N-09", "FAIL", "no legal record available for controls")
+        return
+    src = recs[-1]["locator"]
+    seq0 = 0
+    for r in recs:
+        try:
+            seq0 = max(seq0, int(r.get("seq", 0)))
+        except Exception:
+            pass
+    results("N-09.baseline", "PASS",
+            f"stable(api,file)={stable} seq0={seq0} bytes={len(before)}")
+
+    def legal(seq):
+        return {"schema_version": 1, "kind": "locator_select",
+                "session_id": sid_b, "book_id": ident_b["book_id"],
+                "source_hash": ident_b["source_hash"],
+                "engine": ENGINE_REVISION,
+                "resource_href": "ch1.xhtml", "resource_index": 0,
+                "cfi": src.get("cfi", ""), "range_cfi": "",
+                "text_quote": src.get("text_quote", ""),
+                "occurrence": int(src.get("occurrence", 1)),
+                "context_before": "", "context_after": "",
+                "seq": seq, "ts": int(time.time())}
+
+    def post(payload):
+        try:
+            r = _http("POST", "http://127.0.0.1:17837/api/probe/locator",
+                      payload, timeout=15)
+            return json.dumps(r, ensure_ascii=False)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")
+            return f"HTTP{e.code}:{body[:120]}"
+        except Exception as e:
+            return "EXC:" + repr(e)[:90]
+
+    # 合法对照先行（锚定 last_seq）：接受 + 落盘。
+    resp = post(legal(seq0 + 1))
+    accepted = '"accepted": true' in resp or '"accepted":true' in resp
+    grew = _sidecar_bytes(data_dir_b, sid_b) != before
+    results("N-09.legal-control", "PASS" if (accepted and grew) else "FAIL",
+            f"resp={resp[:80]} sidecar_grew={grew}")
+    seq_next = seq0 + 2
+
+    # ── N-09 逐负例：每个 POST 前后各自快照（晚到写入不再击穿基线）──
+    def neg(name, mutate, expect="reject"):
+        nonlocal seq_next
+        pre = _sidecar_bytes(data_dir_b, sid_b)
+        p = dict(legal(seq_next))
+        mutate(p)
+        resp = post(p)
+        post_f = _sidecar_bytes(data_dir_b, sid_b)
+        acc = ('"accepted": true' in resp or '"accepted":true' in resp
+               or '"code": "ok"' in resp)
+        unwritten = post_f == pre
+        seq_next += 1  # 载荷序号单调递增（拒绝不动 last_seq，接受则必须更大）
+        if expect == "reject":
+            ok = (not acc) and unwritten
+            results(f"N-09.{name}", "PASS" if ok else "FAIL",
+                    f"{resp[:88]} | zero_write={unwritten}")
+        else:  # opaque：接受（不透明元数据）或拒绝皆可；执行面另行证明
+            results(f"N-09.{name}", "PASS",
+                    f"href-opaque resp={resp[:80]}")
+
+    neg("wrong-book",
+        lambda p: p.update(book_id="00000000-0000-0000-0000-000000000000"))
+    neg("wrong-hash", lambda p: p.update(source_hash="deadbeef" * 8))
+    neg("wrong-session", lambda p: p.update(session_id="no-such-session-xyz"))
+    neg("bad-schema", lambda p: p.update(schema_version=2))
+    neg("bad-kind", lambda p: p.update(kind="locator_select_evil"))
+    neg("wrong-quote", lambda p: p.update(text_quote="该句不存在于任何书中" * 10))
+    neg("occ-out-of-range", lambda p: p.update(occurrence=99))
+    neg("oversize-32k", lambda p: p.update(text_quote="x" * 40000))
+    neg("stale-seq", lambda p: p.update(seq=seq0))  # <= last_seq
+    # href 为不透明元数据（handler 只做预算内长度校验，不解析不执行）——
+    # 执行面由 N-09.no-remote-script / asset-escape 独立证明。
+    neg("path-escape-href",
+        lambda p: p.update(resource_href="../../" + "../" * 6 + "Cargo.toml"),
+        expect="opaque")
+    neg("script-href",
+        lambda p: p.update(resource_href="javascript:alert(1)"),
+        expect="opaque")
+
+    # 错 CFI + 合法 quote：真实防线在恢复层（goTo 解析，非前缀检查）。
+    p = dict(legal(seq_next))
+    p["cfi"] = "epubcfi(/6/99!/4/1:1,/1:1,/1:2)"
+    resp_cfi = post(p)
+    accepted_cfi = '"accepted": true' in resp_cfi or '"accepted":true' in resp_cfi
+    lq = (src.get("text_quote") or "").strip()[:18]
+
+    def _goto_loc(cfi, settle=1.2):
+        """goTo 后的 lastLocation 位置指纹（cfi|fraction）——恢复落点判据
+        （乙句两处文本相同，文本可见性无法区分出现位次）。"""
+        try:
+            page_b.evaluate(
+                "async (cfi) => { try { await window.__probe.view.goTo(cfi);"
+                " return 'ok'; } catch (e) { return 'err:' + e; } }", cfi)
+        except Exception:
+            return None
+        time.sleep(settle)
+        try:
+            return page_b.evaluate(
+                "() => { const l = window.__probe.view.lastLocation;"
+                " return l ? (l.cfi + '|' + (l.pageItem ? l.pageItem.fraction"
+                " : '')) : null; }")
+        except Exception:
+            return None
+
+    def _goto_vis(cfi, settle=1.2):
+        try:
+            page_b.evaluate(
+                "async (cfi) => { try { await window.__probe.view.goTo(cfi);"
+                " return 'ok'; } catch (e) { return 'err:' + e; } }", cfi)
+        except Exception:
+            return False
+        time.sleep(settle)
+        for f in page_b.frames:
+            try:
+                body = f.evaluate(
+                    "() => document.body ? document.body.textContent : ''")
+            except Exception:
+                continue
+            if lq in (body or ""):
+                return True
+        return False
+
+    if accepted_cfi:
+        # 位置判据：错 CFI 的落点必须 != 真 CFI 的落点（文本可见性无法区分
+        # 同句两处出现——乙句第1处与第2处同文，t07-vm5 实测假红）。
+        loc_true = _goto_loc(src.get("cfi", ""), settle=1.5)
+        vis_right = _goto_vis(src.get("cfi", ""), settle=1.0)
+        _goto_loc("epubcfi(/6/2!/2/2)", settle=1.2)  # 先离开目标位置
+        loc_m = _goto_loc("epubcfi(/6/99!/4/1:1,/1:1,/1:2)")
+        restore_red = loc_m is not None and loc_m != loc_true
+        results("N-09.wrong-cfi-restore",
+                "PASS" if restore_red else "FAIL",
+                f"wrong-cfi loc={str(loc_m)[:40]!r} true={str(loc_true)[:40]!r} "
+                f"(must differ)")
+        results("N-09.real-cfi-restore", "PASS" if vis_right else "FAIL",
+                f"real-cfi target_visible={vis_right} loc={str(loc_true)[:40]!r}")
+    else:
+        results("N-09.wrong-cfi-restore", "PASS",
+                f"handler rejected wrong cfi outright: {resp_cfi[:80]}")
+
+    # 资产层：路径逃逸拒绝 + 合法本地资产仍用（026 资源不变量保持）。
+    escapes = ["/api/probe/asset/..%2F..%2F..%2F..%2FCargo.toml",
+               "/api/probe/asset/native-host.html/../../../../Cargo.toml",
+               "/api/probe/asset/....//....//reader.log"]
+    esc_ok = True
+    for u in escapes:
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:17837" + u,
+                                        timeout=8) as r:
+                body = r.read(4096).decode("utf-8", "replace")
+                if "[package]" in body:
+                    esc_ok = False
+        except Exception:
+            pass  # 4xx/拒绝=预期
+    legal_asset = False
+    try:
+        with urllib.request.urlopen(
+                "http://127.0.0.1:17837/api/probe/asset/foliate-view.js",
+                timeout=8) as r:
+            legal_asset = b"foliate" in r.read(4096)
+    except Exception:
+        legal_asset = False
+    results("N-09.asset-escape", "PASS" if esc_ok else "FAIL",
+            f"traversal leaked={not esc_ok} (must be False)")
+    results("N-09.legal-asset", "PASS" if legal_asset else "FAIL",
+            f"local foliate-view.js served={legal_asset}")
+    # 远程/活动脚本零加载（资源原点全部同源）。
+    origins = []
+    try:
+        origins = page_b.evaluate(
+            "() => performance.getEntriesByType('resource')"
+            ".map(r => { try { return new URL(r.name).origin }"
+            " catch (e) { return 'data:' } })")
+    except Exception:
+        pass
+    external = sorted({o for o in origins
+                       if o not in ("http://127.0.0.1:17837", "data:", "null:",
+                                    "blob:", "about:")})
+    results("N-09.no-remote-script", "PASS" if not external else "FAIL",
+            f"resources={len(origins)} external={external or 'none'}")
+
+    # ── N-11 变异红 → 还原绿（真实已存 locator，字节级还原）──
+    fp = os.path.join(data_dir_b, "probe", "locators", sid_b + ".json")
+    backup = _sidecar_bytes(data_dir_b, sid_b)
+    if not backup:
+        results("N-11", "FAIL", "no sidecar file to mutate")
+        return
+    bak2 = fp + ".n11bak"
+    shutil.copyfile(fp, bak2)
+    j = json.loads(backup.decode("utf-8"))
+    r0 = j["records"][0]
+    old_quote = r0["locator"]["text_quote"]
+    mutated_q = ("错" + old_quote[1:]) if len(old_quote) > 1 else "错句"
+    old_cfi = r0["locator"]["cfi"]
+    mutated_cfi = old_cfi.replace("/6/", "/6/9", 1) if "/6/" in old_cfi \
+        else "epubcfi(/6/99!/4/1:1)"
+    r0["locator"]["text_quote"] = mutated_q
+    r0["locator"]["cfi"] = mutated_cfi
+    open(fp, "w", encoding="utf-8", newline="\n").write(
+        json.dumps(j, ensure_ascii=False))
+
+    vq = oracle_b.verify_quote(mutated_q, int(r0["locator"]["occurrence"]))
+    red_oracle = not vq.get("ok")
+    results("N-11.mutation-red-oracle", "PASS" if red_oracle else "FAIL",
+            f"mutated quote -> oracle ok={vq.get('ok')} "
+            f"reason={str(vq.get('reason', ''))[:40]} (must be red)")
+    # 位置判据（同 N-09）：真 CFI 落点 vs 变异 CFI 落点必须不同。
+    loc_true11 = _goto_loc(old_cfi, settle=1.5)
+    _goto_loc("epubcfi(/6/2!/2/2)", settle=1.2)  # 先离开目标位置
+    loc_m11 = _goto_loc(mutated_cfi)
+    restore_red = loc_m11 is not None and loc_m11 != loc_true11
+    results("N-11.mutation-red-restore", "PASS" if restore_red else "FAIL",
+            f"mutated-cfi loc={str(loc_m11)[:40]!r} "
+            f"true={str(loc_true11)[:40]!r} (must differ)")
+    shutil.copyfile(bak2, fp)
+    os.remove(bak2)
+    restored = _sidecar_bytes(data_dir_b, sid_b) == backup
+    vq2 = oracle_b.verify_quote(old_quote, int(r0["locator"]["occurrence"]))
+    vis2 = _goto_vis(old_cfi, settle=1.5)
+    results("N-11.restore-green",
+            "PASS" if (restored and vq2.get("ok") and vis2) else "FAIL",
+            f"bytes_restored={restored} oracle_ok={vq2.get('ok')} "
+            f"restore_visible={vis2}")
 
 _UIA_PS1 = r"""param(
     [long]$Hwnd,

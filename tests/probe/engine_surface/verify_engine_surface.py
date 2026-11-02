@@ -385,7 +385,7 @@ def run_surface(ctx):
         # 障碍已随 T-05 落入 driver_vm（run_vm 尾段）；N-01/07/08（输入通道
         # 对照/实例/生命周期）、N-09 后端负控、N-10 实况负控、N-11 变异、
         # N-12 旧门仍待 T-06..T-09。
-        for cid in ["N-01", "N-09", "N-11", "N-12"]:
+        for cid in ["N-01", "N-12"]:
             record(cid, "not_run", "pending later task (T-07..T-09)")
         from driver_vm import run_vm
         oracle = BookScan(os.path.join(ctx["corpus_dir"], "probe-alpha.epub"))
