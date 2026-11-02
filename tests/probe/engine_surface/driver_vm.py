@@ -19,13 +19,20 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 APP_DIR = os.path.join(HERE, "app")
 ENGINE_REVISION = "foliate-js@3d794195"
 
-NATIVE_HOST = os.environ.get(
-    "PROBE_NATIVE_HOST",
-    r"D:\autostack\.wt\ui-026\auto-ui\experiments\reader-engine-probe"
-    r"\target\release\native_host.exe")
+NATIVE_HOST = os.environ.get("PROBE_NATIVE_HOST", "")
+# PLAN-029：不再静默回落已删 ui-026 树的旧 exe（计划 §5.4）。host 必须由
+# env/cohort 显式给出，缺失具名失败；给出但不存在同样具名失败。
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
+
+# PLAN-029 T-00：驱动进程必须 per-monitor DPI-aware——此后 ClientToScreen/
+# GetClientRect/GetSystemMetrics/SendInput 归一化全部处于同一物理像素坐标系。
+# （026 臂未设感知：逻辑/物理坐标混用，是输入断点的成因之一，见计划 §9。）
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+except Exception:
+    user32.SetProcessDPIAware()
 
 
 def _find_windows_of_pid(pid):
@@ -99,10 +106,14 @@ class _INPUT(ctypes.Structure):
 
 
 def _abs_xy(x, y):
-    sw = user32.GetSystemMetrics(76)   # SM_CXVIRTUALSCREEN
-    sh = user32.GetSystemMetrics(77)   # SM_CYVIRTUALSCREEN
-    ox = user32.GetSystemMetrics(88)   # SM_XVIRTUALSCREEN
-    oy = user32.GetSystemMetrics(89)   # SM_YVIRTUALSCREEN
+    # PLAN-029 T-00 实测修复：76/77 是 SM_X/YVIRTUALSCREEN（虚拟屏原点），
+    # 宽高是 78/79。026 旧码用 76/77 当宽高、88/89 当原点——分母 max(1,0)=1
+    # 把绝对坐标放大 ~65536 倍，输入永不落在内容上（026「原生输入 GAP」的
+    # 首要根因）。
+    ox = user32.GetSystemMetrics(76)   # SM_XVIRTUALSCREEN
+    oy = user32.GetSystemMetrics(77)   # SM_YVIRTUALSCREEN
+    sw = user32.GetSystemMetrics(78)   # SM_CXVIRTUALSCREEN
+    sh = user32.GetSystemMetrics(79)   # SM_CYVIRTUALSCREEN
     nx = int((x - ox) * 65536 / max(1, sw))
     ny = int((y - oy) * 65536 / max(1, sh))
     return nx, ny
@@ -139,8 +150,12 @@ def run_vm(out_dir, corpus_dir, oracle_scan, results):
     if not os.path.isfile(os.path.join(assets_dir, "native-host.html")):
         results("NV-01", "GAP", "native assets missing: " + assets_dir)
         return
+    if not NATIVE_HOST:
+        results("NV-01", "GAP",
+                "PROBE_NATIVE_HOST unset (explicit cohort required, no stale fallback)")
+        return
     if not os.path.isfile(NATIVE_HOST):
-        results("NV-01", "GAP", "native_host.exe missing (build T-03 crate first)")
+        results("NV-01", "GAP", "PROBE_NATIVE_HOST missing on disk: " + NATIVE_HOST)
         return
 
     epub = os.path.join(corpus_dir, "probe-alpha.epub")

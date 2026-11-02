@@ -94,15 +94,19 @@ def main():
             text = open(os.path.join(src, name), encoding="utf-8",
                         errors="surrogateescape").read()
             text = text.replace("'./", "'./foliate-")
+            text = text.replace("'./foliate-vendor/", "'./foliate-vendor-")
             with open(os.path.join(out, "foliate-" + name), "w",
                       encoding="utf-8", newline="\n") as f:
                 f.write(text)
+    # PLAN-029 T-00 修正：.at 后端资产路由 :name 只匹配单段（实测
+    # foliate-vendor/zip.js 404），vendor 文件必须扁平为 foliate-vendor-<名>，
+    # 并把顶层文件的 './foliate-vendor/<名>' 引用同步改写为扁平名（026 合入
+    # 件从未整体重验，重建脚本与 026 实跑资产布局脱节——本次实测修复）。
     vendor = os.path.join(src, "vendor")
     for name in os.listdir(vendor):
         if name.endswith(".js"):
             text = open(os.path.join(vendor, name), encoding="utf-8",
                         errors="surrogateescape").read()
-            text = text.replace("'./", "'./foliate-")
             with open(os.path.join(out, "foliate-vendor-" + name), "w",
                       encoding="utf-8", newline="\n") as f:
                 f.write(text)
