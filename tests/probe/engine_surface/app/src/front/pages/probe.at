@@ -1,24 +1,69 @@
-// probe.at — PLAN-026 探针表面页。
-// remote-frame 在 vue 轨渲染为 <div data-remote-frame="1"
-// data-remote-frame-url="...">（shadcn_attrs.rs PLAN-760 臂）——探针胶水
-// 以 querySelector 接管该 div 并挂载 foliate-js 引擎；选区/定位经页面
-// fetch 通道（与本页 .at 编译面同传输）进 back/api.at 的 .at 消费 handler。
+// probe.at — PLAN-026/029 探针表面页。
+// PLAN-029 T-02：新增 doc-surface 实验文档表面（真实原生 VM 轨）——表面由
+// 组件布局分配区域，Connect handler（MCP chrome 动作触发）经
+// /api/probe/surface-url 把引擎装载 URL 写入 model → 表面在同源基址装载
+// 引擎资产与受管文档；选区 fetch 直达 back/api.at 的 .at 消费 handler。
+// vue 轨保持原 remote-frame 接缝（PLAN-760 宿主接管契约）不动——
+// doc-surface 在 vue 轨退化为透传 div（未知 tag 宿主回退），旧链零改动。
 widget probe {
+    msg { Init, Connect }
+
+    model {
+        var surface_url str = ""
+        var session_state str = "idle"
+    }
+
     view {
         col {
             style: "min-h-screen p-6 gap-4 max-w-4xl mx-auto"
 
             h1 "引擎表面探针" { style: "text-2xl font-bold text-foreground" }
-            text "PLAN-026 document surface — engine mounts into the remote-frame seam below" {
+            row {
+                style: "items-center gap-3"
+                button {
+                    onclick: .Connect
+                    style: "px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium"
+                    text "连接会话" {}
+                }
+                text .session_state { style: "text-sm text-muted-foreground" }
+            }
+            text "PLAN-029 document surface — native VM doc-surface below (vue track keeps remote-frame)" {
                 style: "text-sm text-muted-foreground"
             }
 
+            doc-surface (url: .surface_url, height: 420) {
+                style: "w-full border border-border rounded-md bg-white overflow-hidden"
+            }
+
             remote-frame (url: "probe://engine-surface") {
-                style: "w-full h-[70vh] border border-border rounded-md bg-white overflow-hidden"
+                style: "w-full h-[16vh] border border-border rounded-md bg-white overflow-hidden"
             }
 
             text "状态：等待探针驱动注入引擎胶水" {
                 style: "text-xs text-muted-foreground"
+            }
+        }
+    }
+
+    on {
+        .Init -> {
+            .session_state = "idle"
+        }
+        .Connect -> {
+            .session_state = "connecting"
+            let resp str = Http.get_json("/api/probe/surface-url")
+            try {
+                let v = json.parse(resp)
+                let ok = v.ok
+                if ok {
+                    .surface_url = "" + v.url
+                    .session_state = "connected"
+                } else {
+                    .session_state = "rejected:" + ("" + v.error)
+                }
+            } catch {
+                .session_state = "parse-error"
+                return
             }
         }
     }

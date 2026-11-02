@@ -1146,6 +1146,59 @@ pub fn probe_health() str {
     return "{\"ok\":true,\"service\":\"probe-engine-surface\",\"protocol\":1}"
 }
 
+/// GET /api/probe/surface-url — PLAN-029 T-02：原生 VM 前端 doc-surface 的
+/// 引擎装载 URL（最近会话的 native-host.html 资产地址）。基址来自
+/// PROBE_PUBLIC_BASE env（驱动按实例端口设置——双实例端口可配）。
+/// 前端 Connect handler（真实 MCP chrome 动作触发）经本端点把 URL 写入
+/// model → doc-surface 表面装载——.at前端状态→表面链的宿主侧入口。
+#[api(method = "GET", path = "/api/probe/surface-url")]
+pub fn probe_surface_url() str {
+    let base str = normalize(Env.get("PROBE_PUBLIC_BASE"))
+    if base == "" {
+        return "{\"ok\":false,\"error\":\"no_probe_public_base\"}"
+    }
+    let sp str = sessions_path()
+    if !fs.exists(sp) {
+        return "{\"ok\":false,\"error\":\"no_session\"}"
+    }
+    let raw str = fs.read_text(sp)
+    if raw == "" {
+        return "{\"ok\":false,\"error\":\"no_session\"}"
+    }
+    var latest str = ""
+    var latest_created int = -1
+    var lbook str = ""
+    var lhash str = ""
+    try {
+        let parsed = json.parse(raw)
+        let sessions = parsed.sessions
+        for s in sessions {
+            let created int = s.created_at
+            if created > latest_created {
+                latest_created = created
+                latest = "" + s.session_id
+                lbook = "" + s.book_id
+                lhash = "" + s.source_hash
+            }
+        }
+    } catch {
+        return "{\"ok\":false,\"error\":\"sessions_parse\"}"
+    }
+    if latest == "" {
+        return "{\"ok\":false,\"error\":\"no_session\"}"
+    }
+    var url str = base
+    if url.substr(url.len() - 1, 1) == "/" {
+        url = url.substr(0, url.len() - 1)
+    }
+    url = url + "/api/probe/asset/native-host.html?doc=" + lbook
+    url = url + "&session=" + latest + "&hash=" + lhash
+    var out str = "{\"ok\":true,\"url\":\""
+    out = out + json_escape(url)
+    out = out + "\"}"
+    return out
+}
+
 /// POST /api/probe/echo — 绑定诊断（T-02 探针专用，交付前移除）。
 #[api(method = "POST", path = "/api/probe/echo")]
 pub fn probe_echo(aa str, bb str, cc int) str {
