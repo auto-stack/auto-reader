@@ -249,6 +249,8 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 - 新增T-00～12、AC-01～12、P-01～12、SD-01～05；本轮只合同/导航，未创建数据/资产/代码/测试结果，未修改canonical Spec或旧ledger。
 - 起草自检：7份本次文档的90个本地引用已核，新改链接有效，UI README原有9个旧失效引用未扩改；0～10节、13任务/12AC/12必需用例完整，007号唯一、下一号008，git diff --check通过。只证明草案结构，不能作为029或007运行验收通过。
 
+- stage: goal | plan_id: READER-007 | plan_revision: r1 | round: 1 | from: work | to: work | status: executing | outcome: pass | worktree: D:/autostack/auto-reader main（本计划 main 为唯一实现位）| commit: 1d11c54 | next: T-05。
+
 ## 10. 待澄清事项
 
 1. 029的最新完整交付cohort与独立复审/验收回执目前未查到，用户同意先起草等待。执行前由T-00核实，未满足不得产品化。
