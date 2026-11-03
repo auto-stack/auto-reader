@@ -1270,9 +1270,8 @@ def p04_ui_create(args, out_dir):
                 page.wait_for_timeout(1000)
 
                 def drag_over(frag, which, until_frag=None):
-                    """块级目标定位（与 adapter 行模型同构——文本节点会被分行
-                    切片，段粒度必须按块元素取）：第 which 个含 frag 的块行 →
-                    视口坐标。until_frag 有值时终点=后继块行中该片段（跨段）。"""
+                    """真实选区目标定位（t06 冒烟已证形态：文本节点粒度 + 视口
+                    坐标；which=0/1 第几个含 frag 文本节点）。"""
                     return page.evaluate("""(args) => {
                         const { frag, which, untilFrag } = args
                         const fv = document.querySelector('foliate-view')
@@ -1284,55 +1283,37 @@ def p04_ui_create(args, out_dir):
                         if (!ifr) return { ok: false, why: 'no iframe' }
                         const doc = ifr.contentDocument
                         if (!doc) return { ok: false, why: 'no doc' }
-                        const BLOCKS = new Set(['P','H1','H2','H3','H4','H5','H6',
-                            'LI','DIV','BR','TR','PRE','BLOCKQUOTE'])
-                        const bt = (el) => String(el.tagName || '').toUpperCase()
-                        const isLeaf = (el) => {
-                            if (!BLOCKS.has(bt(el))) return false
-                            for (const d of el.querySelectorAll('*')) {
-                                if (BLOCKS.has(bt(d))) return false
-                            }
-                            return true
+                        const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+                        const hits = []
+                        let n
+                        while ((n = walker.nextNode())) {
+                            if (n.data && n.data.includes(frag)) hits.push(n)
                         }
-                        const all = []
-                        const walk = (el) => {
-                            for (const c of el.children) {
-                                if (isLeaf(c)) { all.push(c); continue }
-                                walk(c)
-                            }
-                        }
-                        if (doc.body) walk(doc.body)
-                        const hits = all.filter(el =>
-                            (el.textContent || '').includes(frag))
                         if (hits.length <= which) return { ok: false,
-                            why: 'blocks#' + hits.length }
-                        const blk = hits[which]
-                        let startNode = null, startAt = -1
-                        const tw = doc.createTreeWalker(blk, NodeFilter.SHOW_TEXT)
-                        let m
-                        while ((m = tw.nextNode())) {
-                            const i2 = m.data.indexOf(frag)
-                            if (i2 >= 0) { startNode = m; startAt = i2; break }
-                        }
-                        if (!startNode) {
-                            startNode = blk.firstChild
-                            startAt = 0
-                        }
-                        let endNode = startNode, endAt = startAt + Math.min(
-                            frag.length, startNode.data.length - startAt)
+                            why: 'hit#' + hits.length }
+                        const startNode = hits[which]
+                        const at = startNode.data.indexOf(frag)
+                        const r = doc.createRange()
+                        r.setStart(startNode, at)
                         if (untilFrag) {
-                            const bi = all.indexOf(blk)
-                            const nextBlk = all[bi + 1]
-                            if (!nextBlk) return { ok: false, why: 'no next block' }
-                            const tw2 = doc.createTreeWalker(nextBlk, NodeFilter.SHOW_TEXT)
-                            let en = null, ea = -1
-                            while ((m = tw2.nextNode())) {
-                                const i3 = m.data.indexOf(untilFrag)
-                                if (i3 >= 0) { en = m; ea = i3; break }
+                            let endNode = null, endAt = -1
+                            const w2 = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+                            let m
+                            while ((m = w2.nextNode())) {
+                                const i2 = m.data.indexOf(untilFrag)
+                                if (i2 >= 0) { endNode = m; endAt = i2; break }
                             }
-                            if (!en) return { ok: false, why: 'until miss' }
-                            endNode = en
-                            endAt = ea + Math.floor(untilFrag.length / 2)
+                            if (!endNode) return { ok: false, why: 'until miss' }
+                            r.setEnd(endNode, endAt + Math.floor(untilFrag.length / 2))
+                        } else {
+                            r.setEnd(startNode, Math.min(at + frag.length,
+                                startNode.data.length))
+                        }
+                        try { r.startContainer.parentElement.scrollIntoView(
+                            { block: 'center' }) } catch (err) {}
+                        if (untilFrag) {
+                            try { r.endContainer.parentElement.scrollIntoView(
+                                { block: 'center' }) } catch (err) {}
                         }
                         const seg = (node) => {
                             const rect = node.parentElement.getBoundingClientRect()
@@ -1341,22 +1322,8 @@ def p04_ui_create(args, out_dir):
                                      top: fr.top + rect.top,
                                      w: rect.width, h: rect.height }
                         }
-                        try { blk.scrollIntoView({ block: 'center' }) } catch (err) {}
-                        const s2 = seg(startNode)
-                        let e2 = seg(endNode)
-                        if (untilFrag) {
-                            try { endNode.parentElement.scrollIntoView(
-                                { block: 'center' }) } catch (err) {}
-                            e2 = seg(endNode)
-                            try { blk.scrollIntoView({ block: 'center' }) } catch (err) {}
-                            const s3 = seg(startNode)
-                            const e3 = seg(endNode)
-                            return { ok: true,
-                                x0: s3.left + 4, y0: s3.top + s3.h / 2,
-                                x1: e3.left + Math.min(e3.w - 6,
-                                    Math.max(40, e3.w * 0.6)),
-                                y1: e3.top + e3.h / 2 }
-                        }
+                        const s2 = seg(r.startContainer)
+                        const e2 = seg(r.endContainer)
                         return { ok: true,
                             x0: s2.left + 4, y0: s2.top + s2.h / 2,
                             x1: e2.left + Math.min(e2.w - 6,
@@ -2018,6 +1985,9 @@ def main():
     ap.add_argument("--keep", action="store_true", help="保留 out-dir")
     ap.add_argument("--corpus-dir", default="",
                     help="已生成产品语料目录（缺省在 out-dir/corpus 生成）")
+    ap.add_argument("--only", default="",
+                    help="仅跑指定族（如 p04/p03；其余必需腿记 not_run）——"
+                         "真实输入腿的前台会话取证形态；完整 cohort 以无 --only 跑为准")
     args = ap.parse_args()
 
     if not args.auto_bin or not os.path.isfile(args.auto_bin):
@@ -2039,6 +2009,28 @@ def main():
     print(f"cohort: auto={bin_version(args.auto_bin)[:60]} "
           f"tool={os.environ.get('AUTO_UI_TOOL_BIN', '')}")
 
+    only = args.only.strip().lower()
+    if only == "p04":
+        # 前台取证形态：cohort desk（依赖面）+ P-04 真实 UI 腿；其余腿留
+        # not_run（严格聚合器照常非零——完整判定以全量跑为准）
+        desk = check_cohort_desk(args.auto_bin)
+        record("P-01.cohort-desk", "PASS" if all(desk[:4]) else "FAIL",
+               f"archived={desk[0]} landing={desk[1]} auto_g47d8f7b={desk[2]} "
+               f"tool_doc-surface={desk[3]}")
+        p04_ui_create(args, out_dir)
+        p12_structure(args, out_dir)
+        register_pending()
+        for cid in ("P-01.backend", "P-02.load-chain", "P-02.asset-independence",
+                    "P-02.product-ui", "P-02.footnote-link", "P-02.ui-mount",
+                    "P-03.flow-switch", "P-03.reflow-selection",
+                    "P-05.v1-compat", "P-04.data-oracle", "P-05.v2-anchor",
+                    "P-08.mutation-matrix", "P-10.data", "P-06.data-coldrestart",
+                    "P-09.resource-gate", "P-09.import-bounds"):
+            record(cid, "not_run", f"--only p04 前台取证跑未含（证据见同 cohort 全量跑）")
+        ok, findings, n_not_run = aggregate(args.profile, RECORDS)
+        print(f"aggregate(--only {only}): ok={ok} findings={len(findings)} "
+              f"not_run={n_not_run}")
+        return 3 if not findings else 1
     p01(args, out_dir)
     time.sleep(3)
     # 数据族先跑（新起 app，避开 run_ui 宿主长存活期不稳定面——
