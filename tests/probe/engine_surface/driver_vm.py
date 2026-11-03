@@ -2111,7 +2111,8 @@ def _run_t05_gates(out_dir, mcp3, sid3, win_hwnd3, oracle_scan, results,
         # 600s+恢复 600s），不计入 600s 自动链预算——计划 §5.2 语义修订。──
         if (os.environ.get("PROBE_DPI_INTERACTIVE") == "1"
                 or os.environ.get("PROBE_DPI_AUTO") == "1"):
-            _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results)
+            _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results,
+                          anchor_cfi=rec["locator"]["cfi"])
         else:
             results("N-05.dpi-change", "not_run",
                     "interactive gate: rerun with PROBE_DPI_INTERACTIVE=1 "
@@ -2260,7 +2261,8 @@ def _run_n06_keyboard(popup, out_dir, page5, results):
             f"back={back} (real ArrowRight/Left)")
 
 
-def _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results):
+def _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results,
+                 anchor_cfi=None):
     """N-05.dpi-change（交互门）：用户经系统设置切换显示缩放 → 驱动自动
     检测（每秒轮询 iced 窗 DPI，150s 窗口）→ 弹出窗/内容随新 DPI（真值：
     GetWindowRect vs CDP innerWidth×新scale）→ 真实拖选重命中目标原文 →
@@ -2344,10 +2346,21 @@ def _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results):
             f"expected_w={exp_w:.0f} (proportional to window)")
     if not tracked:
         return
-    # 当前位置拖选 + oracle（位置依赖教训：视口可在任意章——dpi3 实测 ch3
-    # 上目标句前向 walk 永不达；track 门已证几何跟随，此处证输入重命中）。
-    ok, note, base_count = _drag_current_and_verify(
-        page6, win_hwnd3, oracle_scan, sid3, base_count, turn=True)
+    # 新几何上真实拖选重命中目标原文（N-02 同款目标句机制）：goTo 锚定
+    # （许可通道，vue 臂 _vue_anchor_target 同款）→ 行盒量测 → 真实拖选 →
+    # want_occ 轮询。旧当前行拖选在新 DPI 几何下会产生跨块拼接选区
+    # （'跨章注与复'，T-06 已知族，t12-legcheck 实测）→ oracle 不过。
+    if anchor_cfi:
+        try:
+            page6.evaluate("""async (cfi) => {
+                try { await window.__probe.view.goTo(cfi); return 'ok'; }
+                catch (e) { return 'err:' + e; } }""", anchor_cfi)
+            time.sleep(2.0)
+        except Exception:
+            pass
+    ok, note, base_count = _drag_target_and_verify(
+        page6, win_hwnd3, oracle_scan, sid3, base_count, want_occ=2,
+        poll_deadline=120)
     results("N-05.dpi-change.redrag", "PASS" if ok else "FAIL", note)
     print(">>> 请恢复显示缩放回原档位（600 秒内）<<<", flush=True)
     if auto_dpi:
