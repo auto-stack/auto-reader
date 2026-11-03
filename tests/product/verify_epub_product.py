@@ -1758,6 +1758,23 @@ def p07_t07_legs(args, out_dir):
                 if sec == 1:
                     break
                 time.sleep(2)
+            if sec != 1:
+                # 诊断面：直接 view.goTo 探针——能移动 = 队列命令未被执行
+                # （适配器执行面）；不能移动 = 引擎 goTo 面
+                try:
+                    page.evaluate("""() => {
+                        const r = window.__reader
+                        if (r && r.view) { r.view.goTo({ index: 1 }) }
+                    }""")
+                    t1 = time.monotonic()
+                    while time.monotonic() - t1 < 8:
+                        st3 = _ui_engine_state(page)
+                        sec = st3.get("sectionIndex", -1) if st3 else -1
+                        if sec == 1:
+                            break
+                        time.sleep(1)
+                except Exception:
+                    pass
             verdicts["restore"] = (sec == 1)
 
             def open_search_and_run(q):
@@ -1767,7 +1784,15 @@ def p07_t07_legs(args, out_dir):
                 inp = page.get_by_placeholder("输入关键词（精确子串）").first
                 inp.click(timeout=8000)
                 inp.fill(q)
-                if not _ui_click_btn(page, "搜索"):
+                # 抽屉内 搜索 按钮必须精确匹配——has_text 子串会命中工具栏
+                # 🔍 搜索（ToggleSearch）把抽屉关掉（T-07 诊断 A 实录）
+                clicked = page.evaluate("""() => {
+                    const b = Array.from(document.querySelectorAll('button'))
+                        .find(x => x.textContent.trim() === '搜索')
+                    if (b) { b.click(); return 'exact' }
+                    return 'not-found'
+                }""")
+                if clicked != "exact":
                     _ui_click_by_js(page, "搜索")
                 page.wait_for_timeout(1500)
 

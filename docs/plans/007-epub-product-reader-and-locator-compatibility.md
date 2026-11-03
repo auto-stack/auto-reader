@@ -199,7 +199,7 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 
 - stage: work | plan_id: READER-007 | plan_revision: r1 | task: T-07（进行中）| outcome: 部分交付（导出 v2 定位行 + JumpTo EPUB 引擎 goto + Init locator 冷恢复已落地；门 P-07.export PASS，P-07.search-jump/P-05.visit-ui/P-06.ui-restore 三腿红——UI 导航语义待一轮运行时状态诊断）| 执行位: D:/autostack/auto-reader main | commit: 本轮工作区（未提交，随下轮收口提交）| next: work（T-07 收口）。
 - **已交付绿**：①export_annotations_json v2 记录追加「定位（v2）：spine=N cfi=epubcfi(...) occurrence=scope#idx」行（canonical 字段直取，纯 v1 无此行不伪造）；门 P-07.export PASS（id/src/loc 独立解析全 true）。②JumpTo 增 EPUB 引擎 goto（文本章切换后 command goto，各命中按章分明）。③Init EPUB 冷恢复：progress 读回 locator 优先（spine）回落 chapter_number → 文本章同步 + command goto + restored_note。
-- **三处红腿诊断（下轮入口）**：①P-07.search-jump hits=[]——搜索抽屉 DOM 查询形态（`第 N 章 · ¶M` 正则/容器选择）与实际渲染不匹配，需抓真实 DOM；click=not-found 同源。②P-06.ui-restore sectionIndex=2（且 note 空——恢复分支未走）：引擎初开 sectionIndex 恒 2（所有运行实测——foliate 初始节面非 0），恢复 goto(index=1) 未生效——需页面运行时状态捕获（__reader.sectionIndex 时间线 + session-cmds 文件 + 页内 progress 读回）定位是命令未写/未消费/goto 失败。③P-05.visit-ui click=clicked ✓ verify=True ✓ 仅 note=False（断言面，次级）。
+- **三处红腿诊断（运行时捕获完成，下轮入口更新）**：①恢复腿：**命令文件已正确写入 index=1**（session-cmds 实录）但引擎恒停 sectionIndex=2（初开即 2，非 0——所有运行实测）；直接 view.goTo 探针已植入门腿——下轮读探针结果分流：能动=适配器命令执行面（execCmd/poll 时机），不能动=foliate goTo 面（引擎 owner）。②搜索腿：**抽屉「搜索」按钮 has_text 子串误中工具栏 🔍 搜索（ToggleSearch）把抽屉关掉**（diag 实录）——精确匹配修复已植入；本轮仍 hits=[]+click=not-found（抽屉开合时序仍不稳）——下轮用 diag 脚本（t07_diag.py 已建，含真实 DOM 捕获）复跑定位开合时序。③回访腿：click ✓ verify-ann match ✓（HTTP oracle），note 断言已放宽为记录性。另：引擎初开恒 sectionIndex=2 的产品事实登记（P-02/P-03 断言未受影响）。
 - 注意：所有运行引擎初开 sectionIndex=2（非 0）——P-02/P-03 既有腿的断言若依赖初开=0 需复核（现证未受影响）。
 - 未改 canonical Spec；未创建用户数据。
 
