@@ -2260,6 +2260,30 @@ def _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results):
         return (h, _win_rect(h)) if h else (None, None)
 
     dpi0 = user32.GetDpiForWindow(win_hwnd3) or 96
+    auto_dpi = os.environ.get("PROBE_DPI_AUTO") == "1"
+    here = os.path.dirname(os.path.abspath(__file__))
+    tier0 = str(round(dpi0 / 96.0 * 100)) + "%"      # 原档位（设置应用命名）
+    tier1 = "150%" if tier0 != "150%" else "175%"    # 目标档位
+
+    def _auto_switch(target):
+        # UIA 驱动 设置>系统>屏幕 缩放下拉（消息级 SelectionPattern，不动
+        # 物理鼠标——与 SendInput 门无冲突）。OS 级真实缩放变更链与手点
+        # 同路；手动模式仍可用 PROBE_DPI_INTERACTIVE=1。
+        try:
+            subprocess.Popen(["powershell", "-NoProfile", "-Command",
+                              "Start-Process 'ms-settings:display'"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(5)
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                 "-File", os.path.join(here, "dpi_set.ps1"), "-Target", target],
+                capture_output=True, encoding="utf-8", errors="replace", timeout=120)
+            out = (r.stdout or "") + (r.stderr or "")
+            print("[dpi-auto] switch to", target, "->", out.strip()[-120:], flush=True)
+            return "OK" in out
+        except Exception as e:
+            print("[dpi-auto] switch failed:", repr(e)[:100], flush=True)
+            return False
 
     def _win_client_w(retries=6):
         # DPI 切换瞬间 winit 重排竞态下单次测量可能返回 0/失败（t09-final5
@@ -2286,6 +2310,9 @@ def _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results):
           f"（当前 DPI={dpi0}，600 秒内）<<<", flush=True)
     dpi1 = None
     t0 = time.monotonic()
+    switched = False
+    if auto_dpi:
+        switched = _auto_switch(tier1)
     while time.monotonic() - t0 < 600:
         d = user32.GetDpiForWindow(win_hwnd3)
         if d != dpi0:
@@ -2313,6 +2340,8 @@ def _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results):
         page6, win_hwnd3, oracle_scan, sid3, base_count, turn=True)
     results("N-05.dpi-change.redrag", "PASS" if ok else "FAIL", note)
     print(">>> 请恢复显示缩放回原档位（600 秒内）<<<", flush=True)
+    if auto_dpi:
+        restored_ui = _auto_switch(tier0)
     t0 = time.monotonic()
     restored = False
     while time.monotonic() - t0 < 600:
