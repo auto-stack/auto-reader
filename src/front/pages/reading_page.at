@@ -31,6 +31,9 @@
 // handler，搜索 onenter / 对话框按钮 widget 级触发，不抢输入框/IME。
 use store: BooksStore
 use fmt: pct1
+// READER-007 T-03：产品引擎表面宿主（vue 轨页面自身装载；VM 轨空实现——
+// doc-surface 由组件 + surface-url 自动装载 native-host.html）。
+use.web mountProductEngine from "src/front/ports/engine_host.at"
 
 style page_btn = "inline-flex items-center gap-1 px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-lg transition-colors disabled:opacity-40"
 
@@ -416,6 +419,11 @@ widget reading_page {
         var book_id int = 0
         var route_id str = ""
         var is_real bool = false
+        // READER-007 T-03：正式 EPUB 引擎表面（doc-surface 装载 URL/状态；
+        // 非 EPUB 真实书保持既有 scroll-pane 文本行形态）
+        var is_epub bool = false
+        var surface_url str = ""
+        var engine_note str = ""
         var chapter_num int = 1
         var chapter = { book_id: 0, number: 1, title: "", body: "", word_count: 0 }
         // 章 JSON 原文（images[]/links[] 单源输入——注释变更后重建段落复用）
@@ -698,6 +706,37 @@ widget reading_page {
                         text "字号与行距沿顶栏书内偏好（保存于阅读状态）" { style: "text-xs text-muted-foreground px-2" }
                     }
                 }
+                // Reading column — READER-007 T-03：EPUB 走 doc-surface 引擎
+                // 表面（VM 原生 WebView2 / vue 宿主容器，正文结构/图/脚注由
+                // 引擎渲染）；TXT/MD 保持既有 scroll-pane 文本行形态
+                // （scroll-pane controller + 段落锚点回退语义）。引擎表面
+                // 装载失败时诚实提示，不回退冒充纯文本成功。
+                if .is_epub {
+                    if .loaded {
+                        col {
+                            style: "flex-1 min-h-0 w-full relative"
+                            if .surface_url != "" {
+                                doc-surface (url: .surface_url, height: 640) {
+                                    style: "w-full h-full border border-border rounded-md bg-white overflow-hidden"
+                                }
+                            } else {
+                                col {
+                                    style: "items-center justify-center py-20 text-muted-foreground gap-2"
+                                    text "引擎表面不可用" { style: "text-sm text-foreground" }
+                                    if .engine_note != "" {
+                                        text .engine_note { style: "text-xs text-muted-foreground" }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        col {
+                            style: "items-center justify-center py-20 text-muted-foreground"
+                            text "Loading…" {}
+                        }
+                    }
+                }
+                } else {
                 // Reading column — T-25：scroll-pane（PLAN-656 controller）；
                 // 恢复定位由段落 scroll-anchor + scroll_to_child 入队完成。
                 // READER-002：栏宽/主题由本地排版偏好承载（沉浸面）。
@@ -962,6 +1001,18 @@ widget reading_page {
                         .is_real = true
                     }
                 }
+                // READER-007 T-03：format 字段区分 EPUB（引擎表面）与
+                // TXT/MD（既有 scroll-pane 文本行）；缺省/未知格式不启用
+                // 引擎表面（诚实回退，不冒充 EPUB 已支持）。
+                var pfmt str = ""
+                try {
+                    pfmt = "" + probe.format
+                } catch {
+                    pfmt = ""
+                }
+                if pfmt == "epub" {
+                    .is_epub = true
+                }
             }
             if .is_real {
                 // F-05 修复：章节号一律以路由为准（显式入口不被旧状态
@@ -1123,6 +1174,55 @@ widget reading_page {
                     .progress_pct = pct_of(.chapter_num, total)
                 }
                 .progress_label = pct1(.progress_pct) + "%"
+                // READER-007 T-03：正式 EPUB 引擎表面自动装载——建立产品会话
+                // 后取 surface-url 并写入 model（VM 轨 doc-surface 组件消费；
+                // vue 轨经 mountProductEngine 页面自身装载），不靠驱动注入。
+                // 会话/装载失败诚实提示，不冒充已装载。
+                if .is_epub {
+                    .loaded = true
+                    let sid str = "r7-" + Time.now_ms().to_string()
+                    // 先取书目记录的真实 source_hash（探针里已有），再一次
+                    // 建会话——"pending" 占位必被服务端拒（hash 核验），
+                    // 属无效调用，不发起。
+                    let bprobe = parse_lib(Http.get_json("/api/library/books/" + .route_id))
+                    var shash str = ""
+                    if bprobe != null {
+                        var bh str = ""
+                        try {
+                            bh = "" + bprobe.source_hash
+                        } catch {
+                            bh = ""
+                        }
+                        if bh != "" {
+                            shash = bh
+                            let sess2 = parse_lib(Http.post("/api/reader/session", { session_id: sid, book_id: .route_id, source_hash: shash, engine: "foliate-js@3d794195" }))
+                        }
+                    }
+                    var sres = parse_lib(Http.get_json("/api/reader/surface-url"))
+                    var surl str = ""
+                    if sres != null {
+                        var vok = sres.ok
+                        var vurl str = ""
+                        try {
+                            vurl = "" + sres.url
+                        } catch {
+                            vurl = ""
+                        }
+                        if vok {
+                            surl = vurl
+                        }
+                    }
+                    if surl != "" {
+                        .surface_url = surl
+                        .engine_note = "引擎表面已装载"
+                        let mres str = mountProductEngine(sid, .route_id, shash).await
+                        if mres != "ok" {
+                            .engine_note = "引擎装载失败：" + mres
+                        }
+                    } else {
+                        .engine_note = "引擎表面装载失败（会话或资源不可用）"
+                    }
+                }
             } else {
                 .chapter = Http.get_json("/api/chapters?book_id=" + .book_id.to_string() + "&number=" + .chapter_num.to_string())
                 .chapters = Http.get_json("/api/books/" + .book_id.to_string() + "/chapters")

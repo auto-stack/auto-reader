@@ -31,7 +31,7 @@
 // 任一步失败不产生"成功却缺原文件"的记录。
 // 编码检测双轨：envelope total==-1（头部 64KB）+ read_text 长度对账全文。
 
-use pathx: join, basename, stem_of, mkdirs, json_escape, normalize
+use pathx: join, basename, stem_of, mkdirs, json_escape, normalize, parent
 use hashx: ph1
 use jsonx: valid_index, valid_state, valid_removed_entry
 use importers: parse_book_json, format_of, scan_meta_json
@@ -1553,6 +1553,390 @@ pub fn restore_book(book_id str) str {
         return "removed log cleanup failed rc=" + clrc.to_string()
     }
     return ""
+}
+
+// ───────────────────────────────────────────────────────────────
+// READER-007 T-03：产品引擎资源/会话面（正式 /api/reader/*）。
+// 与探针（/api/probe/*）同构但数据面不同：固定资产 root 由应用自有
+// 资产目录派生（不依赖 PROBE_ASSETS_DIR/PROBE_DATA_DIR），受管原件
+// root 由正式书目记录派生（无独立 register 步骤），会话存数据目录
+// sessions.json。消费者入口 = 正式 reading_page 的 doc-surface 表面；
+// locator 数据层由 T-05 接入（本阶段仅资源/会话/装载）。
+// ───────────────────────────────────────────────────────────────
+
+/// 产品固定资产根目录：AUTO_READER_ENGINE_ASSETS env 覆盖（测试隔离用），
+/// 缺省 = 仓库内受管资产目录（相对进程 cwd——auto run 自仓库根执行）。
+pub fn engine_assets_root() str {
+    let env str = Env.get("AUTO_READER_ENGINE_ASSETS")
+    if env != "" {
+        return normalize(env)
+    }
+    return normalize("src/assets/engine-assets")
+}
+
+/// 资产名形状白名单（字母/数字/./-/_，≤200，无 ..）——双保险同
+/// epub_media_response 语义。
+pub fn reader_asset_ok(name str) bool {
+    if name == "" {
+        return false
+    }
+    if name.len() > 200 {
+        return false
+    }
+    if name.find("..") >= 0 {
+        return false
+    }
+    var i int = 0
+    while i < name.len() {
+        let c str = name.substr(i, 1)
+        var known bool = false
+        if "0123456789".find(c) >= 0 {
+            known = true
+        }
+        if "abcdefghijklmnopqrstuvwxyz".find(c) >= 0 {
+            known = true
+        }
+        if "ABCDEFGHIJKLMNOPQRSTUVWXYZ".find(c) >= 0 {
+            known = true
+        }
+        if c == "." {
+            known = true
+        }
+        if c == "-" {
+            known = true
+        }
+        if c == "_" {
+            known = true
+        }
+        if c == "/" {
+            known = true
+        }
+        if !known {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+/// 资产 content type（同探针 asset_type_of 语义）。
+pub fn reader_asset_type_of(name str) str {
+    if name.find(".mjs") >= 0 {
+        return "text/javascript"
+    }
+    if name.find(".js") >= 0 {
+        return "text/javascript"
+    }
+    if name.find(".css") >= 0 {
+        return "text/css"
+    }
+    if name.find(".html") >= 0 {
+        return "text/html"
+    }
+    if name.find(".json") >= 0 {
+        return "application/json"
+    }
+    if name.find(".png") >= 0 {
+        return "image/png"
+    }
+    return ""
+}
+
+/// GET /api/reader/asset/:name — 产品固定资产字节。
+/// root = 应用自有资产目录（仓库内受管，随 app 分发）；形状白名单 +
+/// http.file_response 词法校验双保险；未知名指向必然不存在的 rel（404），
+/// 不泄露任何状态。资产目录缺失时同样指向缺失 rel（诚实 404，不伪造）。
+pub fn reader_asset_response(name str) FileResponse {
+    var root str = data_dir()
+    var rel str = "__missing__"
+    if reader_asset_ok(name) {
+        let ar str = engine_assets_root()
+        if ar != "" {
+            if fs.exists(ar) {
+                if fs.is_dir(ar) {
+                    root = ar
+                    rel = name
+                }
+            }
+        }
+    }
+    var ct str = reader_asset_type_of(rel)
+    if rel == "__missing__" {
+        ct = "application/octet-stream"
+    }
+    var opts str = "{\"content_type\":\""
+    opts = opts + ct
+    opts = opts + "\"}"
+    return http.file_response(root, rel, opts)
+}
+
+/// GET /api/reader/document/:bid/file — 本书受管原件字节（引擎装载源）。
+/// root 由正式书目记录 managed_path 派生（目录+文件名拆分），不注册、
+/// 不复制、不改原件；缺书/格式不符 → 指向必然不存在的名字（404），
+/// 不泄露任何状态。EPUB 二进制经 http.file_response 承载。
+pub fn reader_document_response(bid str) FileResponse {
+    var root str = data_dir()
+    var rel str = "__missing__"
+    let rj str = book_json(bid)
+    if rj != "" {
+        try {
+            let r = json.parse(rj)
+            let mp str = "" + r.managed_path
+            if mp != "" {
+                if fs.exists(mp) {
+                    if !fs.is_dir(mp) {
+                        root = parent(mp)
+                        rel = basename(mp)
+                    }
+                }
+            }
+        } catch {
+            root = data_dir()
+            rel = "__missing__"
+        }
+    }
+    return http.file_response(root, rel, "{\"content_type\":\"application/epub+zip\"}")
+}
+
+// ── 产品会话（数据目录 sessions.json；T-01 §4.2 身份链的运行时面） ──
+
+fn sessions_path() str {
+    let dd str = data_dir()
+    return join(dd, "sessions.json")
+}
+
+fn session_id_ok(sid str) bool {
+    if sid == "" {
+        return false
+    }
+    if sid.len() > 64 {
+        return false
+    }
+    var i int = 0
+    while i < sid.len() {
+        let c str = sid.substr(i, 1)
+        var known bool = false
+        if "0123456789".find(c) >= 0 {
+            known = true
+        }
+        if "abcdefghijklmnopqrstuvwxyz".find(c) >= 0 {
+            known = true
+        }
+        if "ABCDEFGHIJKLMNOPQRSTUVWXYZ".find(c) >= 0 {
+            known = true
+        }
+        if c == "-" {
+            known = true
+        }
+        if !known {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fn session_reemit(s) str {
+    let fsid str = "" + s.session_id
+    let fbid str = "" + s.book_id
+    let fsh str = "" + s.source_hash
+    let fen str = "" + s.engine
+    let fat int = s.created_at
+    var out str = "{\"session_id\":\""
+    out = out + json_escape(fsid)
+    out = out + "\",\"book_id\":\""
+    out = out + json_escape(fbid)
+    out = out + "\",\"source_hash\":\""
+    out = out + json_escape(fsh)
+    out = out + "\",\"engine\":\""
+    out = out + json_escape(fen)
+    out = out + "\",\"created_at\":"
+    out = out + fat.to_string()
+    out = out + "}"
+    return out
+}
+
+fn session_reemit_from(session_id str, book_id str, source_hash str, engine str, at int) str {
+    var out str = "{\"session_id\":\""
+    out = out + json_escape(session_id)
+    out = out + "\",\"book_id\":\""
+    out = out + json_escape(book_id)
+    out = out + "\",\"source_hash\":\""
+    out = out + json_escape(source_hash)
+    out = out + "\",\"engine\":\""
+    out = out + json_escape(engine)
+    out = out + "\",\"created_at\":"
+    out = out + at.to_string()
+    out = out + "}"
+    return out
+}
+
+/// 建立产品会话：session_id 形状 + 书存在 + source_hash 与书目记录一致 +
+/// engine 非空；通过则写 sessions.json（备份协议，同 id 幂等更新保留）。
+/// 拒绝零落盘。返回 {"ok":true,"session_id":...} 或 {"ok":false,...}。
+pub fn reader_session_put(session_id str, book_id str, source_hash str, engine str) str {
+    if !session_id_ok(session_id) {
+        return "{\"ok\":false,\"error\":\"rejected_bad_session\",\"detail\":\"session_id shape\"}"
+    }
+    if engine == "" {
+        return "{\"ok\":false,\"error\":\"rejected_bad_engine\"}"
+    }
+    let rj str = book_json(book_id)
+    if rj == "" {
+        return "{\"ok\":false,\"error\":\"rejected_bad_document\",\"detail\":\"book not found\"}"
+    }
+    var rec_hash str = ""
+    try {
+        let r = json.parse(rj)
+        rec_hash = "" + r.source_hash
+    } catch {
+        return "{\"ok\":false,\"error\":\"rejected_bad_document\",\"detail\":\"book parse\"}"
+    }
+    if rec_hash != source_hash {
+        return "{\"ok\":false,\"error\":\"rejected_bad_document\",\"detail\":\"source_hash mismatch\"}"
+    }
+    let dd str = data_dir()
+    let mrc int = mkdirs(dd)
+    if mrc != 0 {
+        return "{\"ok\":false,\"error\":\"fs_error\"}"
+    }
+    let now int = time.now_sec()
+    let sp str = sessions_path()
+    var out str = "{\"version\":1,\"sessions\":["
+    var n int = 0
+    if fs.exists(sp) {
+        let raw str = fs.read_text(sp)
+        if raw != "" {
+            try {
+                let parsed = json.parse(raw)
+                let sessions = parsed.sessions
+                for s in sessions {
+                    let sid str = "" + s.session_id
+                    if sid == session_id {
+                        continue
+                    }
+                    if n > 0 {
+                        out = out + ","
+                    }
+                    out = out + session_reemit(s)
+                    n = n + 1
+                }
+            } catch {
+                out = "{\"version\":1,\"sessions\":["
+                n = 0
+            }
+        }
+    }
+    if n > 0 {
+        out = out + ","
+    }
+    out = out + session_reemit_from(session_id, book_id, source_hash, engine, now)
+    out = out + "]}"
+    let wrc int = write_with_backup(sp, out)
+    if wrc != 0 {
+        var fe str = "{\"ok\":false,\"error\":\"fs_error\",\"code\":"
+        fe = fe + wrc.to_string()
+        fe = fe + "}"
+        return fe
+    }
+    var okr str = "{\"ok\":true,\"session_id\":\""
+    okr = okr + json_escape(session_id)
+    okr = okr + "\"}"
+    return okr
+}
+
+fn find_session_json(want str) str {
+    let sp str = sessions_path()
+    if !fs.exists(sp) {
+        return ""
+    }
+    let raw str = fs.read_text(sp)
+    if raw == "" {
+        return ""
+    }
+    var hit str = ""
+    try {
+        let parsed = json.parse(raw)
+        let sessions = parsed.sessions
+        for s in sessions {
+            let sid str = "" + s.session_id
+            if sid == want {
+                hit = session_reemit(s)
+            }
+        }
+    } catch {
+        return ""
+    }
+    return hit
+}
+
+/// GET /api/reader/session?session_id=... — 会话读回（冷重启恢复身份）。
+pub fn reader_session_get(session_id str) str {
+    if !session_id_ok(session_id) {
+        return "{\"found\":false,\"reason\":\"bad session shape\"}"
+    }
+    let sj str = find_session_json(session_id)
+    if sj == "" {
+        return "{\"found\":false}"
+    }
+    var out str = "{\"found\":true,\"session\":"
+    out = out + sj
+    out = out + "}"
+    return out
+}
+
+/// GET /api/reader/surface-url — 正式阅读页 doc-surface 装载 URL（最近会话）。
+/// base 由 AUTO_READER_PUBLIC_BASE env 覆盖（双实例端口可配），缺省
+/// http://127.0.0.1:17825（pac.at back_port）。无会话 → ok:false。
+pub fn reader_surface_url() str {
+    var base str = normalize(Env.get("AUTO_READER_PUBLIC_BASE"))
+    if base == "" {
+        base = "http://127.0.0.1:17825"
+    }
+    let sp str = sessions_path()
+    if !fs.exists(sp) {
+        return "{\"ok\":false,\"error\":\"no_session\"}"
+    }
+    let raw str = fs.read_text(sp)
+    if raw == "" {
+        return "{\"ok\":false,\"error\":\"no_session\"}"
+    }
+    var latest str = ""
+    var latest_created int = -1
+    var lbook str = ""
+    var lhash str = ""
+    try {
+        let parsed = json.parse(raw)
+        let sessions = parsed.sessions
+        for s in sessions {
+            let created int = s.created_at
+            if created > latest_created {
+                latest_created = created
+                latest = "" + s.session_id
+                lbook = "" + s.book_id
+                lhash = "" + s.source_hash
+            }
+        }
+    } catch {
+        return "{\"ok\":false,\"error\":\"sessions_parse\"}"
+    }
+    if latest == "" {
+        return "{\"ok\":false,\"error\":\"no_session\"}"
+    }
+    var url str = base
+    if url.substr(url.len() - 1, 1) == "/" {
+        url = url.substr(0, url.len() - 1)
+    }
+    url = url + "/api/reader/asset/native-host.html?doc="
+    url = url + lbook
+    url = url + "&session="
+    url = url + latest
+    url = url + "&hash="
+    url = url + lhash
+    var out str = "{\"ok\":true,\"url\":\""
+    out = out + json_escape(url)
+    out = out + "\"}"
+    return out
 }
 
 // ---- 单测说明 ----

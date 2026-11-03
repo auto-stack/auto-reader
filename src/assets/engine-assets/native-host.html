@@ -1,0 +1,58 @@
+<!doctype html>
+<!-- READER-007 T-03 正式原生表面页：WebView2(iced 宿主内) 从消费 app 同源装载
+     应用自有固定资产与受管原件；选区 fetch 直达 .at 消费 handler；挂载完成
+     后经 window.ipc 回报引擎身份与装载时长。 -->
+<html>
+<head><meta charset="utf-8"><title>reader-native-surface</title>
+<style>
+  html,body{margin:0;height:100%;background:#fff;font:15px/1.7 serif}
+  #seam{position:absolute;inset:0;overflow:hidden}
+</style></head>
+<body>
+  <div id="seam"></div>
+  <script type="module">
+    const q = new URLSearchParams(location.search);
+    import('/api/reader/asset/engine-adapter.js')
+      .then(m => m.mountProbe({
+        host: document.getElementById('seam'),
+        documentUrl: '/api/reader/document/' + q.get('doc') + '/file',
+        locatorUrl: '/api/reader/locator',
+        sessionId: q.get('session'),
+        bookId: q.get('doc'),
+        sourceHash: q.get('hash'),
+        onStatus: (m) => { document.title = 'r:' + m; },
+      }))
+      .then(r => {
+        if (window.ipc) window.ipc.postMessage(JSON.stringify({
+          schema_version: 1, probe: 'product-engine',
+          engine: 'foliate-js@3d7941954a98b136316a795e8200d60c9643b141',
+          spine: r.book.sections.length,
+          loadMs: r.loadMs, surface_alive: true,
+        }));
+      })
+      .catch(e => {
+        if (window.ipc) window.ipc.postMessage(JSON.stringify({ probe: 'product-engine', error: String(e) }));
+        document.title = 'CATCH:' + e;
+      });
+    // 选区状态周期回报（真实拖选是否产生 DOM 选区的宿主侧可见证据）。
+    setInterval(() => {
+      if (!window.ipc) return;
+      const frames = [];
+      const collect = (root) => {
+        for (const el of root.querySelectorAll('*')) {
+          if (el.tagName === 'IFRAME') frames.push(el);
+          if (el.shadowRoot) collect(el.shadowRoot);
+        }
+      };
+      collect(document);
+      const sels = frames.map(f => {
+        try {
+          const s = f.contentDocument.getSelection();
+          return s && !s.isCollapsed ? s.toString().slice(0, 40) : '(c)';
+        } catch (e) { return 'ERR'; }
+      });
+      window.ipc.postMessage(JSON.stringify({ probe: 'sel', sels }));
+    }, 3000);
+  </script>
+</body>
+</html>

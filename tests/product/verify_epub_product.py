@@ -27,6 +27,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import urllib.error
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -331,6 +332,251 @@ def p09_import_legs(args, out_dir):
            "引擎侧资源/脚本/远程/跨书边界 T-08 接入")
 
 
+# ─────────────────────── P-02：产品装载链 + 资产独立（T-03 接入） ───────────────────────
+
+ALPHA_MARK = "product-alpha"
+EDGE_BIN = os.path.join("C:", os.sep, "Program Files (x86)", "Microsoft",
+                        "Edge", "Application", "msedge.exe")
+
+
+def _boot_app(args, out_dir):
+    """启动正式 app(双轨同 p01 语义),返回 (proc, data_dir)。"""
+    data_dir = os.path.join(out_dir, f"reader-data-{args.profile}")
+    env = dict(os.environ,
+               AUTO_READER_DATA=data_dir,
+               AUTO_HTTP_STEP_BUDGET="1000000000",
+               AUTO_HTTP_REQUEST_TIMEOUT_MS="300000")
+    # 固定资产 root 显式不设 PROBE_ASSETS_DIR/PROBE_DATA_DIR——产品端点缺省
+    # 走应用自有 src/assets/engine-assets(资产独立腿的运行时条件)。
+    env.pop("PROBE_ASSETS_DIR", None)
+    env.pop("PROBE_DATA_DIR", None)
+    logf = open(os.path.join(out_dir, f"boot-{args.profile}.log"), "a",
+                encoding="utf-8", errors="replace")
+    if args.profile == "vm":
+        env["AUTO_UI_TOOL_BIN"] = os.environ.get("AUTO_UI_TOOL_BIN", "")
+        cmd = [args.auto_bin, "run", "-r", "vm", "--no-merge", "-B", "17825"]
+    else:
+        cmd = [args.auto_bin, "run", "--server=vm"]
+    proc = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=logf,
+                            stderr=subprocess.STDOUT)
+    ok_back = wait(lambda: http_ok("http://127.0.0.1:17825/api/library/books"), 150)
+    if args.profile == "vue":
+        wait(lambda: http_ok("http://localhost:17824/"), 180)
+    return proc, logf, data_dir
+
+
+def _parse2(v):
+    """/api/library/* 响应双层编码：http_json 解析一层后可能仍是 JSON 字符串，
+    递归解析到非 str（缺值/坏 JSON 原样返回）。"""
+    while isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except Exception:
+            break
+    return v
+
+
+def _import_alpha(data_dir):
+    """导入语料 alpha(幂等),返回 (book_id, source_hash, format)。"""
+    corpus = os.path.join(data_dir, "..", "corpus")
+    imp = _parse2(http_json("http://127.0.0.1:17825/api/library/import", "POST",
+                            {"path": os.path.join(corpus, "product-alpha.epub"),
+                             "author": "verify", "force": False}, timeout=60))
+    bid = ""
+    if isinstance(imp, dict):
+        bid = str(imp.get("book_id", "") or imp.get("existing_id", ""))
+    if not bid:
+        books = _parse2(http_json("http://127.0.0.1:17825/api/library/books"))
+        for b in books.get("books", []):
+            if "alpha" in str(b.get("original_path", "")):
+                bid = str(b.get("book_id", ""))
+    if not bid:
+        return "", "", ""
+    bj = _parse2(http_json("http://127.0.0.1:17825/api/library/books/" + bid))
+    shash = ""
+    fmt = ""
+    if isinstance(bj, dict):
+        try:
+            shash = str(bj.get("source_hash", ""))
+            fmt = str(bj.get("format", ""))
+        except Exception:
+            pass
+    return bid, shash, fmt
+
+
+def p02(args, out_dir):
+    """P-02（T-03 腿）：产品装载链（导入→format=epub→会话→surface-url→
+    资产/原件字节）+ 资产独立（不设 probe env,资产端点仍可达且与仓库内
+    manifest hash 一致）+ vue 轨真实 UI 引擎表面装载（doc-surface→
+    foliate-view 出现）。目录/图/脚注/跨章往返属 T-04。"""
+    proc, logf, data_dir = _boot_app(args, out_dir)
+    try:
+        bid, shash, fmt = _import_alpha(data_dir)
+        if not bid:
+            record("P-02.load-chain", "FAIL", "alpha import returned no book_id")
+            return
+        # 装载链：format 判定 → 会话 → surface-url → 资产 → 原件字节
+        ok_fmt = (fmt == "epub")
+        sid = "verify-" + str(int(time.time()))
+        sess = _parse2(http_json("http://127.0.0.1:17825/api/reader/session", "POST",
+                                 {"session_id": sid, "book_id": bid,
+                                  "source_hash": shash,
+                                  "engine": "foliate-js@3d794195"}))
+        ok_sess = str(sess.get("ok", "")).lower() == "true" \
+            if isinstance(sess, dict) else False
+        surf = _parse2(http_json("http://127.0.0.1:17825/api/reader/surface-url"))
+        surl = ""
+        if isinstance(surf, dict):
+            try:
+                if surf.get("ok"):
+                    surl = str(surf.get("url", ""))
+            except Exception:
+                surl = ""
+        ok_surf = surl.startswith("http://") and "native-host.html" in surl
+        try:
+            with urllib.request.urlopen(
+                    "http://127.0.0.1:17825/api/reader/asset/engine-adapter.js",
+                    timeout=20) as r:
+                ab = r.read()
+                act = r.headers.get("Content-Type", "")
+            ok_asset = (ab[:20].find(b"mountProbe") >= 0 or b"makeBook" in ab) \
+                and act == "text/javascript" and len(ab) > 1000
+        except Exception as e:
+            ok_asset = False
+            print("asset err:", e)
+        try:
+            with urllib.request.urlopen(
+                    "http://127.0.0.1:17825/api/reader/document/" + bid + "/file",
+                    timeout=30) as r:
+                head = r.read(4)
+                dct = r.headers.get("Content-Type", "")
+            ok_doc = head[:2] == b"PK" and "epub" in dct
+        except Exception as e:
+            ok_doc = False
+            print("document err:", e)
+        record("P-02.load-chain", "PASS" if all([ok_fmt, ok_sess, ok_surf,
+                                                 ok_asset, ok_doc]) else "FAIL",
+               f"format={fmt} sess={ok_sess} surf={ok_surf} "
+               f"asset={ok_asset} doc={ok_doc} sid={sid[:16]}")
+        # 资产独立：仓库内 src/assets/engine-assets/manifest.json hash 与
+        # 端点返回逐文件一致(端点 root 非 probe)。
+        ok_indep = False
+        try:
+            mf_path = os.path.join(ROOT, "src", "assets", "engine-assets",
+                                   "manifest.json")
+            with open(mf_path, encoding="utf-8") as f:
+                mf = json.load(f)
+            with urllib.request.urlopen(
+                    "http://127.0.0.1:17825/api/reader/asset/manifest.json",
+                    timeout=20) as r:
+                served = json.loads(r.read().decode("utf-8", "replace"))
+            ok_indep = (served.get("engine_revision")
+                        == mf.get("engine_revision")
+                        and served.get("files") == mf.get("files"))
+        except Exception as e:
+            print("asset-independence err:", e)
+        record("P-02.asset-independence", "PASS" if ok_indep else "FAIL",
+               "manifest served == repo src/assets (no probe env)")
+        # vue 轨真实 UI 装载：Edge headless 打开书页,断言 doc-surface 与
+        # foliate-view 出现在 DOM(页面自身装载,不经驱动注入)。
+        if args.profile == "vue":
+            ok_mount = False
+            if os.path.isfile(EDGE_BIN):
+                dom_file = os.path.join(out_dir, f"edge-dom-{args.profile}.html")
+                cmd = [EDGE_BIN, "--headless", "--disable-gpu", "--no-sandbox",
+                       "--virtual-time-budget=40000", "--dump-dom",
+                       f"http://localhost:17824/#/book/{bid}/chapter/1"]
+                r = run_cmd(cmd, timeout=180)
+                with open(dom_file, "w", encoding="utf-8", errors="replace") as f:
+                    f.write(r.stdout or "")
+                dom = (r.stdout or "")
+                ok_mount = ("data-auto-tag=\"doc-surface\"" in dom
+                            and "foliate-view" in dom
+                            and "<!---->" not in dom)
+                record("P-02.ui-mount", "PASS" if ok_mount else "FAIL",
+                       f"doc-surface+foliate-view in dumped DOM "
+                       f"(len={len(dom)})")
+            else:
+                record("P-02.ui-mount", "FAIL", "msedge not found")
+        # 拒绝面（P-09 资源/会话门,双轨同跑）——见 p09_resource_gate
+        p09_resource_gate(bid, shash, data_dir)
+    finally:
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       capture_output=True)
+        proc.wait()
+        logf.close()
+
+
+def p09_resource_gate(bid, shash, data_dir):
+    """P-09.resource-gate：资产/文档/会话拒绝面——坏名/越界/缺书/坏形状/
+    坏 hash/engine 空一律具名拒绝,拒绝零落盘(sessions.json 无脏记录)。"""
+    checks = []
+    # 资产：.. 越界与未知名 → 404
+    for path in ["/api/reader/asset/../pac.at",
+                 "/api/reader/asset/..%2f..%2fpac.at",
+                 "/api/reader/asset/no-such-asset-v9.js"]:
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:17825" + path,
+                                        timeout=10) as r:
+                checks.append(("asset-reject:" + path, False, r.status))
+        except urllib.error.HTTPError as e:
+            checks.append(("asset-reject:" + path, e.code == 404, e.code))
+        except Exception as e:
+            checks.append(("asset-reject:" + path, False, str(e)[:40]))
+    # 文档：缺书 → 404
+    try:
+        with urllib.request.urlopen(
+                "http://127.0.0.1:17825/api/reader/document/bad-book-id/file",
+                timeout=10) as r:
+            checks.append(("doc-missing", False, r.status))
+    except urllib.error.HTTPError as e:
+        checks.append(("doc-missing", e.code == 404, e.code))
+    except Exception as e:
+        checks.append(("doc-missing", False, str(e)[:40]))
+    # 会话：坏形状 / 坏 hash / engine 空 → 具名拒绝
+    bad_sessions = [
+        ("bad.shape.1", bid, shash, "foliate-js@3d794195", "rejected_bad_session"),
+        ("ok-shape-2", bid, "sha256:deadbeef", "foliate-js@3d794195",
+         "rejected_bad_document"),
+        ("ok-shape-3", bid, shash, "", "rejected_bad_engine"),
+    ]
+    for sid2, bid2, h2, eng2, expect in bad_sessions:
+        try:
+            rj = _parse2(http_json("http://127.0.0.1:17825/api/reader/session",
+                                   "POST",
+                                   {"session_id": sid2, "book_id": bid2,
+                                    "source_hash": h2, "engine": eng2}))
+            got = str(rj.get("error", "")) if isinstance(rj, dict) else ""
+            checks.append(("session-reject:" + expect, expect in got, got))
+        except Exception as e:
+            checks.append(("session-reject:" + expect, False, str(e)[:40]))
+    # 拒绝零落盘：sessions.json 只含合法会话(坏请求不写)
+    ok_clean = True
+    detail = ""
+    try:
+        sp = os.path.join(data_dir, "sessions.json")
+        if os.path.exists(sp):
+            with open(sp, encoding="utf-8") as f:
+                raw = json.load(f)
+            sids = [str(s.get("session_id", "")) for s in raw.get("sessions", [])]
+            dirty = [s for s in sids if not s.startswith("r7-")
+                     and not s.startswith("verify-")]
+            ok_clean = not dirty
+            detail = f"session_count={len(sids)} dirty={dirty[:3]}"
+        else:
+            detail = "sessions.json missing"
+    except Exception as e:
+        ok_clean = False
+        detail = str(e)[:60]
+    all_ok = all(c[1] for c in checks) and ok_clean
+    record("P-09.resource-gate", "PASS" if all_ok else "FAIL",
+           f"{len(checks)} rejects ok={all(c[1] for c in checks)} "
+           f"clean={ok_clean} {detail}")
+    for c in checks:
+        if not c[1]:
+            print("  reject-miss:", c[0], c[2])
+
+
 # ─────────────────────── P-12：新旧双端门（结构 T-02，冻结跑 T-09） ───────────────────────
 
 def p12_structure(args, out_dir):
@@ -345,7 +591,7 @@ def p12_structure(args, out_dir):
 # ─────────────────────── 未实现用例注册（T-03..T-08 接入） ───────────────────────
 
 def register_pending():
-    for cid in ("P-02", "P-03", "P-04", "P-05", "P-06", "P-07", "P-08", "P-10", "P-11"):
+    for cid in ("P-03", "P-04", "P-05", "P-06", "P-07", "P-08", "P-10", "P-11"):
         record(cid, "not_run", f"待 {REQUIRED[cid]['task']} 接入")
 
 
@@ -383,6 +629,7 @@ def main():
           f"tool={os.environ.get('AUTO_UI_TOOL_BIN', '')}")
 
     p01(args, out_dir)
+    p02(args, out_dir)
     p09_import_legs(args, out_dir)
     p12_structure(args, out_dir)
     register_pending()

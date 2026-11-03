@@ -1,0 +1,7 @@
+// ports/engine_host.vm.at — READER-007 T-03 VM 轨 facade：doc-surface 是
+// 真实 WebView2 表面，url 由后端 surface-url 生成并自动装载 native-host.html
+// （其自身 import engine-adapter 并 mountProbe）——VM 轨不需要页面 JS 装载，
+// 本 facade 提供同签名空实现（调用面恒可解析，行为由组件承担）。
+fn mountProductEngine(session_id str, book_id str, source_hash str) str {
+    return "ok"
+}

@@ -1,0 +1,3 @@
+// ports/engine_host.web.at — READER-007 T-03 vue 轨 facade：引擎装载宿主
+// 透传到 engine_host.ts（页面自身 JS 装载，不经驱动注入）。
+use.web mountProductEngine from "src/front/engine_host.ts"

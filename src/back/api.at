@@ -195,3 +195,41 @@ pub fn library_export(book_id str) str {
 pub fn reader_media(bid str, res str) FileResponse {
     return db.reader_media(bid, res)
 }
+
+// ═══════════════════════════════════════════════════════════
+// READER-007 T-03：产品引擎资源/会话端点（正式 /api/reader/*）。
+// 固定资产 root = 应用自有资产目录（仓库内 src/assets/engine-assets，
+// AUTO_READER_ENGINE_ASSETS 可覆盖隔离）；受管原件 root = 正式书目记录
+// 派生；会话存数据目录 sessions.json。全部经 db 面委托（一致性门）。
+// ═══════════════════════════════════════════════════════════
+
+/// GET /api/reader/asset/:name — 产品固定资产字节（引擎资产/adapter/宿主页）。
+#[api(method = "GET", path = "/api/reader/asset/:name")]
+pub fn reader_asset(name str) FileResponse {
+    return db.reader_asset(name)
+}
+
+/// GET /api/reader/document/:bid/file — 本书受管原件字节（引擎装载源）。
+#[api(method = "GET", path = "/api/reader/document/:bid/file")]
+pub fn reader_document(bid str) FileResponse {
+    return db.reader_document(bid)
+}
+
+/// POST /api/reader/session — 建立产品会话（绑定书/源版本/引擎）。
+/// body: { session_id, book_id, source_hash, engine }。
+#[api(method = "POST", path = "/api/reader/session")]
+pub fn reader_session_create(session_id str, book_id str, source_hash str, engine str) str {
+    return db.reader_session_create(session_id, book_id, source_hash, engine)
+}
+
+/// GET /api/reader/session — 会话读回（query: session_id；冷恢复身份）。
+#[api(method = "GET", path = "/api/reader/session")]
+pub fn reader_session_read(session_id str) str {
+    return db.reader_session_read(session_id)
+}
+
+/// GET /api/reader/surface-url — 正式阅读页 doc-surface 装载 URL（最近会话）。
+#[api(method = "GET", path = "/api/reader/surface-url")]
+pub fn reader_surface_url() str {
+    return db.reader_surface_url_json()
+}

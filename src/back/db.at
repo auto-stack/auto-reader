@@ -3,7 +3,7 @@
 // NOTE: seed strings ASCII-only (field-splitter limitation, see 017-chat).
 
 use api: Book, Chapter
-use library: books_json, book_json, toc_json, chapter_json, import_book_json, remove_book_json, restore_book_json, get_reading_json, put_reading_json, epub_media_response
+use library: books_json, book_json, toc_json, chapter_json, import_book_json, remove_book_json, restore_book_json, get_reading_json, put_reading_json, epub_media_response, reader_asset_response, reader_document_response, reader_session_put, reader_session_get, reader_surface_url
 use annotations: get_annotations_json, put_annotations_json, search_book_json, export_annotations_json
 
 // ═══════════════════════════════════════════════════════════
@@ -239,4 +239,29 @@ pub fn library_search(book_id str, query str) str {
 
 pub fn library_export_annotations(book_id str) str {
     return export_annotations_json(book_id)
+}
+
+// ═══════════════════════════════════════════════════════════
+// READER-007 T-03：产品引擎资源/会话（library.at 直通，JSON 字符串/
+// FileResponse 表面同款；端点经 db 面——codegen db.rs 一致性门）
+// ═══════════════════════════════════════════════════════════
+
+pub fn reader_asset(res str) FileResponse {
+    return reader_asset_response(res)
+}
+
+pub fn reader_document(bid str) FileResponse {
+    return reader_document_response(bid)
+}
+
+pub fn reader_session_create(session_id str, book_id str, source_hash str, engine str) str {
+    return reader_session_put(session_id, book_id, source_hash, engine)
+}
+
+pub fn reader_session_read(session_id str) str {
+    return reader_session_get(session_id)
+}
+
+pub fn reader_surface_url_json() str {
+    return reader_surface_url()
 }
