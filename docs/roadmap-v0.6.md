@@ -1,12 +1,12 @@
 # AutoReader 路线图：从独立阅读到覆盖 Readest
 
-更新：2026-11-03（**coverage v5：029交付门之后进入007正式EPUB产品化**）。沿用此路径保持链接兼容；长期覆盖目标不等于所有能力必须在 v0.6 一次交付。
+更新：2026-11-03（**coverage v5 修订：029 全部门双 profile exit0（vue 34记录/vm 92记录零非绿，含 Vue重排与DPI交互门），T-09 运行证据齐套、进入内检/独立复审**）。沿用此路径保持链接兼容；长期覆盖目标不等于所有能力必须在 v0.6 一次交付。
 
 ## 1. 新目标与决策顺序
 
 以 Readest 开源项目为主要参照，逐步覆盖其绝大多数已核实的能力，涵盖阅读/排版、选区/标注、书库、多格式、辅助阅读、书源、同步与互操作。
 
-当前顺序：**006调研/026实验已归档 → 029收口全部必需门并独立review/固定版本交付 → READER-007正式EPUB产品化第一期 → 后续分域扩展**。本次核查029仍executing、9/12，最新回执有Vue重排GAP、原生最终冻结跑及final review/交付未闭合；用户确认先起草下一份。007为drafting/r1、0/13，依赖未就绪，不启动实施，不改029的状态或在途工作。
+当前顺序：**006调研/026实验已归档 → 029收口全部必需门（双profile exit0 达成）并独立review/固定版本交付 → READER-007正式EPUB产品化第一期 → 后续分域扩展**。029 T-09 运行证据齐套（冻结跑 t09-freeze-final[-vue]），执行侧进入内检/复审交接；复审与固定版本交付未完成前保持 executing。007为drafting/r1、0/13，依赖未就绪，不启动实施。
 
 ## 2. 已交付基础
 
@@ -51,7 +51,7 @@
 | 顺序 | 工作 | owner/依赖与收口要求 |
 |---|---|---|
 | 已交付 | 026阅读引擎探针（原P2） | UI主导，Reader实验消费；研究流程已归档，局限保留 |
-| **实施收口中，交付待核** | [auto-ui/PLAN-029](https://github.com/auto-stack/auto-ui/blob/master/docs/plans/029-reader-native-input-and-surface-closure.md) | 本地executing、9/12；多项门已有证据，Vue重排GAP与最终冻结跑/独立review/交付未闭合，不由007补签 |
+| **实施收口中，交付待核** | [auto-ui/PLAN-029](https://github.com/auto-stack/auto-ui/blob/master/docs/plans/029-reader-native-input-and-surface-closure.md) | 本地executing、T-09运行证据齐套：双profile聚合exit0（vue 34记录/vm 92记录零非绿，含Vue重排、DPI交互门、N-04配对协议）、两端旧门28/28+27/27；进入内检/独立复审，交付待复审裁定 |
 | 可独立准备 | P1锚契约核对、P3书库小范围改进 | 仍是候选；v1/注释身份不变，Locator v2正式schema待真实双端契约；同一app单写者顺序推进 |
 | **新计划仅起草** | [READER-007 正式EPUB阅读表面接入与定位兼容](plans/007-epub-product-reader-and-locator-compatibility.md) | drafting/r1、0/13；Reader主导正式书页/产品数据；029全部门/独立review/固定交付后实施，profile为EPUB产品化第一期，不是全部Readest |
 | 后续分域 | PDF/漫画、TTS、导出与互操作（原P4～P6） | 依实际引擎与定位契约分别立项；PDF评估不要求某一路线必成功，TTS不能因引擎可嵌就算已有；系统URI归OS协同 |
