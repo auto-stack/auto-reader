@@ -3,8 +3,8 @@
 // NOTE: seed strings ASCII-only (field-splitter limitation, see 017-chat).
 
 use api: Book, Chapter
-use library: books_json, book_json, toc_json, chapter_json, import_book_json, remove_book_json, restore_book_json, get_reading_json, put_reading_json, epub_media_response, reader_asset_response, reader_document_response, reader_session_put, reader_session_get, reader_surface_url, reader_command_put, reader_command_get, reader_locator_select, locator_verify_json
-use annotations: get_annotations_json, put_annotations_json, search_book_json, export_annotations_json
+use library: books_json, book_json, toc_json, chapter_json, import_book_json, remove_book_json, restore_book_json, get_reading_json, put_reading_json, epub_media_response, reader_asset_response, reader_document_response, reader_session_put, reader_session_get, reader_surface_url, reader_command_put, reader_command_get, reader_locator_select, locator_verify_json, reader_locator_proposal_get
+use annotations: get_annotations_json, put_annotations_json, search_book_json, export_annotations_json, locator_verify_record_json
 
 // ═══════════════════════════════════════════════════════════
 // In-memory storage
@@ -249,6 +249,14 @@ pub fn reader_locator(session_id str, kind str, book_id str, source_hash str, en
 
 pub fn library_locator_verify(book_id str, locator str) str {
     return locator_verify_json(book_id, locator)
+}
+
+pub fn library_locator_verify_record(book_id str, annotation_id str) str {
+    return locator_verify_record_json(book_id, annotation_id)
+}
+
+pub fn reader_locator_proposal(session_id str) str {
+    return reader_locator_proposal_get(session_id)
 }
 
 pub fn library_search(book_id str, query str) str {

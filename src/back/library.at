@@ -2560,9 +2560,66 @@ pub fn reader_locator_select(kind str, session_id str, book_id str, source_hash 
     let ctx_a str = "" + c.after
     let now int = time.now_sec()
     let loc str = locator_canonical("epub_range", book_id, source_hash, spine, href, ename, erev, cfi, range_cfi, text_quote, ctx_b, ctx_a, "book", occurrence, now)
+    // T-06：会话级最新选区提案（canonical locator）落盘——页面消费面
+    // （GET /api/reader/locator?session_id）与 adapter 回传解耦（引擎表面
+    // 与页面不同文档，无共享 JS 上下文）。非用户数据：注释/阅读状态零触碰；
+    // 同会话幂等覆盖（永远=最新选区）；写失败不阻断回传应答。
+    let pdir str = join(data_dir(), "locator-proposals")
+    let pmrc int = mkdirs(pdir)
+    if pmrc == 0 {
+        var prop str = "{\"session_id\":\""
+        prop = prop + json_escape(session_id)
+        prop = prop + "\",\"book_id\":\""
+        prop = prop + json_escape(book_id)
+        prop = prop + "\",\"created_at\":"
+        prop = prop + now.to_string()
+        prop = prop + ",\"locator\":"
+        prop = prop + loc
+        prop = prop + "}"
+        let _ int = write_with_backup(join(pdir, session_id + ".json"), prop)
+    }
     var out str = "{\"ok\":true,\"locator\":"
     out = out + loc
     out = out + "}"
+    return out
+}
+
+/// GET /api/reader/locator?session_id — 会话最新选区提案（canonical
+/// reader-locator；页面「批注所选」消费面）。locator_json = canonical
+/// 文本的转义串（.at 页面直取为顶层参数传递，免二次序列化）。
+pub fn reader_locator_proposal_get(session_id str) str {
+    if !session_id_ok(session_id) {
+        return "{\"ok\":false,\"error\":\"rejected_bad_session: shape\"}"
+    }
+    let pp str = join(join(data_dir(), "locator-proposals"), session_id + ".json")
+    if !fs.exists(pp) {
+        return "{\"ok\":true,\"found\":false}"
+    }
+    let raw str = fs.read_text(pp)
+    if raw == "" {
+        return "{\"ok\":true,\"found\":false}"
+    }
+    var parsed = null
+    try {
+        parsed = json.parse(raw)
+    } catch {
+        return "{\"ok\":true,\"found\":false}"
+    }
+    var canonical str = ""
+    try {
+        let lo = parsed.locator
+        canonical = locator_emit(lo)
+    } catch {
+        canonical = ""
+    }
+    if canonical == "" {
+        return "{\"ok\":true,\"found\":false}"
+    }
+    var out str = "{\"ok\":true,\"found\":true,\"locator\":"
+    out = out + canonical
+    out = out + ",\"locator_json\":\""
+    out = out + json_escape(canonical)
+    out = out + "\"}"
     return out
 }
 

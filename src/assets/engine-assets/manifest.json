@@ -3,7 +3,7 @@
   "engine_revision": "foliate-js@3d7941954a98b136316a795e8200d60c9643b141",
   "scope": "reader-007-product-assets",
   "files": {
-    "engine-adapter.js": "65ae2a87ccbb8ddae2ebf7dd044fee5e63e3f3272a4caf2fc28fbee5bd018aec",
+    "engine-adapter.js": "d8bfd371d1482b6f1010e9fbf6ed1c43a6b49b7b874dfe20581e7f3907de6a31",
     "foliate-comic-book.js": "e6902bb03e6b6e0bb1f51154cabef5a3919ce1cf2499e3212503c95a0c19f8ff",
     "foliate-dict.js": "9c5f7d9d87ebec302594178f8960539a4573830f9ef84c8a915f599047dcc4aa",
     "foliate-epub.js": "1e59b578cfae580ce32d1818c69d9f3965c9d71ef0cc2f4c9cf527de2d88de7f",

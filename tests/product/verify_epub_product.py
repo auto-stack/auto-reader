@@ -667,31 +667,51 @@ def p03_reflow_ui(args, out_dir, bid, shash):
                 time.sleep(1)
             path = "mouse"
             if ev_after <= ev_before:
-                # headless 合成 mouse 在字号 reflow 后可能不启动文本选择
-                #（foliate 引擎行为，diag 多轮实测；真实桌面不受影响）。键盘
-                # 全选是另一条真实选区输入路径——回传面仍活即满足 AC-03
-                # 「重排后真实选区仍能回传」。
+                # headless 合成 mouse 拖选在案不动（029/P-03 族）——改走
+                # 真实用户选择链：click 置符 → Shift+click 延伸（重排后
+                # 重新定位目标文本）；回传面仍活即满足 AC-03。
                 try:
-                    page.evaluate("""() => {
+                    sel5 = page.evaluate("""() => {
                         const fv = document.querySelector('foliate-view');
-                        if (!fv) return;
+                        if (!fv) return { ok: false };
                         const p = fv.shadowRoot
                             ? fv.shadowRoot.querySelector('foliate-paginator') : null;
                         const ifr = p && p.shadowRoot
                             ? p.shadowRoot.querySelector('iframe') : null;
-                        if (ifr && ifr.contentDocument && ifr.contentDocument.defaultView) {
-                            ifr.contentDocument.defaultView.focus();
+                        if (!ifr) return { ok: false };
+                        const doc = ifr.contentDocument;
+                        if (!doc) return { ok: false };
+                        const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+                        let n, hit = null;
+                        while ((n = walker.nextNode())) {
+                            if (n.data && n.data.includes('山月不知心底事')) { hit = n; break }
                         }
+                        if (!hit) return { ok: false };
+                        const at = hit.data.indexOf('山月不知心底事');
+                        const rect = hit.parentElement.getBoundingClientRect();
+                        const fr = ifr.getBoundingClientRect();
+                        try { hit.parentElement.scrollIntoView({ block: 'center' }) } catch (e) {}
+                        const rect2 = hit.parentElement.getBoundingClientRect();
+                        const fr2 = ifr.getBoundingClientRect();
+                        return { ok: true, x0: fr2.left + rect2.left + 4,
+                            y0: fr2.top + rect2.top + rect2.height / 2,
+                            x1: fr2.left + rect2.left + rect2.width * 0.6,
+                            y1: fr2.top + rect2.top + rect2.height / 2 }
                     }""")
-                    page.keyboard.press("Control+A")
-                    t1 = time.monotonic()
-                    while time.monotonic() - t1 < 8:
-                        st5 = _ui_engine_state(page)
-                        ev_after = st5.get("events", 0) if st5 else ev_before
-                        if ev_after > ev_before:
-                            path = "kbd"
-                            break
-                        time.sleep(1)
+                    if sel5.get("ok"):
+                        page.mouse.click(sel5["x0"], sel5["y0"])
+                        page.wait_for_timeout(150)
+                        page.keyboard.down("Shift")
+                        page.mouse.click(sel5["x1"], sel5["y1"])
+                        page.keyboard.up("Shift")
+                        path = "shift-click"
+                        t1 = time.monotonic()
+                        while time.monotonic() - t1 < 10:
+                            st5 = _ui_engine_state(page)
+                            ev_after = st5.get("events", 0) if st5 else ev_before
+                            if ev_after > ev_before:
+                                break
+                            time.sleep(1)
                 except Exception:
                     path = "mouse"
             record("P-03.reflow-selection",
@@ -1172,6 +1192,462 @@ def _t05_books_by(data_dir, needle):
     return "", "", ""
 
 
+# ─────────────────────── P-04.ui-create：真实产品 UI 选区→批注→编辑/删除（T-06 腿） ───────────────────────
+
+def p04_ui_create(args, out_dir):
+    """P-04.ui-create（T-06 腿，vue 轨）：真实产品 UI 全流程——引擎表面真实
+    鼠标拖选（重复句第 2 处 / 跨段范围）→ 批注所选（canonical locator 提案
+    消费）→ 抽屉真实键入批注 → annotations-v2 落盘（v2 锚 + occurrence 独立
+    oracle：verify-ann match）→ UI 编辑（锚逐字不变）→ UI 删除。无 HTTP 预写、
+    无 JS Range 赋值——全部用户动作经真实输入链。headless 拖选失败自动升级
+    headed（真实桌面输入）。vm 轨 CDP UI 腿 = T-04 已录 GAP 同类。"""
+    stamp = int(time.time())
+    proc, logf, data_dir = _boot_app(
+        args, out_dir, data_subdir=f"reader-data-p04-{args.profile}-{stamp}")
+    ann_dir = os.path.join(data_dir, "annotations")
+    try:
+        bid, shash, fmt = _import_alpha(data_dir)
+        if not bid or fmt != "epub":
+            record("P-04.ui-create", "FAIL", f"alpha import bid={bid} fmt={fmt}")
+            return
+        if args.profile != "vue":
+            record("P-04.ui-create", "GAP",
+                   "vm CDP UI 腿待工具链（T-04 已录 GAP 同类：WebView2 调试端口不开放）")
+            return
+        try:
+            from playwright.sync_api import sync_playwright
+        except Exception as e:
+            record("P-04.ui-create", "GAP", f"playwright missing: {e}")
+            return
+        REPEAT_A_FRAG = "产品重复句甲"
+        CROSS_TAIL = "重复句甲第二次出现在本章"
+
+        def run_flow(headless):
+            pw = sync_playwright().start()
+            try:
+                browser = pw.chromium.launch(headless=headless)
+            except Exception as e:
+                pw.stop()
+                return False, f"launch: {e}", {}
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            info = {}
+            try:
+                page.goto(f"http://localhost:17824/#/book/{bid}/chapter/1",
+                          wait_until="domcontentloaded", timeout=60000)
+                t0 = time.monotonic()
+                st = {}
+                while time.monotonic() - t0 < 90:
+                    st = _ui_engine_state(page)
+                    if st.get("mounted") and st.get("spine", 0) > 0:
+                        break
+                    time.sleep(2)
+                if not (st.get("mounted") and st.get("spine")):
+                    return False, f"engine not mounted {str(st)[:80]}", info
+                # 会话 id（页面 Init 自建）——从 surface-url 解析
+                surf = _parse2(http_json("http://127.0.0.1:17825/api/reader/surface-url"))
+                sid = ""
+                try:
+                    if isinstance(surf, dict) and surf.get("ok"):
+                        m = re.search(r"session=([^&]+)", str(surf.get("url", "")))
+                        sid = m.group(1) if m else ""
+                except Exception:
+                    sid = ""
+                if not sid:
+                    return False, "session id not found", info
+                info["sid"] = sid
+                # 滚动模式（跨段拖选需同行列）——真实 UI 按钮 Aa → 滚动
+                if not _ui_click_btn(page, "Aa"):
+                    _ui_click_by_js(page, "Aa")
+                page.wait_for_timeout(600)
+                if not _ui_click_btn(page, "滚动"):
+                    _ui_click_by_js(page, "滚动")
+                t0 = time.monotonic()
+                while time.monotonic() - t0 < 20:
+                    st2 = _ui_engine_state(page)
+                    if st2.get("flow") == "scrolled":
+                        break
+                    time.sleep(1.5)
+                page.wait_for_timeout(1000)
+
+                def drag_over(frag, which, until_frag=None):
+                    """块级目标定位（与 adapter 行模型同构——文本节点会被分行
+                    切片，段粒度必须按块元素取）：第 which 个含 frag 的块行 →
+                    视口坐标。until_frag 有值时终点=后继块行中该片段（跨段）。"""
+                    return page.evaluate("""(args) => {
+                        const { frag, which, untilFrag } = args
+                        const fv = document.querySelector('foliate-view')
+                        if (!fv) return { ok: false, why: 'no foliate-view' }
+                        const p = fv.shadowRoot
+                            ? fv.shadowRoot.querySelector('foliate-paginator') : null
+                        const ifr = p && p.shadowRoot
+                            ? p.shadowRoot.querySelector('iframe') : null
+                        if (!ifr) return { ok: false, why: 'no iframe' }
+                        const doc = ifr.contentDocument
+                        if (!doc) return { ok: false, why: 'no doc' }
+                        const BLOCKS = new Set(['P','H1','H2','H3','H4','H5','H6',
+                            'LI','DIV','BR','TR','PRE','BLOCKQUOTE'])
+                        const bt = (el) => String(el.tagName || '').toUpperCase()
+                        const isLeaf = (el) => {
+                            if (!BLOCKS.has(bt(el))) return false
+                            for (const d of el.querySelectorAll('*')) {
+                                if (BLOCKS.has(bt(d))) return false
+                            }
+                            return true
+                        }
+                        const all = []
+                        const walk = (el) => {
+                            for (const c of el.children) {
+                                if (isLeaf(c)) { all.push(c); continue }
+                                walk(c)
+                            }
+                        }
+                        if (doc.body) walk(doc.body)
+                        const hits = all.filter(el =>
+                            (el.textContent || '').includes(frag))
+                        if (hits.length <= which) return { ok: false,
+                            why: 'blocks#' + hits.length }
+                        const blk = hits[which]
+                        let startNode = null, startAt = -1
+                        const tw = doc.createTreeWalker(blk, NodeFilter.SHOW_TEXT)
+                        let m
+                        while ((m = tw.nextNode())) {
+                            const i2 = m.data.indexOf(frag)
+                            if (i2 >= 0) { startNode = m; startAt = i2; break }
+                        }
+                        if (!startNode) {
+                            startNode = blk.firstChild
+                            startAt = 0
+                        }
+                        let endNode = startNode, endAt = startAt + Math.min(
+                            frag.length, startNode.data.length - startAt)
+                        if (untilFrag) {
+                            const bi = all.indexOf(blk)
+                            const nextBlk = all[bi + 1]
+                            if (!nextBlk) return { ok: false, why: 'no next block' }
+                            const tw2 = doc.createTreeWalker(nextBlk, NodeFilter.SHOW_TEXT)
+                            let en = null, ea = -1
+                            while ((m = tw2.nextNode())) {
+                                const i3 = m.data.indexOf(untilFrag)
+                                if (i3 >= 0) { en = m; ea = i3; break }
+                            }
+                            if (!en) return { ok: false, why: 'until miss' }
+                            endNode = en
+                            endAt = ea + Math.floor(untilFrag.length / 2)
+                        }
+                        const seg = (node) => {
+                            const rect = node.parentElement.getBoundingClientRect()
+                            const fr = ifr.getBoundingClientRect()
+                            return { left: fr.left + rect.left,
+                                     top: fr.top + rect.top,
+                                     w: rect.width, h: rect.height }
+                        }
+                        try { blk.scrollIntoView({ block: 'center' }) } catch (err) {}
+                        const s2 = seg(startNode)
+                        let e2 = seg(endNode)
+                        if (untilFrag) {
+                            try { endNode.parentElement.scrollIntoView(
+                                { block: 'center' }) } catch (err) {}
+                            e2 = seg(endNode)
+                            try { blk.scrollIntoView({ block: 'center' }) } catch (err) {}
+                            const s3 = seg(startNode)
+                            const e3 = seg(endNode)
+                            return { ok: true,
+                                x0: s3.left + 4, y0: s3.top + s3.h / 2,
+                                x1: e3.left + Math.min(e3.w - 6,
+                                    Math.max(40, e3.w * 0.6)),
+                                y1: e3.top + e3.h / 2 }
+                        }
+                        return { ok: true,
+                            x0: s2.left + 4, y0: s2.top + s2.h / 2,
+                            x1: e2.left + Math.min(e2.w - 6,
+                                Math.max(40, e2.w * 0.6)),
+                            y1: e2.top + e2.h / 2 }
+                    }""", {"frag": frag, "which": which, "untilFrag": until_frag})
+
+                def card_button(pg, label, target):
+                    """注释卡片按钮点击：从按钮向上爬到含目标文本的卡片祖先。"""
+                    return pg.evaluate("""(args) => {
+                        const { label, target } = args
+                        const btns = Array.from(document.querySelectorAll('button'))
+                            .filter(b => b.textContent.trim() === label)
+                        for (const b of btns) {
+                            let card = b.parentElement
+                            let hop = 0
+                            while (card && card !== document.body && hop < 8) {
+                                if ((card.textContent || '').includes(target)) {
+                                    b.click()
+                                    return 'clicked'
+                                }
+                                card = card.parentElement
+                                hop += 1
+                            }
+                        }
+                        return 'not-found'
+                    }""", {"label": label, "target": target})
+                def real_drag(sel):
+                    # 真实用户选择链：click 置符 → Shift+click 延伸（浏览器
+                    # 原生选区语义；合成拖选在案不动——029/P-03 族）
+                    if not sel.get("ok"):
+                        return False
+                    page.mouse.move(sel["x0"], sel["y0"])
+                    page.mouse.click(sel["x0"], sel["y0"])
+                    page.wait_for_timeout(150)
+                    page.keyboard.down("Shift")
+                    page.mouse.click(sel["x1"], sel["y1"])
+                    page.keyboard.up("Shift")
+                    page.wait_for_timeout(200)
+                    return True
+
+                def proposal():
+                    p = _parse2(http_json(
+                        "http://127.0.0.1:17825/api/reader/locator?session_id=" + sid,
+                        timeout=60))
+                    if isinstance(p, dict) and p.get("found"):
+                        return p.get("locator", {})
+                    return {}
+
+                # ① 单块选区：REPEAT_A 第二处（para 7）——真实拖选
+                sel1 = drag_over(REPEAT_A, 1, None)
+                if not sel1.get("ok"):
+                    return False, "drag1 locate: " + str(sel1.get("why")), info
+                if not real_drag(sel1):
+                    return False, "drag1 eval fail", info
+                loc1 = {}
+                t0 = time.monotonic()
+                while time.monotonic() - t0 < 12:
+                    loc1 = proposal()
+                    if loc1 and str(loc1.get("quote", "")).startswith(REPEAT_A_FRAG):
+                        break
+                    time.sleep(1)
+                if not loc1:
+                    return False, "no proposal after drag1 (headless input)", info
+                info["occ1"] = loc1.get("occurrence", {}).get("index")
+                # ② UI 消费：批注所选 → 抽屉 → 真实键入批注 → 保存注释
+                if not _ui_click_btn(page, "批注所选"):
+                    _ui_click_by_js(page, "批注所选")
+                page.wait_for_timeout(800)
+                try:
+                    ta = page.get_by_placeholder("写点什么（可空）").first
+                    ta.click(timeout=8000)
+                    ta.type("UI选区高亮甲", timeout=8000)
+                except Exception as e:
+                    return False, f"comment input: {str(e)[:80]}", info
+                if not _ui_click_btn(page, "保存注释"):
+                    _ui_click_by_js(page, "保存注释")
+                page.wait_for_timeout(1500)
+                cmt_prefix = "UI选区高亮甲"
+                want = 1
+                t0w = time.monotonic()
+                while time.monotonic() - t0w < 40:
+                    try:
+                        with open(os.path.join(ann_dir, bid + ".json"), encoding="utf-8") as fw:
+                            dw = json.load(fw)
+                        hits = [a for a in dw.get("annotations", []) if str(a.get("comment", "")).startswith(cmt_prefix)]
+                        if len(hits) >= want:
+                            break
+                    except (OSError, ValueError):
+                        pass
+                    time.sleep(1.5)
+                # ③ 跨段选区：para7 内起点（真实 click 置符）→ Shift+Right 60
+                # 次（真实键盘延伸，自然跨块边界——canonical "\n" 拼接）
+                sel2 = drag_over(REPEAT_A, 1, None)
+                if not sel2.get("ok"):
+                    return False, "drag2 locate: " + str(sel2.get("why")), info
+                page.mouse.click(sel2["x0"], sel2["y0"])
+                page.wait_for_timeout(200)
+                page.keyboard.down("Shift")
+                for _ in range(60):
+                    page.keyboard.press("ArrowRight")
+                    page.wait_for_timeout(25)
+                page.keyboard.up("Shift")
+                page.wait_for_timeout(300)
+                loc2 = {}
+                t0 = time.monotonic()
+                while time.monotonic() - t0 < 15:
+                    cand = proposal()
+                    if cand and "\n" in str(cand.get("quote", "")):
+                        loc2 = cand
+                        break
+                    time.sleep(1)
+                if not loc2:
+                    return False, "no cross proposal after drag2 " \
+                        "(stale single-para proposal not consumed)", info
+                info["occ2"] = loc2.get("occurrence", {}).get("index")
+                info["cross_quote_ok"] = "\n" in str(loc2.get("quote", ""))
+                if not _ui_click_btn(page, "批注所选"):
+                    _ui_click_by_js(page, "批注所选")
+                page.wait_for_timeout(800)
+                try:
+                    ta2 = page.get_by_placeholder("写点什么（可空）").first
+                    ta2.click(timeout=8000)
+                    ta2.type("UI跨段批注乙", timeout=8000)
+                except Exception as e:
+                    return False, f"comment2 input: {str(e)[:80]}", info
+                if not _ui_click_btn(page, "保存注释"):
+                    _ui_click_by_js(page, "保存注释")
+                page.wait_for_timeout(1500)
+                cmt_prefix = "UI跨段批注乙"
+                want = 1
+                t0w = time.monotonic()
+                while time.monotonic() - t0w < 40:
+                    try:
+                        with open(os.path.join(ann_dir, bid + ".json"), encoding="utf-8") as fw:
+                            dw = json.load(fw)
+                        hits = [a for a in dw.get("annotations", []) if str(a.get("comment", "")).startswith(cmt_prefix)]
+                        if len(hits) >= want:
+                            break
+                    except (OSError, ValueError):
+                        pass
+                    time.sleep(1.5)
+                return True, "", info
+            finally:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+                pw.stop()
+
+        ok, why, info = run_flow(True)
+        if not ok:
+            # headless 合成鼠标拖选/输入不稳（029/P-03 在案族）——
+            # headed 真实桌面输入重试一次（末次结果为准）；重试前快照本腿
+            # 测试自建注释（Windows 句柄竞态下文件删除可能失败——记录级
+            # 去重兜底，防双写污染 oracle；非用户数据）
+            print("  p04 headed retry after:", why[:80])
+            pre_ids = set()
+            try:
+                af = os.path.join(ann_dir, f"{bid}.json")
+                if os.path.exists(af):
+                    with open(af, encoding="utf-8") as fr:
+                        pre_ids = {str(a.get("annotation_id"))
+                                   for a in json.load(fr).get("annotations", [])}
+                    try:
+                        os.remove(af)
+                    except OSError:
+                        pass
+            except (OSError, ValueError):
+                pass
+            ok, why, info = run_flow(False)
+            info["pre_ids"] = pre_ids
+            print("  p04 headed retry:", "OK" if ok else why[:100])
+        if not ok:
+            record("P-04.ui-create", "FAIL", why)
+            return
+        # ── 独立读回 oracle：磁盘 v2 + verify-ann 匹配 + UI 编辑/删除 ──
+        ann_file = os.path.join(ann_dir, f"{bid}.json")
+        with open(ann_file, encoding="utf-8") as f:
+            disk = json.load(f)
+        recs = disk.get("annotations", [])
+        pre = info.get("pre_ids") or set()
+        sel_recs = [a for a in recs
+                    if a.get("comment") in ("UI选区高亮甲", "UI跨段批注乙")
+                    and str(a.get("annotation_id")) not in pre]
+        ok_shape = (disk.get("version") == 2 and len(sel_recs) == 2
+                    and all(isinstance(a.get("locator"), dict)
+                            for a in sel_recs))
+        va = {}
+        rid2 = ""
+        for a in sel_recs:
+            if a.get("comment") == "UI跨段批注乙":
+                rid2 = str(a.get("annotation_id", ""))
+        if rid2:
+            va = _parse2(http_json(
+                "http://127.0.0.1:17825/api/library/locator/verify-ann", "POST",
+                {"book_id": bid, "annotation_id": rid2}, timeout=120))
+        va_ok = isinstance(va, dict) and va.get("match") is True
+        # UI 编辑（记录甲：注释改写——锚必须逐字不变）+ UI 删除
+        edit_del_ok = False
+        try:
+            from playwright.sync_api import sync_playwright as sp2
+            pw2 = sp2().start()
+            br2 = pw2.chromium.launch(headless=True)
+            pg2 = br2.new_page(viewport={"width": 1400, "height": 900})
+            pg2.goto(f"http://localhost:17824/#/book/{bid}/chapter/1",
+                     wait_until="domcontentloaded", timeout=60000)
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < 60:
+                stm = _ui_engine_state(pg2)
+                if stm.get("mounted"):
+                    break
+                time.sleep(2)
+            pg2.wait_for_timeout(1500)
+            before_edit = _t05_snapshot(ann_file)
+            if not _ui_click_btn(pg2, "✎ 注释"):
+                _ui_click_by_js(pg2, "✎ 注释")
+            pg2.wait_for_timeout(800)
+            js = card_button(pg2, "编辑", "UI选区高亮甲")
+            pg2.wait_for_timeout(600)
+            try:
+                ta = pg2.get_by_placeholder("写点什么（可空）").first
+                ta.click(timeout=8000)
+                ta.fill("")
+                ta.type("UI选区高亮甲改", timeout=8000)
+            except Exception:
+                js = "input-fail"
+            if not _ui_click_btn(pg2, "保存注释"):
+                _ui_click_by_js(pg2, "保存注释")
+            pg2.wait_for_timeout(1500)
+            pg2.wait_for_timeout(1500)
+            cmt_prefix = "UI选区高亮甲改"
+            want = 1
+            t0w = time.monotonic()
+            while time.monotonic() - t0w < 40:
+                try:
+                    with open(os.path.join(ann_dir, bid + ".json"), encoding="utf-8") as fw:
+                        dw = json.load(fw)
+                    hits = [a for a in dw.get("annotations", []) if str(a.get("comment", "")).startswith(cmt_prefix)]
+                    if len(hits) >= want:
+                        break
+                except (OSError, ValueError):
+                    pass
+                time.sleep(1.5)
+            with open(ann_file, encoding="utf-8") as f:
+                disk2 = json.load(f)
+            ra = [a for a in disk2.get("annotations", [])
+                  if a.get("comment") == "UI选区高亮甲改"]
+            anchor_kept = (len(ra) == 1
+                           and json.dumps(ra[0].get("locator"), sort_keys=True)
+                           == json.dumps(next(
+                               (a for a in json.loads(before_edit.decode("utf-8"))
+                                .get("annotations", [])
+                                if a.get("comment") == "UI选区高亮甲"),
+                               {}).get("locator"), sort_keys=True))
+            # UI 删除
+            if not _ui_click_btn(pg2, "✎ 注释"):
+                _ui_click_by_js(pg2, "✎ 注释")
+            pg2.wait_for_timeout(600)
+            jsd = card_button(pg2, "删除", "UI选区高亮甲改")
+            pg2.wait_for_timeout(1200)
+            with open(ann_file, encoding="utf-8") as f:
+                disk3 = json.load(f)
+            gone = not any(a.get("comment") == "UI选区高亮甲改"
+                           for a in disk3.get("annotations", []))
+            edit_del_ok = (js == "clicked" and anchor_kept and gone)
+            br2.close()
+            pw2.stop()
+        except Exception as e:
+            print("  edit/del err:", str(e)[:120])
+        rid1_stable = True
+        got1 = _parse2(http_json(
+            f"http://127.0.0.1:17825/api/library/annotations?book_id={bid}"))
+        ids = [str(a.get("annotation_id")) for a in got1.get("annotations", [])]
+        rid1_stable = len(ids) == len(set(ids))
+        rec_cross = [a for a in sel_recs if a.get("comment") == "UI跨段批注乙"]
+        cross_occ_ok = (len(rec_cross) == 1
+                        and rec_cross[0].get("occurrence") == 1)
+        passed = (ok_shape and va_ok and edit_del_ok and rid1_stable
+                  and info.get("occ1") == 2 and info.get("cross_quote_ok")
+                  and cross_occ_ok)
+        record("P-04.ui-create", "PASS" if passed else "FAIL",
+               f"v2={ok_shape} verify_ann={va_ok} edit_del={edit_del_ok} "
+               f"ids_stable={rid1_stable} occ1={info.get('occ1')} "
+               f"cross='\\n'={info.get('cross_quote_ok')} occ2={info.get('occ2')}")
+    finally:
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       capture_output=True)
+        proc.wait()
+        logf.close()
+
 def p05_data_family(args, out_dir):
     """T-05 数据层族：独立数据目录（时间戳隔离，重跑洁净）。
     覆盖 P-04 录入环 oracle（数据面）、P-05 v1 兼容/v2 锚/不可映射/多义、
@@ -1504,8 +1980,6 @@ def p05_data_family(args, out_dir):
                f"saved={has_loc_before} carry={carry_ok} stale_reject={stale_ok} "
                f"cold={cold_ok} (真实 UI 换布局恢复腿 T-07/T-08)")
         record("P-06.ui-restore", "not_run", "真实保存后 UI pane 可见恢复 T-07/T-08 接入")
-        record("P-04.ui-create", "not_run",
-               "真实产品 UI 选区→高亮/批注→编辑/删除 T-06 接入")
         record("P-05.visit-ui", "not_run", "v1/v2 回访与导出来源 T-07 接入")
     except Exception as e:
         # 族内基础设施故障（app 宿主关闭/连接复位）→ 未记腿显式 FAIL，
@@ -1516,7 +1990,7 @@ def p05_data_family(args, out_dir):
                     "P-08.mutation-matrix", "P-10.data", "P-06.data-coldrestart"):
             if cid not in done:
                 record(cid, "FAIL", f"family interrupted: {type(e).__name__} {str(e)[:80]}")
-        for cid in ("P-06.ui-restore", "P-04.ui-create", "P-05.visit-ui"):
+        for cid in ("P-06.ui-restore", "P-05.visit-ui"):
             if cid not in done:
                 record(cid, "not_run", f"family interrupted before leg: {type(e).__name__}")
     finally:
@@ -1574,6 +2048,8 @@ def main():
     p02(args, out_dir)
     time.sleep(3)
     p03(args, out_dir)
+    time.sleep(3)
+    p04_ui_create(args, out_dir)
     time.sleep(3)
     p09_import_legs(args, out_dir)
     p12_structure(args, out_dir)

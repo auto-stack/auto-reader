@@ -296,3 +296,19 @@ pub fn reader_locator(session_id str, kind str, book_id str, source_hash str, en
 pub fn library_locator_verify(book_id str, locator str) str {
     return db.library_locator_verify(book_id, locator)
 }
+
+/// POST /api/library/locator/verify-ann — T-06 回访环 oracle（按注释记录
+/// 取锚核验，只读零写入）。body: { book_id, annotation_id }。纯 v1 记录
+/// 诚实 anchored:false（不冒充匹配）。
+#[api(method = "POST", path = "/api/library/locator/verify-ann")]
+pub fn library_locator_verify_ann(book_id str, annotation_id str) str {
+    return db.library_locator_verify_record(book_id, annotation_id)
+}
+
+/// GET /api/reader/locator — 会话最新选区提案（canonical reader-locator；
+/// 页面「批注所选」消费面；query: session_id）。locator_json 为 canonical
+/// 文本转义串。无提案 → {"ok":true,"found":false}。
+#[api(method = "GET", path = "/api/reader/locator")]
+pub fn reader_locator_proposal(session_id str) str {
+    return db.reader_locator_proposal(session_id)
+}

@@ -10,28 +10,123 @@ import { makeBook } from './foliate-view.js'
 
 const ENGINE_REVISION = 'foliate-js@3d794195'
 
-async function countOccurrences(book, quote) {
-    // 引擎侧出现序：按 spine 序逐章 createDocument 取正文文本滑窗计数。
-    let count = 0
-    let first = null // {index, offsetInText}
-    for (let i = 0; i < book.sections.length; i++) {
-        const s = book.sections[i]
-        if (!s || !s.createDocument) continue
-        let text = ''
-        try {
-            const doc = await s.createDocument()
-            text = doc.body ? doc.body.textContent : ''
-        } catch (e) { continue }
-        let pos = 0
-        while (true) {
-            const at = text.indexOf(quote, pos)
-            if (at < 0) break
-            count++
-            if (!first) first = { index: i, offsetInText: at }
-            pos = at + 1
+// ── T-06 canonical 文本面（与服务器 xhtml_to_lines 块行模型对齐）──
+// 服务器章缓存正文 = 块级开标签（p/h1..h6/li/div/br/tr 前缀语义）边界处
+// flush 的逐块 trim 文本，行间 "\n"（跨段 quote 拼接契约，T-05 冻结）。
+// 选区 quote 与 occurrence 计数都必须在该 canonical 形态上成立——
+// 录入环以服务器章缓存逐字核对，DOM 原始 textContent 形态不一致即诚实拒绝。
+const BLOCK_NAMES = new Set([
+    'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+    'LI', 'DIV', 'BR', 'TR', 'PRE', 'BLOCKQUOTE',
+])
+
+// foliate createDocument 返回 XML 文档——tagName 保持源大小写（XHTML 小写）；
+// 块判定一律大写归一（HTML 解析路径 tagName 本就大写）。
+function blockTag(el) {
+    return el && el.tagName ? String(el.tagName).toUpperCase() : ''
+}
+
+function nearestBlock(node) {
+    let el = node && node.nodeType === 3 ? node.parentElement : node
+    while (el && el.ownerDocument) {
+        if (BLOCK_NAMES.has(blockTag(el))) return el
+        el = el.parentElement
+    }
+    return null
+}
+
+function isBlockLeaf(el) {
+    // 与转换器行模型等价的「行单元」：块元素且无块后代（div>p 取 p 行）
+    if (!BLOCK_NAMES.has(blockTag(el))) return false
+    for (const d of el.querySelectorAll('*')) {
+        if (BLOCK_NAMES.has(blockTag(d))) return false
+    }
+    return true
+}
+
+function canonicalTextOfDoc(doc) {
+    // 章缓存正文同构（文档顺序、逐块 trim、"\n" 连接）；img 不产行
+    //（服务器侧 img: 行仅为媒体 URI 面——quote/occurrence 语义为文本）
+    const parts = []
+    const walk = (el) => {
+        for (const child of el.children) {
+            if (isBlockLeaf(child)) {
+                const t = (child.textContent || '').trim()
+                if (t) parts.push(t)
+            } else {
+                walk(child)
+            }
         }
     }
-    return { count, first }
+    if (doc.body) walk(doc.body)
+    return parts.join('\n')
+}
+
+function canonicalQuoteOfRange(doc, range) {
+    // 选区 quote：按选区跨越的块行单元取被选文本，逐块 trim 后 "\n" 连接。
+    // 块内片段是章缓存该行的子串——拼接后必为正文逐字子串（录入环核对通过）。
+    const root = range.commonAncestorContainer
+    const rootEl = root.nodeType === 3 ? root.parentElement : (root || doc.body)
+    const byBlock = new Map()
+    const fallback = []
+    const walker = doc.createTreeWalker(rootEl && rootEl.ownerDocument ? rootEl : doc.body, NodeFilter.SHOW_TEXT)
+    let n
+    while ((n = walker.nextNode())) {
+        if (!range.intersectsNode(n)) continue
+        const start = n === range.startContainer ? range.startOffset : 0
+        const end = n === range.endContainer ? range.endOffset : n.data.length
+        const piece = n.data.slice(start, end)
+        if (!piece) continue
+        const blk = nearestBlock(n) || rootEl || doc.body
+        if (BLOCK_NAMES.has(blockTag(blk))) {
+            byBlock.set(blk, (byBlock.get(blk) || '') + piece)
+        } else {
+            fallback.push(piece)
+        }
+    }
+    if (byBlock.size === 0 && fallback.length === 0) return ''
+    let quote
+    if (byBlock.size > 0) {
+        quote = Array.from(byBlock.values()).map(t => t.trim()).filter(t => t).join('\n')
+    } else {
+        quote = fallback.join('').trim()
+    }
+    return quote
+}
+
+function countNonOverlapping(text, needle) {
+    if (!needle) return 0
+    let count = 0
+    let pos = 0
+    while (true) {
+        const at = text.indexOf(needle, pos)
+        if (at < 0) break
+        count++
+        pos = at + needle.length
+    }
+    return count
+}
+
+const sectionTextCache = new Map()
+
+async function canonicalSectionText(book, index) {
+    if (sectionTextCache.has(index)) return sectionTextCache.get(index)
+    const s = book.sections[index]
+    let text = ''
+    try {
+        const doc = await s.createDocument()
+        text = canonicalTextOfDoc(doc)
+    } catch (e) { text = '' }
+    sectionTextCache.set(index, text)
+    return text
+}
+
+// 选区在章内的非重叠位次：quote 首字符在章 canonical 文本中的位置——
+// 起始块之前的文本不含完整 quote（occurrence 计数 = 前缀计数 + 1）。
+function occurrenceWithinSection(sectionText, blockTexts, startBlockIdx, quote) {
+    let prefix = ''
+    for (let i = 0; i < startBlockIdx; i++) prefix += blockTexts[i] + '\n'
+    return countNonOverlapping(prefix, quote) + 1
 }
 
 export async function mountProbe(opts) {
@@ -90,37 +185,53 @@ export async function mountProbe(opts) {
         const sel = doc.getSelection()
         if (!sel || sel.isCollapsed || sel.rangeCount === 0) return
         const range = sel.getRangeAt(0)
-        const quote = range.toString()
+        // T-06 canonical quote：跨块按块边界 "\n" 拼接（与服务器章缓存正文
+        // 逐字对齐——录入环服务器核对，DOM textContent 形态不一致即拒绝）。
+        let quote = ''
+        try {
+            quote = canonicalQuoteOfRange(doc, range)
+        } catch (e) {
+            // 全章级选区/异常形态回退 DOM 文本（回传面活性优先——服务端
+            // 录入环会具名拒绝超限/不一致，事件面照常可观测）
+            try { quote = (range.toString() || '').trim() } catch (e2) { quote = '' }
+        }
         if (!quote || quote.length < 2) return
         let cfi = ''
         try { cfi = view.getCFI(index, range) } catch (e) { cfi = '' }
-        const { count } = await countOccurrences(book, quote)
-        // occurrence：本选区在全书按 spine 序的出现位次。
+        // occurrence = 全书 spine 序非重叠位次（v2 契约）：前序章 canonical
+        // 计数 + 本章内选区前缀计数 + 1。章 canonical 文本按章缓存（重排
+        // 不变），避免 12k 块章每次选区重扫。
         let occ = 1
         try {
-            let before = 0
-            for (let i = 0; i < index; i++) {
-                const s = book.sections[i]
-                if (!s || !s.createDocument) continue
-                const d2 = await s.createDocument()
-                const t2 = d2.body ? d2.body.textContent : ''
-                let p = 0
-                while (true) {
-                    const at = t2.indexOf(quote, p)
-                    if (at < 0) break
-                    before++
-                    p = at + 1
+            // 选区起始块在块行序列中的序号（按元素身份匹配——选区首块）
+            const sc = range.startContainer
+            const scEl = sc.nodeType === 3 ? sc.parentElement : sc
+            const startBlkEl = nearestBlock(sc) || scEl
+            const walkIdx = (el, acc) => {
+                for (const child of el.children) {
+                    if (isBlockLeaf(child)) { acc.push(child); continue }
+                    walkIdx(child, acc)
                 }
             }
-            const cur = doc.body ? doc.body.textContent : ''
-            let p2 = 0
-            while (true) {
-                const at = cur.indexOf(quote, p2)
-                if (at < 0) break
-                before++
-                p2 = at + 1
+            const leafEls = []
+            if (doc.body) walkIdx(doc.body, leafEls)
+            const startBlk = leafEls.indexOf(startBlkEl)
+            let before = 0
+            for (let i = 0; i < index; i++) {
+                const t2 = await canonicalSectionText(book, i)
+                before += countNonOverlapping(t2, quote)
             }
-            occ = before
+            const curText = await canonicalSectionText(book, index)
+            if (startBlk >= 0 && curText) {
+                let prefix = ''
+                const leafTexts = curText.split('\n')
+                for (let i = 0; i < startBlk && i < leafTexts.length; i++) {
+                    prefix += leafTexts[i] + '\n'
+                }
+                occ = before + countNonOverlapping(prefix, quote) + 1
+            } else {
+                occ = before + countNonOverlapping(curText, quote)
+            }
         } catch (e) { occ = 1 }
         const msg = {
             schema_version: 1,
@@ -141,12 +252,18 @@ export async function mountProbe(opts) {
             ts: Math.floor(Date.now() / 1000),
         }
         say('posting locator seq=' + msg.seq + ' occ=' + occ)
-        const r = await fetch(locatorUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(msg),
-        })
-        const body = await r.text()
+        // POST 失败（超限体/网络）也必须进事件面——回传活性可观测（P-03）
+        let body = ''
+        try {
+            const r = await fetch(locatorUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(msg),
+            })
+            body = await r.text()
+        } catch (e) {
+            body = 'post error: ' + e
+        }
         window.__reader.events.push({ msg, resp: body })
         say('locator result: ' + body)
     }

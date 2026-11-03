@@ -413,7 +413,7 @@ fn tags_json_of(input str) str {
 }
 
 widget reading_page {
-    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int), ToggleSearch, DoSearch, ToggleAnns, ToggleStyle, SetLayout(str), SetTheme(str), JumpTo(int, int), JumpLink(int, int), SearchInput(str), QuoteInput(str), OccInput(str), CommentInput(str), TagsInput(str), AnnDelete(str), OpenAnnDialog(int), AnnKind(str), AnnSubmit, AnnCancel, DoExport, NoOp, SetFontSize(str), SetFlow(str) }
+    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int), ToggleSearch, DoSearch, ToggleAnns, ToggleStyle, SetLayout(str), SetTheme(str), JumpTo(int, int), JumpLink(int, int), SearchInput(str), QuoteInput(str), OccInput(str), CommentInput(str), TagsInput(str), AnnDelete(str), OpenAnnDialog(int), AnnKind(str), AnnSubmit, AnnCancel, DoExport, NoOp, SetFontSize(str), SetFlow(str), SelAnnotate, AnnRevisit(str) }
 
     model {
         var book_id int = 0
@@ -483,6 +483,10 @@ widget reading_page {
         var ann_resp str = ""
         // READER-007 T-04：引擎表面会话 id（发 goto/settings/flow 命令用）
         var epub_sid str = ""
+        // READER-007 T-06：引擎选区批注面——待保存 canonical locator
+        //（annotations-v2 locator_json 直传）与选区工具状态文本
+        var ann_locator str = ""
+        var sel_note str = ""
         // READER-007 T-04：引擎表面流模式（分页/滚动；显示用）
         var epub_flow str = "paged"
     }
@@ -622,6 +626,11 @@ widget reading_page {
                                             onclick: .AnnDelete(a.annotation_id)
                                             style: "px-2 py-1 text-xs text-destructive hover:bg-destructive/10 rounded transition-colors"
                                             text "删除" {}
+                                        }
+                                        button {
+                                            onclick: .AnnRevisit(a.annotation_id)
+                                            style: "px-2 py-1 text-xs text-primary hover:bg-accent rounded transition-colors"
+                                            text "回访" {}
                                         }
                                     }
                                 }
@@ -779,6 +788,17 @@ widget reading_page {
                     if .loaded {
                         col {
                             style: "flex-1 min-h-0 w-full relative"
+                            row {
+                                style: "items-center gap-2 pb-2"
+                                button {
+                                    onclick: .SelAnnotate
+                                    style: "px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                                    text "批注所选" {}
+                                }
+                                if .sel_note != "" {
+                                    text .sel_note { style: "text-xs text-muted-foreground" }
+                                }
+                            }
                             if .surface_url != "" {
                                 doc-surface (url: .surface_url, height: 640) {
                                     style: "w-full h-full border border-border rounded-md bg-white overflow-hidden"
@@ -1863,6 +1883,7 @@ widget reading_page {
         .OpenAnnDialog(idx int) -> {
             .ann_dialog = true
             .ann_edit_id = ""
+            .ann_locator = ""
             .ann_dlg_title = "添加注释"
             .ann_ch = .chapter_num
             .ann_pi = idx
@@ -1914,9 +1935,141 @@ widget reading_page {
                 .ann_kind = "bookmark"
             }
         }
+        // T-06 批注所选：取会话最新 canonical locator（adapter 选区回传→
+        // 服务器提案存储），预填注释抽屉；保存经 annotations-v2 携带 v2 锚。
+        // 引擎表面与页面无共享 JS 上下文——消费面走服务器提案（非用户数据，
+        // 注释/阅读状态零触碰；用户确认动作才落注释）。
+        .SelAnnotate -> {
+            if !.is_epub {
+                .sel_note = ""
+            } else {
+                if .epub_sid == "" {
+                    .sel_note = "引擎会话未就绪"
+                } else {
+                    var pj str = ""
+                    try {
+                        pj = Http.get_json("/api/reader/locator?session_id=" + .epub_sid)
+                    } catch {
+                        pj = ""
+                    }
+                    var found bool = false
+                    if pj != "" {
+                        // get_json/vue fetch 返回未解一层的包装串（\" 转义形态）
+                        // ——token 用编码无关面（reader-locator 两形态都存在）
+                        if pj.find("reader-locator") >= 0 {
+                            found = true
+                        }
+                    }
+                    if found {
+                        var w1 = json.parse(pj)
+                        var t1 str = "" + w1
+                        var w = w1
+                        if t1.substr(0, 1) == "{" {
+                            w = json.parse(t1)
+                        }
+                        let lo = w.locator
+                        let rs str = "" + lo.resource.spine_index
+                        let oi str = "" + lo.occurrence.index
+                        .ann_dialog = true
+                        .ann_edit_id = ""
+                        .ann_dlg_title = "批注所选（引擎选区）"
+                        .ann_ch = rs.to_int()
+                        .ann_pi = -1
+                        .ann_quote = "" + lo.quote
+                        .ann_occ_str = oi
+                        .ann_comment = ""
+                        .ann_tags = ""
+                        .ann_kind = "highlight"
+                        .ann_locator = "" + w.locator_json
+                        .ann_dlg_note = "已捕获引擎选区（canonical locator，保存时逐字核验）"
+                        .sel_note = ""
+                    } else {
+                        .sel_note = "未捕获选区——请先在正文拖选文字"
+                    }
+                }
+            }
+        }
+        // T-06 回访：按记录 v2 锚跑恢复环核验（verify-ann oracle）——匹配才
+        // 引擎 goto 定位；失配诚实 needs_relocate（不跳第一处/不静默）；
+        // 纯 v1 记录诚实「无 v2 锚」。
+        .AnnRevisit(aid str) -> {
+            var resp str = ""
+            try {
+                resp = Http.post("/api/library/locator/verify-ann", { book_id: .route_id, annotation_id: aid })
+            } catch {
+                resp = ""
+            }
+            var mhit bool = false
+            if resp.find("match\":true") >= 0 {
+                mhit = true
+            }
+            if resp.find("match\": true") >= 0 {
+                mhit = true
+            }
+            if mhit {
+                var w20 = json.parse(resp)
+                var t20 str = "" + w20
+                var w2 = w20
+                if t20.substr(0, 1) == "{" {
+                    w2 = json.parse(t20)
+                }
+                let spn_s str = "" + w2.spine
+                let spn int = spn_s.to_int()
+                if spn >= 1 {
+                    if spn <= .chapter_count {
+                        .chapter_num = spn
+                        if .is_epub {
+                            if .epub_sid != "" {
+                                Http.post("/api/reader/command", { session_id: .epub_sid, op: "goto", index: spn - 1, font_size: "", layout: "", theme: "", flow_mode: "" })
+                            }
+                        }
+                        // 文本章同步装载（回访后抽屉/段落语义可用）
+                        let craw str = Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + spn.to_string())
+                        let chv = parse_lib(craw)
+                        if chv != null {
+                            .chapter = chv
+                        }
+                        .chapter_src = craw
+                        .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
+                        .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
+                        .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num, .chapter_src)
+                    }
+                    .ann_note = "已回访：v2 锚定位匹配"
+                } else {
+                    .ann_note = "已回访：锚缺资源位"
+                }
+            } else {
+                if resp.find("anchored\":false") >= 0 {
+                    .ann_note = "该注释无 v2 锚（旧段锚，回访沿段落定位）"
+                } else {
+                    var msg2 str = "回访失败"
+                    try {
+                        var e10 = json.parse(resp)
+                        var t10 str = "" + e10
+                        var e2 = e10
+                        if t10.substr(0, 1) == "{" {
+                            e2 = json.parse(t10)
+                        }
+                        let rsn str = "" + e2.reason
+                        let msn str = "" + e2.message
+                        if rsn != "" {
+                            msg2 = "needs_relocate：" + rsn
+                        } else {
+                            if msn != "" {
+                                msg2 = "回访失败：" + msn
+                            }
+                        }
+                    } catch {
+                        msg2 = "回访失败：后端未响应"
+                    }
+                    .ann_note = msg2
+                }
+            }
+        }
         .AnnCancel -> {
             .ann_dialog = false
             .ann_edit_id = ""
+            .ann_locator = ""
             .ann_dlg_note = ""
         }
         // 提交：quote/comment/tags 走顶层字段直传（多字节安全，F-08 同源）；
@@ -1945,13 +2098,26 @@ widget reading_page {
                 }
                 var resp str = ""
                 try {
-                    resp = Http.post("/api/library/annotations", { book_id: .route_id, op: op, annotation_id: .ann_edit_id, kind: .ann_kind, chapter_number: .ann_ch, para_idx: .ann_pi, occurrence: occv, comment: .ann_comment, tags_json: tj, quote: .ann_quote })
+                    // T-06：EPUB 引擎选区新建经 annotations-v2 携带 canonical
+                    // v2 锚（服务器恢复环核验+同一性）；其余写路径沿旧端点
+                    //（存量 v2 锚在读改写中 canonical 保留，T-05 record_emit）。
+                    if .is_epub {
+                        if .ann_locator != "" {
+                            if op == "create" {
+                                resp = Http.post("/api/library/annotations-v2", { book_id: .route_id, op: op, annotation_id: .ann_edit_id, kind: .ann_kind, chapter_number: .ann_ch, para_idx: .ann_pi, occurrence: occv, comment: .ann_comment, tags_json: tj, quote: .ann_quote, locator_json: .ann_locator })
+                            }
+                        }
+                    }
+                    if resp == "" {
+                        resp = Http.post("/api/library/annotations", { book_id: .route_id, op: op, annotation_id: .ann_edit_id, kind: .ann_kind, chapter_number: .ann_ch, para_idx: .ann_pi, occurrence: occv, comment: .ann_comment, tags_json: tj, quote: .ann_quote })
+                    }
                 } catch {
                     resp = ""
                 }
                 if resp.find("\"ok\":true") >= 0 {
                     .ann_dialog = false
                     .ann_edit_id = ""
+                    .ann_locator = ""
                     .ann_resp = Http.get_json("/api/library/annotations?book_id=" + .route_id)
                     .anns = enrich_ann(.ann_resp, "" + .chapter.body, .chapter_num)
                     .paragraphs = merge_marks("" + .chapter.body, .ann_resp, .chapter_num, .chapter_src)
