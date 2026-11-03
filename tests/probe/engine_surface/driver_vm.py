@@ -2220,6 +2220,15 @@ def _run_n06_keyboard(popup, out_dir, page5, results):
     if not in_popup:
         return
     # 真实键盘翻页往返：ArrowRight → 页位变化；ArrowLeft → 回到原页位。
+    # 位置无关化：先锚回段首——前面各门（reflow/翻页/拖选）可能把视图
+    # 翻到章节尾，ArrowRight 无处可进 → turned=False（t09-final5 实测）。
+    try:
+        page5.evaluate("""async () => {
+            try { await window.__probe.view.goTo('epubcfi(/6/2!/4/2)'); return 'ok'; }
+            catch (e) { return 'err'; } }""")
+        time.sleep(1.5)
+    except Exception:
+        pass
     def _loc():
         try:
             return page5.evaluate(
@@ -2252,11 +2261,17 @@ def _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results):
 
     dpi0 = user32.GetDpiForWindow(win_hwnd3) or 96
 
-    def _win_client_w():
-        rc = ctypes.wintypes.RECT()
-        if not user32.GetClientRect(win_hwnd3, ctypes.byref(rc)):
-            return None
-        return rc.right - rc.left
+    def _win_client_w(retries=6):
+        # DPI 切换瞬间 winit 重排竞态下单次测量可能返回 0/失败（t09-final5
+        # 实测）——有界重试取首个非零宽度。
+        for _ in range(retries):
+            rc = ctypes.wintypes.RECT()
+            if user32.GetClientRect(win_hwnd3, ctypes.byref(rc)):
+                w = rc.right - rc.left
+                if w > 0:
+                    return w
+            time.sleep(1.0)
+        return None
 
     # 期望基准=窗口相对比例不变式：popup_w/win_client_w 在任意 DPI 缩放下
     # 不变（组件占窗口版面比例由 .at 布局定义，逻辑比例尺度无关；窗口物理
