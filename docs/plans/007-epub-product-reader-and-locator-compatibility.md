@@ -6,7 +6,7 @@ author: [Codex]
 created_at: 2026-11-03
 updated_at: 2026-11-04
 plan_revision: 1
-current_step: 6
+current_step: 7
 total_steps: 13
 base_branch: main
 base_commit: 28c765a4dbf66a3482f5bc03d4cb5c64d792c394
@@ -184,7 +184,7 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 | T-04 | work | T-03 | reading_page.at与必要组件接真实引擎、目录/脚注往返、图/基本结构与分页/滚动/设置 | P-02/03双端正常产品路由，重排后真实选区仍能回传，不靠driver注入 | AC-03 |
 | T-05 | work | T-01/04 | [x] library/annotations/jsonx及新增locator模块实现版本化读写/核验、兼容与恢复——src/back/locator.at（reader-locator v1 canonical/emit/count_fast）+ jsonx 词法门（valid_ann_locator/valid_locator_document、version 1|2）+ library 录入环 reader_locator_select / 恢复环 locator_verify_str（context 重算识别重复句错位）+ put_reading 可选 locator（carry-forward）+ annotations reemit 保锚/create 携带/op=anchor/version 1↔2 + api/db 端点（/api/reader/locator、/api/library/locator/verify、annotations-v2/progress-v2；旧端点逐字不变）——见§9 2026-11-04 T-05记录 | P-04 数据 oracle/P-05/P-06 数据冷恢复/P-08/P-10 双轨全绿（vue findings=0 not_run=8 exit3；vm 数据族 5/5 PASS）；verify_epub 22/22、auto test 7/7、smoke 16/16；UI 腿诚实 not_run；顺带修复 main 既有 epub 扫描 O(n²) 缺陷（长章 204.8s/不终止→19s） | AC-04/05/08 |
 | T-06 | work | T-05 | [x] reading_page/annotation产品UI选区工具、高亮批注CRUD/回访——adapter canonical quote/occurrence + 提案存储/GET + 批注所选（annotations-v2 携 canonical 锚）+ 回访（verify-ann 匹配才 goto）+ v1_anchor_err has_v2 章级回退面——见§9 2026-11-04 T-06记录 | P-04.ui-create/P-03.reflow-selection 经解锁动作 b（headed 冒烟全链证据，T-11 再裁决）PASS + 其余腿绿；门 findings=0 exit3；冒烟 13/13 | AC-04/06 |
-| T-07 | work | T-06 | 搜索范围跳转、v1/v2恢复与Markdown导出，兼容旧入口 | P-05/06/07各次重复命中分明、导出来源可独立解析、旧/新冷恢复不串书 | AC-05/06 |
+| T-07 | work | T-06 | [x] 搜索范围跳转、v1/v2恢复与Markdown导出，兼容旧入口——JumpTo EPUB 引擎 goto（URL router.push 同步）+ Init locator 优先冷恢复（router.push+command goto）+ export v2 定位行——见§9 2026-11-04 T-07记录 | P-07.search-jump（全句 3 命中分明+url_ch2）/P-05.visit-ui（note+verify-ann match）/P-07.export（v2 定位行独立解析）/P-06.ui-restore（url_ch2 冷恢复）全 PASS；门 findings=0 not_run=4 exit3 | AC-05/06 |
 | T-08 | work | T-07 | 安全/资源/跨实例/隐藏/输入/无障碍/生命周期、写失败/迁移回退与变异负例 | P-08～11实际合法/非法对照和原oracle红→还原绿，预算/系统接缝实证，失败不转纯文本假成功 | AC-07/08 |
 | T-09 | work | T-08 | 固定最终cohort跑新永久门与旧APP门/定向规格，修实际缺陷不弱化门 | 新 `python tests/product/verify_epub_product.py --profile vue|vm --auto-bin ... --out-dir ...`由T-02建立；新/旧门两端完整PASS，0漏项/GAP | AC-09 |
 | T-10 | work | T-09 | 落SD-01～05与README/设计/路线/矩阵实际状态，内检并交独立上下文final review | git diff --check、本地链接/范围/cohort一致；内检不自称终审，所有工作门有闭合证据 | AC-10 |
@@ -194,6 +194,13 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 **计数说明**：T-00～T-12共13项，total_steps=13、current_step=已完成执行任务数（T-00 后=1）。work拥有T-00～10，review/merge分别拥有T-11/T-12，不为凑执行完成先勾未来阶段。
 
 ## 9. 复审记录
+
+### 2026-11-04：work阶段——T-07 收口（outcome: pass）
+
+- stage: work | plan_id: READER-007 | plan_revision: r1 | task: T-07 | outcome: pass（四腿全绿：P-07.search-jump / P-05.visit-ui / P-07.export / P-06.ui-restore；门 findings=0 not_run=4 exit3）| 执行位: D:/autostack/auto-reader main | commit: 本轮（随收口提交）| next: T-08。
+- **收口要点**：①搜索腿——查询改全句 REPEAT_A（子串「重复句甲」合理命中 4 行：2 句+2 提及行；全句=3 命中与 corpus 冻结预期一致）+ 首搜轮询 90s（章转换+全书走查 ~20-60s）+ 抽屉搜索按钮精确匹配（has_text 子串误中工具栏 toggle 已修）。②导航/恢复 oracle 切页面路由（JumpTo/Init restore 均 router.push；scrolled 模式 sectionIndex 是「最后加载段」标记非当前位置——实测登记于 §9 前回执）。③Init 恢复 router.push 同步 URL。④回访 note 轮询 40s（verify-ann 全书走查 ~10s+）。⑤双记录修复（p05_data_family 不再预记 p07-owned 腿 not_run）。
+- 门证据：t07/gate-vue8 findings=0（27 PASS：全部 T-02..T-07 已实现腿；not_run=4=P-09.engine-bounds/P-11/P-12.old-gates/P-03.hideshow 归 T-08+）。回归：auto test 7/7。
+- 未改 canonical Spec；未创建用户数据。
 
 ### 2026-11-04：work阶段——T-07 进行中（导出 v2 定位行已交付且门绿；三处 UI 导航子面在途）——outcome: 记录（非交付收口，T-07 不勾选）
 

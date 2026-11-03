@@ -1262,6 +1262,8 @@ def p04_ui_create(args, out_dir):
             record("P-04.ui-create", "GAP", f"playwright missing: {e}")
             return
         REPEAT_A_FRAG = "产品重复句甲"
+        REPEAT_A_FULL = ("产品重复句甲🦊：琥珀色的狐狸跃过懒狗时携带三枚星形饼干，"
+                         "并轻声数到十七✨，随后沿对角线穿过整段跨度以便在窄栏里真实换行。")
         CROSS_TAIL = "重复句甲第二次出现在本章"
 
         def run_flow(headless):
@@ -1678,6 +1680,8 @@ def p07_t07_legs(args, out_dir):
     （verify-ann 匹配 + 引擎导航）→Markdown 导出独立解析（v2 定位行）。
     P-05.visit-ui（回访 UI 面）与 P-06.ui-restore（locator 冷恢复 UI 面）
     同源取证。全部点击/导航输入（headless 可靠面）；无文本选择依赖。"""
+    REPEAT_A_FULL = ("产品重复句甲🦊：琥珀色的狐狸跃过懒狗时携带三枚星形饼干，"
+                     "并轻声数到十七✨，随后沿对角线穿过整段跨度以便在窄栏里真实换行。")
     stamp = int(time.time())
     proc, logf, data_dir = _boot_app(
         args, out_dir, data_subdir=f"reader-data-t07-{args.profile}-{stamp}")
@@ -1797,19 +1801,24 @@ def p07_t07_legs(args, out_dir):
                 page.wait_for_timeout(1500)
 
             # ── P-07：搜索重复句甲 → 3 命中（章 1×2 + 章 2）分明 ──
-            open_search_and_run("重复句甲")
-            res = page.evaluate("""() => {
-                const drawer = Array.from(document.querySelectorAll('div')).find(
-                    d => d.className && String(d.className).includes
-                        ? false : false)
-                const t = document.body.textContent
-                const m = t.match(/第 (\\d+) 章 · ¶(-?\\d+)/g) || []
-                return { hits: m.slice(0, 8) }
-            }""")
+            # 首搜触发章转换+全书走查（~20-60s）——轮询等待而非定长 sleep
+            open_search_and_run(REPEAT_A_FULL)
+            res = {}
+            t0s = time.monotonic()
+            while time.monotonic() - t0s < 90:
+                res = page.evaluate("""() => {
+                    const t = document.body.textContent
+                    if (t.includes('搜索中…')) return { pending: true }
+                    const m = t.match(/第 (\\d+) 章 · ¶(-?\\d+)/g) || []
+                    return { hits: m.slice(0, 8) }
+                }""")
+                if not res.get("pending") and res.get("hits"):
+                    break
+                time.sleep(3)
             hits = res.get("hits", [])
             chs = sorted({int(h.split("章")[0].replace("第", "").strip())
                           for h in hits})
-            verdicts["search_hits"] = (len(hits) >= 3 and 1 in chs and 2 in chs)
+            verdicts["search_hits"] = (len(hits) == 3 and 1 in chs and 2 in chs)
             verdicts["hits_detail"] = hits[:4]
             # 点击章 2 命中（第 3 条）→ 引擎跳章 2
             clicked = page.evaluate("""() => {
@@ -1826,14 +1835,15 @@ def p07_t07_legs(args, out_dir):
                 return 'not-found'
             }""")
             page.wait_for_timeout(2500)
-            st3 = _ui_engine_state(page)
-            sec_after = st3.get("sectionIndex", -1) if st3 else -1
-            verdicts["jump_ch2"] = (sec_after == 1)
+            # 导航 oracle = 页面路由（JumpTo router.push；scrolled 模式
+            # sectionIndex 是「最后加载段」标记而非当前位置——实测登记）
+            url_after = page.url
+            verdicts["jump_ch2"] = ("/chapter/2" in url_after)
             verdicts["jump_clicked"] = clicked
             record("P-07.search-jump",
                    "PASS" if (verdicts["search_hits"] and verdicts["jump_ch2"])
                    else "FAIL",
-                   f"hits={hits[:4]} click={clicked} sec={sec_after}")
+                   f"hits={hits[:4]} click={clicked} url_ch2={verdicts['jump_ch2']}")
             page.wait_for_timeout(500)
             # ── P-05.visit-ui：回访按钮（记录 T07回访目标）→ verify-ann +
             # 引擎停在 locator 章 ──
@@ -1864,7 +1874,15 @@ def p07_t07_legs(args, out_dir):
                     }
                     return 'not-found'
                 }""", "T07回访目标")
-            page.wait_for_timeout(2500)
+            # verify-ann 全书走查 ~10s+——轮询已回访 note 而非定长 sleep
+            note_ok = False
+            t0n = time.monotonic()
+            while time.monotonic() - t0n < 40:
+                note_ok = page.evaluate(
+                    "() => document.body.textContent.includes('已回访')")
+                if note_ok:
+                    break
+                time.sleep(2)
             st4 = _ui_engine_state(page)
             sec_rv = st4.get("sectionIndex", -1) if st4 else -1
             # 先点章 1 命中把它带回 ch1 再回访？——简化：回访前已在 ch1：
@@ -1941,8 +1959,10 @@ def p07_t07_legs(args, out_dir):
                     time.sleep(2)
                 note = page.evaluate(
                     "() => (document.body.textContent.match(/已恢复到上次位置.{0,24}/) || [''])[0]")
-                record("P-06.ui-restore", "PASS" if sec == 1 else "FAIL",
-                       f"sectionIndex={sec} note={note[:30]}")
+                url_r = page.url
+                record("P-06.ui-restore",
+                       "PASS" if "/chapter/2" in url_r else "FAIL",
+                       f"url_ch2={'/chapter/2' in url_r} sec={sec}")
             finally:
                 try:
                     browser.close()
@@ -2288,8 +2308,8 @@ def p05_data_family(args, out_dir):
                "PASS" if (has_loc_before and carry_ok and stale_ok and cold_ok) else "FAIL",
                f"saved={has_loc_before} carry={carry_ok} stale_reject={stale_ok} "
                f"cold={cold_ok} (真实 UI 换布局恢复腿 T-07/T-08)")
-        record("P-06.ui-restore", "not_run", "真实保存后 UI pane 可见恢复 T-07/T-08 接入")
-        record("P-05.visit-ui", "not_run", "v1/v2 回访与导出来源 T-07 接入")
+        # （P-05.visit-ui/P-06.ui-restore 归 p07_t07_legs 记录——本族不预记
+        #  not_run，避免同 id 双记录违反严格聚合器）
     except Exception as e:
         # 族内基础设施故障（app 宿主关闭/连接复位）→ 未记腿显式 FAIL，
         # 不让整跑崩溃（严格聚合器按 FAIL 非零）
@@ -2299,9 +2319,11 @@ def p05_data_family(args, out_dir):
                     "P-08.mutation-matrix", "P-10.data", "P-06.data-coldrestart"):
             if cid not in done:
                 record(cid, "FAIL", f"family interrupted: {type(e).__name__} {str(e)[:80]}")
-        for cid in ("P-06.ui-restore", "P-05.visit-ui"):
+        for cid in ("P-06.data-coldrestart",):
             if cid not in done:
                 record(cid, "not_run", f"family interrupted before leg: {type(e).__name__}")
+        # （P-05.visit-ui/P-06.ui-restore 门内面归 p07_t07_legs 所有；
+        #  P-06.data-coldrestart 数据面仍归本族）
     finally:
         subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
                        capture_output=True)

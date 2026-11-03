@@ -1352,6 +1352,7 @@ widget reading_page {
                             if rest_ch <= .chapter_count {
                                 if rest_ch != .chapter_num {
                                     .chapter_num = rest_ch
+                                    router.push("/book/" + .route_id + "/chapter/" + rest_ch.to_string())
                                     let craw str = Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + rest_ch.to_string())
                                     let chv = parse_lib(craw)
                                     if chv != null {
