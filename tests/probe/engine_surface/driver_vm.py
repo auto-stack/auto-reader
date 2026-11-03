@@ -1814,10 +1814,11 @@ def _drag_current_and_verify(page, win_hwnd3, oracle_scan, sid3, base_count,
 def _drag_target_and_verify(page, win_hwnd, oracle_scan, sid, base_count,
                             owner_pid=None, base_url="http://127.0.0.1:17827",
                             marker=REPEAT_A_MARKER, full=REPEAT_A,
-                            want_occ=None):
+                            want_occ=None, poll_deadline=60):
     """已知目标句的确定性拖选核验（N-02 同款机制，任意书）：行盒量测（第2处
     出现）→ 真实拖选 → sidecar 记录中找目标句片段 → oracle 逐字/位次。
-    返回 (ok, note, new_base)。"""
+    返回 (ok, note, new_base)。poll_deadline：记录等待窗（适配器 occurrence
+    计数为页内串行阻塞操作，数十秒级——T-07 在案；b-continues 腿传 120）。"""
     lb = _measure_target_line(page, marker=marker)
     if not lb:
         return False, "target line never visible", base_count
@@ -1838,7 +1839,7 @@ def _drag_target_and_verify(page, win_hwnd, oracle_scan, sid, base_count,
     ok = False
     note = f"sel={str(sel)[:20]!r} err={err}"
     recs2 = []
-    while time.monotonic() - t0 < 60 and not ok:
+    while time.monotonic() - t0 < poll_deadline and not ok:
         sj = _http_quiet("GET", f"{base_url}/api/probe/locators?session_id={sid}")
         recs2 = sj.get("sidecar", {}).get("records", []) if sj and sj.get("found") else []
         for idx, r in enumerate(recs2):
@@ -2226,6 +2227,20 @@ def _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results):
         return (h, _win_rect(h)) if h else (None, None)
 
     dpi0 = user32.GetDpiForWindow(win_hwnd3) or 96
+
+    def _win_client_w():
+        rc = ctypes.wintypes.RECT()
+        if not user32.GetClientRect(win_hwnd3, ctypes.byref(rc)):
+            return None
+        return rc.right - rc.left
+
+    # 期望基准=窗口相对比例不变式：popup_w/win_client_w 在任意 DPI 缩放下
+    # 不变（组件占窗口版面比例由 .at 布局定义，逻辑比例尺度无关；窗口物理
+    # 尺寸保持或跟随重排两种 winit 行为下均成立）。旧公式 vw×dpi/96 混用
+    # 切换前的陈旧 vw 与新 scale（t09-final3-vm 实测错位 216px）。
+    win0 = _win_client_w()
+    pop, prect = _popup()
+    pop0 = prect[2] if (pop and prect) else None
     # 检测窗 600s：用户节奏（AskUserQuestion 协调往返 + 设置操作）远超短窗
     # ——首跑 150s 实测超时（用户已切、窗口先关）。预算语义修订见计划 §5.2。
     print(f">>> N-05.dpi-change: 请在 设置>系统>屏幕 将显示缩放改为其他档位"
@@ -2244,12 +2259,13 @@ def _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results):
         return
     time.sleep(5)  # winit WM_DPICHANGED 重排 + doc-surface sync + WebView2 栅格化
     pop, prect = _popup()
+    win1 = _win_client_w()
     vw = page6.evaluate("() => window.innerWidth")
-    vh = page6.evaluate("() => window.innerHeight")
-    exp_w = (vw * dpi1 / 96.0) if vw else 0
-    tracked = bool(pop) and prect and abs(prect[2] - exp_w) <= 6
+    exp_w = (pop0 * win1 / win0) if (pop0 and win0 and win1) else 0
+    tracked = bool(pop) and prect and exp_w and abs(prect[2] - exp_w) <= 6
     results("N-05.dpi-change.track", "PASS" if tracked else "FAIL",
-            f"dpi {dpi0}->{dpi1} popup={prect} innerWidth={vw} expected_w={exp_w:.0f}")
+            f"dpi {dpi0}->{dpi1} popup={prect} win_client_w={win1} "
+            f"expected_w={exp_w:.0f} (proportional to window)")
     if not tracked:
         return
     # 当前位置拖选 + oracle（位置依赖教训：视口可在任意章——dpi3 实测 ch3
@@ -2270,9 +2286,12 @@ def _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results):
         return
     time.sleep(5)
     pop2, prect2 = _popup()
-    back = bool(pop2) and prect2 and abs(prect2[2] - vw * dpi0 / 96.0) <= 6
+    win2 = _win_client_w()
+    exp_w2 = (pop0 * win2 / win0) if (pop0 and win0 and win2) else 0
+    back = bool(pop2) and prect2 and exp_w2 and abs(prect2[2] - exp_w2) <= 6
     results("N-05.dpi-change.restore", "PASS" if back else "FAIL",
-            f"popup={prect2} expected_w={vw * dpi0 / 96.0:.0f}")
+            f"popup={prect2} win_client_w={win2} expected_w={exp_w2:.0f} "
+            f"(proportional to window)")
 
 
 def _http_json(method, url, payload=None, timeout=15):
@@ -2544,7 +2563,7 @@ def _run_n07_n08(out_dir, cons_a, sid3, win_hwnd3, oracle_a, results,
             return
         ok, note, base_b = _drag_target_and_verify(
             page_b, b_hwnd, oracle_b, sid_b, base_b, owner_pid=b_pid,
-            base_url="http://127.0.0.1:17837",
+            base_url="http://127.0.0.1:17837", poll_deadline=120,
             marker=REPEAT_B_MARKER, full=REPEAT_B, want_occ=2)
         results("N-07.b-continues", "PASS" if ok else "FAIL", note)
 
