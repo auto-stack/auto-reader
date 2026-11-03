@@ -2100,7 +2100,8 @@ def _run_t05_gates(out_dir, mcp3, sid3, win_hwnd3, oracle_scan, results,
         # 用户经系统设置切换显示缩放 → 驱动检测 → 弹出窗/内容随新 DPI →
         # 真实拖选重命中；恢复后复验。预算语义：用户节奏单独计时（检测
         # 600s+恢复 600s），不计入 600s 自动链预算——计划 §5.2 语义修订。──
-        if os.environ.get("PROBE_DPI_INTERACTIVE") == "1":
+        if (os.environ.get("PROBE_DPI_INTERACTIVE") == "1"
+                or os.environ.get("PROBE_DPI_AUTO") == "1"):
             _run_dpi_gate(win_hwnd3, page6, sid3, oracle_scan, base_count, results)
         else:
             results("N-05.dpi-change", "not_run",
