@@ -1,12 +1,12 @@
 ---
 plan_id: READER-007
-status: drafting
+status: executing
 feature_name: 正式EPUB阅读表面接入与定位兼容
 author: [Codex]
 created_at: 2026-11-03
 updated_at: 2026-11-03
 plan_revision: 1
-current_step: 0
+current_step: 1
 total_steps: 13
 base_branch: main
 base_commit: 28c765a4dbf66a3482f5bc03d4cb5c64d792c394
@@ -177,7 +177,7 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 
 | ID | owner_stage | 依赖 | 路径/动作与产物 | 验证入口与预期 | AC |
 |---|---|---|---|---|---|
-| T-00 | work | 029全门/独立review/固定交付 | 在Reader main核WIP与依赖cohort、正式启动/表面/HTTP接口；确认029实验与产品组合差异 | P-01、source/tool/hash/窗口/后端事实齐；029欠项或正式组合不通则dependency_not_ready，后续不实现 | AC-01 |
+| T-00 | work | 029全门/独立review/固定交付 | [x] 在Reader main核WIP与依赖cohort、正式启动/表面/HTTP接口；确认029实验与产品组合差异——见§9 2026-11-03 T-00记录 | P-01、source/tool/hash/窗口/后端事实齐；029欠项或正式组合不通则dependency_not_ready，后续不实现 | AC-01 |
 | T-01 | work | T-00 | 新docs/design/02-epub-engine-reading.md冻结profile/资源/CFI核验owner、至多两方案比较后的v2存储与兼容/迁移契约 | 实际源码/接口对照、v1/v2合法/失配/写失败样例和预算边界有oracle；不先造空字段 | AC-02/04/05/08 |
 | T-02 | work | T-01 | 新tests/product/verify_epub_product.py与版本/语料清单、独立oracle；应用固定引擎资产来源/许可/打包方案 | P-01～12注册唯一ID、0/缺项/GAP非零；语料生成/hash与预期可重算，未实现例不伪绿 | AC-02/09 |
 | T-03 | work | T-02 | src/back/api.at/db.at/library.at等接产品资源/会话，新增产品adapter/固定资产路径按T-01确定 | 正式UI自动装载，原件/资源受控，断网和移走probe目录仍用；P-02/09合法/拒绝对照 | AC-02/07 |
@@ -191,9 +191,17 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 | T-11 | review | T-10 | 同一clone独立上下文复演第6节要求，绑定计划/源码/工具 | AC-01～10全PASS才reviewed，否则needs_fix/needs_replan回work，不能partial交付 | AC-11 |
 | T-12 | merge | T-11 pass | 精确交付/主干canonical/归档与导航、自有scope清理与恢复回执 | 实际landing/Spec/档案状态一致，无他人WIP/用户数据损伤；不更新OS组合pin | AC-12 |
 
-**计数说明**：T-00～T-12共13项，total_steps=13、current_step=0。work拥有T-00～10，review/merge分别拥有T-11/T-12，不为凑执行完成先勾未来阶段。
+**计数说明**：T-00～T-12共13项，total_steps=13、current_step=已完成执行任务数（T-00 后=1）。work拥有T-00～10，review/merge分别拥有T-11/T-12，不为凑执行完成先勾未来阶段。
 
 ## 9. 复审记录
+
+### 2026-11-03：work阶段——T-00 029交付核查与正式启动profile冻结（AC-01）
+
+- stage: work | plan_id: READER-007 | plan_revision: r1 | task: T-00 | outcome: pass（029交付可核、正式双端启动与接口消费实测成立；cohort 物化补齐 doc-surface 二进制）| 执行位: D:/autostack/auto-reader main（树干净，git status 零输出）| next: T-01。
+- **029 交付核查（desk）**：auto-ui master 归档 e6ef5381（12/12），landing 65bb455f（merge，parents e7b09ea8 + 98633fd4，doc-surface 实验 leaf + N-05 隐藏修复），T-10 独立复审 pass（AC-01..10 全过、无 partial/GAP；vm 92/92 + vue 48/48 独立复演 exit0）。cohort 记录于归档计划与研究文档：auto g47d8f7b（sha256 6f1925ea…）、引擎 foliate-js@3d794195、预算 15/10/5/30/10s + 600s。Reader main@7a1b4fd，无他人 WIP。
+- **cohort 物化（实测发现并补齐）**：磁盘现有 auto-ui-tool.exe（11-02 13:09 构建，pre-landing）**不含** doc-surface——探针启动后 doc-surface 组件渲染为 `[RemoteFrame]` 文本占位、`AUTO_DOC_SURFACE_DEBUG=1` 零 create 日志、二进制无 `AutoUIDocSurfacePopup`/`doc_surface` 字符串；029 运行用的 worktree 内工具二进制已随 merge 清理。**重建**：从落主 master（65bb455f）`cargo build -p auto-ui-tools --features doc-surface`（临时在 auto-ui-tools/Cargo.toml 加 `doc-surface = ["auto-ui-runtime/doc-surface"]` 透传，构建后 `git checkout --` 还原，auto-ui 树零残留）→ 新二进制（11-03 13:32，147,089,408B）实测：doc-surface iced 臂命中（`[doc-surface] into_iced arm reached`，193 行）、url 空时 defer（正常初态）、Connect handler→`GET /api/probe/surface-url` 200、MCP 树/窗口全活。
+- **正式启动（两端实测，冻结 profile）**：vm 分离模式 = `auto run -r vm --no-merge -B 17825`（从本仓根）→ 后端 `http://127.0.0.1:17825/api/library/books` 200（`{"version":1,"books":[]}`）、原生窗口「图书阅读器」（进程=auto-ui-tool.exe）、MCP `http://127.0.0.1:9247`、UI 树含书架侧栏 chrome。vue 模式 = `auto run --server=vm` → 前端 `http://localhost:17824` 200（vite，**IPv6 回环**；127.0.0.1 直连拒绝）、后端 17825 200。**差异登记**：`auto run -r vm --server=vm` 实测=仅后端无窗口（README 第 17-18 行 `-r vm --server=vm` 为 VM 全轨的记载不准确，正式门/驱动均用 `--no-merge`；README 修订列入 T-10）。
+- 结论：029 依赖就绪，**不触发 dependency_not_ready**；T-00 通过，进入 T-01。工具/资产身份：auto=g47d8f7b、auto-ui-tool=重建版（hash 待 T-02 manifest 固化）、engine-assets/corpus 由 prepare_engine_assets.py/gen_corpus.py 确定性重建（本次重建于 plan-artifacts/reader-007/t00/）。
 
 ### 2026-11-03：new阶段交接
 
