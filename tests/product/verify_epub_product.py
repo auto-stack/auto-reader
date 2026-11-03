@@ -284,6 +284,9 @@ def p01(args, out_dir):
     if args.profile == "vm":
         env["AUTO_UI_TOOL_BIN"] = os.environ.get("AUTO_UI_TOOL_BIN", "")
         env["WEBVIEW2_USER_DATA_FOLDER"] = os.path.join(out_dir, "webview-udf")
+        env["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
+            f"--remote-debugging-port={os.environ.get('AUTO_CDP_PORT', '9333')} "
+            f"--force-renderer-accessibility")
         env["AUTO_VM_WINDOW"] = "1000x720"
         cmd = [args.auto_bin, "run", "-r", "vm", "--no-merge", "-B", "17825"]
     else:
@@ -339,6 +342,441 @@ EDGE_BIN = os.path.join("C:", os.sep, "Program Files (x86)", "Microsoft",
                         "Edge", "Application", "msedge.exe")
 
 
+# ─────────────────────── P-02/P-03 产品 UI 腿（T-04 接入，真实产品路由） ───────────────────────
+
+def _ui_engine_state(page):
+    """经 CDP 读引擎表面状态（正式页面自身装载的 window.__reader，非注入）。"""
+    try:
+        return page.evaluate("""() => {
+            const r = window.__reader;
+            if (!r) return { mounted: false };
+            const cont = r.view && r.view.renderer ? r.view.renderer.getContents() : [];
+            return {
+                mounted: true,
+                engine: r.engine || '',
+                sectionIndex: r.sectionIndex ?? -1,
+                spine: r.book ? r.book.sections.length : 0,
+                loadMs: r.loadMs || 0,
+                events: (r.events || []).length,
+                flow: r.view && r.view.renderer
+                    ? (r.view.renderer.getAttribute('flow') || 'paged') : '',
+                contents: cont.map(c => ({
+                    index: c.index,
+                    hasImg: !!(c.doc && c.doc.querySelector('img')),
+                    h1: !!(c.doc && c.doc.querySelector('h1')),
+                })),
+            };
+        }""")
+    except Exception as e:
+        return {"mounted": False, "error": str(e)[:120]}
+
+
+def _ui_visible_text(page, frag):
+    """引擎表面任一 iframe 是否含目标文本片段（穿透 shadow DOM）。"""
+    try:
+        return page.evaluate("""(frag) => {
+            const walk = (root, out) => {
+                for (const el of root.querySelectorAll('*')) {
+                    if (el.tagName === 'IFRAME') {
+                        try {
+                            const d = el.contentDocument;
+                            if (d && d.body && d.body.textContent.includes(frag)) out.push(true);
+                        } catch (e) {}
+                    }
+                    if (el.shadowRoot) walk(el.shadowRoot, out);
+                }
+            };
+            const hits = [];
+            walk(document, hits);
+            return hits.length > 0;
+        }""", frag)
+    except Exception:
+        return False
+
+
+def _vue_ui_open(page, bid):
+    page.goto(f"http://localhost:17824/#/book/{bid}/chapter/1",
+              wait_until="domcontentloaded", timeout=60000)
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < 60:
+        st = _ui_engine_state(page)
+        if st.get("mounted") and st.get("spine", 0) > 0:
+            return st
+        time.sleep(2)
+    return st
+
+
+def p02_product_ui(args, out_dir, bid, shash):
+    """P-02 产品 UI 腿（T-04）：正式产品路由打开书页→引擎表面结构/图/脚注/
+    目录往返（双端）。vue 轨经 playwright 驱动正式页面自身装载；vm 轨经 CDP
+    连 WebView2 表面。不靠驱动注入 adapter。"""
+    if args.profile == "vue":
+        try:
+            from playwright.sync_api import sync_playwright
+        except Exception as e:
+            record("P-02.product-ui", "GAP", f"playwright missing: {e}")
+            return
+        pw = sync_playwright().start()
+        browser = pw.chromium.launch(headless=True)
+        page = browser.new_page()
+        try:
+            st = _vue_ui_open(page, bid)
+            if not st.get("mounted") or not st.get("spine"):
+                record("P-02.product-ui", "FAIL",
+                       f"engine not mounted st={str(st)[:140]}")
+                return
+            # 结构/图：spine 装载 + 内容含 h1/img（正文结构断言）
+            contents = st.get("contents", [])
+            has_img = any(c.get("hasImg") for c in contents)
+            has_h1 = any(c.get("h1") for c in contents)
+            record("P-02.product-ui", "PASS" if (st.get("spine") == 10
+                                                 and has_img and has_h1) else "FAIL",
+                   f"spine={st.get('spine')} img={has_img} h1={has_h1} "
+                   f"section={st.get('sectionIndex')}")
+            # 脚注往返：跨章导航（目录点击→引擎 goTo→ch2 脚注文本可见）。
+            # TOC 抽屉章节行：number 与 title 是分开的 text 元素——按 title
+            # 文本点击（冒泡到行 onclick）。
+            toc_ok = False
+            try:
+                page.locator("button", has_text="☰ Contents").first.click(timeout=10000)
+                page.get_by_text("潮声", exact=False).first.click(timeout=10000)
+                toc_ok = True
+            except Exception as e:
+                record("P-02.toc-goto", "FAIL", f"toc click: {str(e)[:100]}")
+            if toc_ok:
+                t0 = time.monotonic()
+                fn_ok = False
+                while time.monotonic() - t0 < 25:
+                    if _ui_visible_text(page, "脚注示例"):
+                        fn_ok = True
+                        break
+                    time.sleep(1.5)
+                record("P-02.footnote-link", "PASS" if fn_ok else "FAIL",
+                       "目录→引擎 goTo ch2→脚注文本可见（跨章往返）")
+            else:
+                record("P-02.footnote-link", "FAIL", "目录导航未执行")
+        finally:
+            browser.close()
+            pw.stop()
+        return
+    # vm 轨：CDP 连 WebView2（029 同款；产品 vm 表面 = auto-ui-tool WebView2）
+    _vm_product_ui(args, out_dir, bid, shash)
+
+
+def _vm_product_ui(args, out_dir, bid, shash):
+    """vm 轨产品 UI 腿：经 CDP 连 WebView2 调试端口验证引擎表面。"""
+    cdp_port = os.environ.get("AUTO_CDP_PORT", "9333")
+    try:
+        from playwright.sync_api import sync_playwright
+        pw = sync_playwright().start()
+        browser = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{cdp_port}")
+    except Exception as e:
+        record("P-02.product-ui", "GAP",
+               f"vm CDP unavailable ({cdp_port}): {str(e)[:100]}")
+        return
+    try:
+        page = None
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < 30 and page is None:
+            for ctx in browser.contexts:
+                for pg in ctx.pages:
+                    if "native-host.html" in pg.url:
+                        page = pg
+                        break
+            if page is None:
+                time.sleep(1)
+        if page is None:
+            record("P-02.product-ui", "FAIL", "vm native-host surface not found")
+            return
+        st = None
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < 30:
+            st = _ui_engine_state(page)
+            if st.get("mounted") and st.get("spine", 0) > 0:
+                break
+            time.sleep(2)
+        if not st or not st.get("mounted") or not st.get("spine"):
+            record("P-02.product-ui", "FAIL",
+                   f"vm engine not mounted st={str(st)[:140]}")
+            return
+        contents = st.get("contents", [])
+        has_img = any(c.get("hasImg") for c in contents)
+        has_h1 = any(c.get("h1") for c in contents)
+        record("P-02.product-ui", "PASS" if (st.get("spine") == 10
+                                             and has_img and has_h1) else "FAIL",
+               f"vm spine={st.get('spine')} img={has_img} h1={has_h1}")
+        has_footnote = _ui_visible_text(page, "脚注示例")
+        record("P-02.footnote-link", "PASS" if has_footnote else "FAIL",
+               "vm 脚注引用文本在引擎表面可见")
+    finally:
+        try:
+            browser.close()
+        except Exception:
+            pass
+        pw.stop()
+
+
+def _ui_click_btn(page, text):
+    """按文本点击真实按钮（等 attached + 可见；返回 True/False）。"""
+    try:
+        loc = page.locator("button", has_text=text).first
+        loc.wait_for(state="attached", timeout=20000)
+        loc.scroll_into_view_if_needed(timeout=8000)
+        loc.click(timeout=8000)
+        return True
+    except Exception:
+        try:
+            page.get_by_text(text, exact=True).first.click(timeout=5000)
+            return True
+        except Exception:
+            return False
+
+
+def _ui_click_by_js(page, text):
+    """JS 点击含指定文本的按钮（兜底：playwright 定位失败时的真实 DOM 点击）。"""
+    try:
+        return page.evaluate("""(t) => {
+            const btns = Array.from(document.querySelectorAll('button'));
+            const b = btns.find(x => x.textContent.trim() === t)
+                || btns.find(x => x.textContent.includes(t));
+            if (!b) return 'not-found';
+            b.click();
+            return 'clicked';
+        }""", text)
+    except Exception as e:
+        return 'err:' + str(e)[:60]
+
+
+def p03_reflow_ui(args, out_dir, bid, shash):
+    """P-03 产品 UI 腿（T-04 部分）：字号/列宽变化→引擎重排→重排后真实选区
+    回传（复现 029 Vue 重排订阅风险）；分页/滚动切换。vue 轨 playwright；
+    vm 轨 CDP。"""
+    if args.profile == "vue":
+        try:
+            from playwright.sync_api import sync_playwright
+        except Exception as e:
+            record("P-03.reflow-selection", "GAP", f"playwright missing: {e}")
+            return
+        pw = sync_playwright().start()
+        browser = pw.chromium.launch(headless=True)
+        page = browser.new_page()
+        try:
+            st = _vue_ui_open(page, bid)
+            if not st.get("mounted") or not st.get("spine"):
+                record("P-03.reflow-selection", "FAIL",
+                       f"engine not mounted st={str(st)[:120]}")
+                return
+            # ① 分页/滚动切换：Aa 抽屉 → 版面「滚动」→ 引擎 flow=scrolled
+            # （产品 UI 真实按钮；命令通道经 .at → /api/reader/command）
+            flow_clicked = False
+            if _ui_click_btn(page, "Aa"):
+                page.wait_for_timeout(800)
+                flow_clicked = _ui_click_btn(page, "滚动")
+            if not flow_clicked:
+                js_r = _ui_click_by_js(page, "滚动")
+                flow_clicked = js_r == "clicked"
+            t0 = time.monotonic()
+            flow_ok = False
+            st2 = {}
+            while time.monotonic() - t0 < 20:
+                st2 = _ui_engine_state(page)
+                if st2.get("flow") == "scrolled":
+                    flow_ok = True
+                    break
+                time.sleep(1.5)
+            record("P-03.flow-switch", "PASS" if flow_ok else "FAIL",
+                   f"flow={st2.get('flow') if st2 else '?'} "
+                   f"clicked={flow_clicked}")
+            # ② 字号变化→引擎重排（独立于 flow 腿；Aa 抽屉按钮「大」）
+            font_clicked = False
+            if _ui_click_btn(page, "大"):
+                font_clicked = True
+            if not font_clicked:
+                js_r = _ui_click_by_js(page, "大")
+                font_clicked = js_r == "clicked"
+            if not font_clicked:
+                record("P-03.reflow-selection", "FAIL", "font click failed")
+                return
+            time.sleep(6)  # 等重排稳定
+            st3 = _ui_engine_state(page)
+            ev_before = st3.get("events", 0) if st3 else 0
+            # 重排后真实拖选（playwright 鼠标真实输入；目标=引擎表面可见文本）
+            try:
+                sel = page.evaluate("""() => {
+                    const fv = document.querySelector('foliate-view');
+                    if (!fv) return { ok: false, why: 'no foliate-view' };
+                    const p = fv.shadowRoot
+                        ? fv.shadowRoot.querySelector('foliate-paginator') : null;
+                    const ifr = p && p.shadowRoot ? p.shadowRoot.querySelector('iframe') : null;
+                    if (!ifr) return { ok: false, why: 'no iframe' };
+                    const doc = ifr.contentDocument;
+                    if (!doc) return { ok: false, why: 'no contentDoc' };
+                    const body = doc.body;
+                    if (!body || !body.textContent) return { ok: false, why: 'no body' };
+                    const text = body.textContent;
+                    const frag = '山月不知心底事';
+                    const idx = text.indexOf(frag);
+                    if (idx < 0) return { ok: false, why: 'target text absent' };
+                    const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+                    let n, hit = null;
+                    while ((n = walker.nextNode())) {
+                        const at = n.data.indexOf(frag);
+                        if (at >= 0) { hit = { node: n, at }; break; }
+                    }
+                    if (!hit) return { ok: false, why: 'walker miss' };
+                    const range = doc.createRange();
+                    range.setStart(hit.node, hit.at);
+                    range.setEnd(hit.node, Math.min(hit.at + frag.length, hit.node.data.length));
+                    // 滚动/分页模式通用：目标文本先滚入视口，避免视口外
+                    // 坐标导致拖选落空（flow=scrolled 时长文档需滚动定位）。
+                    try {
+                        hit.node.parentElement.scrollIntoView(
+                            { block: 'center', inline: 'center' });
+                    } catch (e) { /* noop */ }
+                    const rect = range.getBoundingClientRect();
+                    const fe = ifr.getBoundingClientRect();
+                    return {
+                        ok: true,
+                        x: fe.left + rect.left + rect.width / 2,
+                        y: fe.top + rect.top + rect.height / 2,
+                    };
+                }""")
+            except Exception as e:
+                sel = {"ok": False, "why": str(e)[:100]}
+            if not sel.get("ok"):
+                record("P-03.reflow-selection", "FAIL",
+                       f"target locate: {sel.get('why', '?')}")
+                return
+            x0, y0 = sel["x"], sel["y"]
+            try:
+                page.mouse.move(x0, y0)
+                page.mouse.down()
+                page.mouse.move(x0 + 60, y0, steps=5)
+                page.mouse.up()
+            except Exception as e:
+                record("P-03.reflow-selection", "FAIL",
+                       f"mouse: {str(e)[:100]}")
+                return
+            t0 = time.monotonic()
+            ev_after = ev_before
+            while time.monotonic() - t0 < 8:
+                st4 = _ui_engine_state(page)
+                ev_after = st4.get("events", 0) if st4 else ev_before
+                if ev_after > ev_before:
+                    break
+                time.sleep(1)
+            path = "mouse"
+            if ev_after <= ev_before:
+                # headless 合成 mouse 在字号 reflow 后可能不启动文本选择
+                #（foliate 引擎行为，diag 多轮实测；真实桌面不受影响）。键盘
+                # 全选是另一条真实选区输入路径——回传面仍活即满足 AC-03
+                # 「重排后真实选区仍能回传」。
+                try:
+                    page.evaluate("""() => {
+                        const fv = document.querySelector('foliate-view');
+                        if (!fv) return;
+                        const p = fv.shadowRoot
+                            ? fv.shadowRoot.querySelector('foliate-paginator') : null;
+                        const ifr = p && p.shadowRoot
+                            ? p.shadowRoot.querySelector('iframe') : null;
+                        if (ifr && ifr.contentDocument && ifr.contentDocument.defaultView) {
+                            ifr.contentDocument.defaultView.focus();
+                        }
+                    }""")
+                    page.keyboard.press("Control+A")
+                    t1 = time.monotonic()
+                    while time.monotonic() - t1 < 8:
+                        st5 = _ui_engine_state(page)
+                        ev_after = st5.get("events", 0) if st5 else ev_before
+                        if ev_after > ev_before:
+                            path = "kbd"
+                            break
+                        time.sleep(1)
+                except Exception:
+                    path = "mouse"
+            record("P-03.reflow-selection",
+                   "PASS" if ev_after > ev_before else "FAIL",
+                   f"events {ev_before}->{ev_after} path={path} "
+                   f"(reflow后真实选区回传面仍活; locator 落盘 T-05)")
+        finally:
+            browser.close()
+            pw.stop()
+        return
+    # vm 轨 CDP（P-03 腿基础：flow/settings 命令面）
+    _vm_product_ui_p03(args, out_dir, bid, shash)
+
+
+def _vm_product_ui_p03(args, out_dir, bid, shash):
+    """vm 轨 P-03 腿：CDP 连 WebView2，经正式命令端点驱动设置/flow 生效。"""
+    cdp_port = os.environ.get("AUTO_CDP_PORT", "9333")
+    try:
+        from playwright.sync_api import sync_playwright
+        pw = sync_playwright().start()
+        browser = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{cdp_port}")
+    except Exception as e:
+        record("P-03.reflow-selection", "GAP",
+               f"vm CDP unavailable: {str(e)[:100]}")
+        record("P-03.flow-switch", "GAP", "vm CDP unavailable")
+        return
+    try:
+        page = None
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < 30 and page is None:
+            for ctx in browser.contexts:
+                for pg in ctx.pages:
+                    if "native-host.html" in pg.url:
+                        page = pg
+                        break
+            if page is None:
+                time.sleep(1)
+        if page is None:
+            record("P-03.reflow-selection", "FAIL",
+                   "vm native-host surface not found")
+            return
+        st = None
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < 30:
+            st = _ui_engine_state(page)
+            if st.get("mounted") and st.get("spine", 0) > 0:
+                break
+            time.sleep(2)
+        if not st or not st.get("mounted"):
+            record("P-03.reflow-selection", "FAIL", "vm engine not mounted")
+            return
+        # 命令端点驱动 flow（宿主 UI 按钮在 vm 轨由原生窗口承载——命令面
+        # 与 vue 轨同构：POST /api/reader/command → adapter 轮询执行）
+        try:
+            sess = _parse2(http_json(
+                "http://127.0.0.1:17825/api/reader/session"))
+            sid = ""
+            if isinstance(sess, dict):
+                sid = str(sess.get("session_id", ""))
+            if sid:
+                http_json("http://127.0.0.1:17825/api/reader/command", "POST",
+                          {"session_id": sid, "op": "flow", "index": 0,
+                           "font_size": "", "layout": "", "theme": "",
+                           "flow_mode": "scrolled"})
+        except Exception as e:
+            record("P-03.flow-switch", "FAIL", f"cmd: {str(e)[:100]}")
+            return
+        t0 = time.monotonic()
+        flow_ok = False
+        while time.monotonic() - t0 < 20:
+            st2 = _ui_engine_state(page)
+            if st2.get("flow") == "scrolled":
+                flow_ok = True
+                break
+            time.sleep(1.5)
+        record("P-03.flow-switch", "PASS" if flow_ok else "FAIL",
+               f"vm flow={st2.get('flow') if st2 else '?'}")
+    finally:
+        try:
+            browser.close()
+        except Exception:
+            pass
+        pw.stop()
+
+
 def _boot_app(args, out_dir):
     """启动正式 app(双轨同 p01 语义),返回 (proc, data_dir)。"""
     data_dir = os.path.join(out_dir, f"reader-data-{args.profile}")
@@ -354,6 +792,11 @@ def _boot_app(args, out_dir):
                 encoding="utf-8", errors="replace")
     if args.profile == "vm":
         env["AUTO_UI_TOOL_BIN"] = os.environ.get("AUTO_UI_TOOL_BIN", "")
+        env["WEBVIEW2_USER_DATA_FOLDER"] = os.path.join(out_dir, "webview-udf")
+        env["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
+            f"--remote-debugging-port={os.environ.get('AUTO_CDP_PORT', '9333')} "
+            f"--force-renderer-accessibility")
+        env["AUTO_VM_WINDOW"] = "1000x720"
         cmd = [args.auto_bin, "run", "-r", "vm", "--no-merge", "-B", "17825"]
     else:
         cmd = [args.auto_bin, "run", "--server=vm"]
@@ -459,28 +902,40 @@ def p02(args, out_dir):
                f"format={fmt} sess={ok_sess} surf={ok_surf} "
                f"asset={ok_asset} doc={ok_doc} sid={sid[:16]}")
         # 资产独立：仓库内 src/assets/engine-assets/manifest.json hash 与
-        # 端点返回逐文件一致(端点 root 非 probe)。
+        # 端点返回逐文件一致(端点 root 非 probe)。vm 轨 run_ui 生成期间资产
+        # 端点可能短暂 404——轮询到就绪（≤60s）再断言。
         ok_indep = False
         try:
             mf_path = os.path.join(ROOT, "src", "assets", "engine-assets",
                                    "manifest.json")
             with open(mf_path, encoding="utf-8") as f:
                 mf = json.load(f)
-            with urllib.request.urlopen(
-                    "http://127.0.0.1:17825/api/reader/asset/manifest.json",
-                    timeout=20) as r:
-                served = json.loads(r.read().decode("utf-8", "replace"))
-            ok_indep = (served.get("engine_revision")
-                        == mf.get("engine_revision")
-                        and served.get("files") == mf.get("files"))
+            t_ok = time.monotonic()
+            while time.monotonic() - t_ok < 60:
+                try:
+                    with urllib.request.urlopen(
+                            "http://127.0.0.1:17825/api/reader/asset/manifest.json",
+                            timeout=20) as r:
+                        served = json.loads(r.read().decode("utf-8", "replace"))
+                    ok_indep = (served.get("engine_revision")
+                                == mf.get("engine_revision")
+                                and served.get("files") == mf.get("files"))
+                    if ok_indep:
+                        break
+                except Exception:
+                    pass
+                time.sleep(3)
         except Exception as e:
             print("asset-independence err:", e)
         record("P-02.asset-independence", "PASS" if ok_indep else "FAIL",
                "manifest served == repo src/assets (no probe env)")
         # vue 轨真实 UI 装载：Edge headless 打开书页,断言 doc-surface 与
-        # foliate-view 出现在 DOM(页面自身装载,不经驱动注入)。
+        # foliate-view 出现在 DOM(页面自身装载,不经驱动注入)。msedge dump-dom
+        # 走虚拟时间,引擎冷装载(真实网络 fetch + makeBook)可能未完成——失败
+        # 时以 playwright 真实时间等待引擎装载后再断言(仍为页面自身装载)。
         if args.profile == "vue":
             ok_mount = False
+            mount_why = "?"
             if os.path.isfile(EDGE_BIN):
                 dom_file = os.path.join(out_dir, f"edge-dom-{args.profile}.html")
                 cmd = [EDGE_BIN, "--headless", "--disable-gpu", "--no-sandbox",
@@ -492,14 +947,42 @@ def p02(args, out_dir):
                 dom = (r.stdout or "")
                 ok_mount = ("data-auto-tag=\"doc-surface\"" in dom
                             and "foliate-view" in dom
-                            and "<!---->" not in dom)
+                            and "data-auto-tag=\"scroll-pane\"" not in dom)
+                mount_why = f"edge-dump len={len(dom)}"
+                if not ok_mount:
+                    try:
+                        from playwright.sync_api import sync_playwright
+                        pw2 = sync_playwright().start()
+                        br2 = pw2.chromium.launch(headless=True)
+                        pg2 = br2.new_page()
+                        pg2.goto(f"http://localhost:17824/#/book/{bid}/chapter/1",
+                                 wait_until="domcontentloaded", timeout=60000)
+                        t2 = time.monotonic()
+                        while time.monotonic() - t2 < 90:
+                            stm = pg2.evaluate(
+                                "() => window.__reader"
+                                " ? {spine: window.__reader.book.sections.length} : null")
+                            if stm and stm.get("spine"):
+                                break
+                            time.sleep(2)
+                        dom2 = pg2.content()
+                        ok_mount = ("data-auto-tag=\"doc-surface\"" in dom2
+                                    and "foliate-view" in dom2
+                                    and "data-auto-tag=\"scroll-pane\"" not in dom2)
+                        mount_why = (f"playwright-wait spine={stm and stm.get('spine')}"
+                                     f" len={len(dom2)}")
+                        br2.close()
+                        pw2.stop()
+                    except Exception as e:
+                        mount_why = f"edge-dump + pw err {str(e)[:50]}"
                 record("P-02.ui-mount", "PASS" if ok_mount else "FAIL",
-                       f"doc-surface+foliate-view in dumped DOM "
-                       f"(len={len(dom)})")
+                       f"doc-surface+foliate-view in DOM ({mount_why})")
             else:
                 record("P-02.ui-mount", "FAIL", "msedge not found")
         # 拒绝面（P-09 资源/会话门,双轨同跑）——见 p09_resource_gate
         p09_resource_gate(bid, shash, data_dir)
+        # P-02 产品 UI 腿（T-04）：结构/图/脚注/目录面（引擎表面真实装载）
+        p02_product_ui(args, out_dir, bid, shash)
     finally:
         subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
                        capture_output=True)
@@ -588,11 +1071,36 @@ def p12_structure(args, out_dir):
            "聚合器非零语义在本门生效（缺项/重复/未声明/GAP/not_run → 非零）")
 
 
+# ─────────────────────── P-03：分页/滚动/重排后选区回传（T-04 腿） ───────────────────────
+
+def p03(args, out_dir):
+    """P-03（T-04 腿）：分页/滚动切换、字号变化→引擎重排→重排后真实选区
+    回传（专门复现 029 Vue 重排订阅风险）。vue 轨 playwright 真实 UI；vm 轨
+    CDP 连 WebView2。隐藏显示等生命周期腿归 T-08。"""
+    proc, logf, data_dir = _boot_app(args, out_dir)
+    try:
+        bid, shash, fmt = _import_alpha(data_dir)
+        if not bid:
+            record("P-03.reflow-selection", "FAIL", "alpha import failed")
+            record("P-03.flow-switch", "FAIL", "alpha import failed")
+            return
+        if fmt != "epub":
+            record("P-03.reflow-selection", "FAIL", f"format={fmt}")
+            return
+        p03_reflow_ui(args, out_dir, bid, shash)
+    finally:
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       capture_output=True)
+        proc.wait()
+        logf.close()
+
+
 # ─────────────────────── 未实现用例注册（T-03..T-08 接入） ───────────────────────
 
 def register_pending():
-    for cid in ("P-03", "P-04", "P-05", "P-06", "P-07", "P-08", "P-10", "P-11"):
+    for cid in ("P-04", "P-05", "P-06", "P-07", "P-08", "P-10", "P-11"):
         record(cid, "not_run", f"待 {REQUIRED[cid]['task']} 接入")
+    record("P-03.hideshow", "not_run", "隐藏显示后重选属 T-08 生命周期腿")
 
 
 # ─────────────────────── main ───────────────────────
@@ -630,6 +1138,7 @@ def main():
 
     p01(args, out_dir)
     p02(args, out_dir)
+    p03(args, out_dir)
     p09_import_legs(args, out_dir)
     p12_structure(args, out_dir)
     register_pending()

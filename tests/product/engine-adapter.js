@@ -39,6 +39,7 @@ export async function mountProbe(opts) {
         host,
         documentUrl,
         locatorUrl,
+        commandUrl,
         sessionId,
         bookId,
         sourceHash,
@@ -205,5 +206,81 @@ export async function mountProbe(opts) {
         window.__reader.say = say
         say('adapter ready — engine ' + ENGINE_REVISION + ' loadMs=' + loadMs)
     }
+
+    // ── T-04 宿主→引擎命令轮询（目录/设置/分页滚动；会话命令队列）──
+    // .at 经 /api/reader/command 写命令（goto/settings/flow），本面按 seq
+    // 游标轮询拉取并执行；加载中不抢执行（视图就绪才 goTo/setStyles）。
+    let cmdSeq = 0
+    let appliedSettings = null
+    window.__reader.cmdSeq = cmdSeq
+    window.__reader.appliedSettings = appliedSettings
+
+    const applySettings = s => {
+        // 字号（small/medium/large → body font-size %）、主题（文档背景/
+        // 文字色）、列宽（max-inline-size，页式分页器重排）经 paginator
+        // setStyles 注入；scrolled 流式模式列宽由容器承载。
+        let css = ''
+        if (s.font_size === 'small') css += 'body { font-size: 85% !important; } '
+        else if (s.font_size === 'large') css += 'body { font-size: 120% !important; } '
+        if (s.theme === 'sepia') css += 'html { background: #f4ecd8 !important; } body { color: #5b4636 !important; } '
+        else if (s.theme === 'dark') css += 'html { background: #1f2430 !important; } body { color: #d6dae2 !important; } '
+        if (css) {
+            try { view.renderer.setStyles(css) } catch (e) { say('settings css error: ' + e) }
+        }
+        if (s.layout === 'narrow') view.renderer.setAttribute('max-inline-size', '480px')
+        else if (s.layout === 'wide') view.renderer.setAttribute('max-inline-size', '800px')
+        else view.renderer.setAttribute('max-inline-size', '640px')
+        appliedSettings = { ...(appliedSettings || {}), ...s }
+        window.__reader.appliedSettings = appliedSettings
+        say('settings applied: ' + JSON.stringify(s))
+    }
+
+    const execCmd = async c => {
+        const { op, payload } = c
+        try {
+            if (op === 'goto') {
+                const index = Number(payload.index)
+                if (Number.isInteger(index) && index >= 0 && index < book.sections.length) {
+                    await view.goTo({ index })
+                    say('cmd goto index=' + index)
+                } else say('cmd goto rejected index=' + payload.index)
+            } else if (op === 'settings') {
+                applySettings(payload)
+            } else if (op === 'flow') {
+                if (payload.mode === 'scrolled') view.renderer.setAttribute('flow', 'scrolled')
+                else if (payload.mode === 'paged') view.renderer.removeAttribute('flow')
+                else say('cmd flow rejected mode=' + payload.mode)
+                say('cmd flow -> ' + payload.mode)
+            } else say('cmd unknown op=' + op)
+        } catch (e) {
+            say('cmd ' + op + ' error: ' + e)
+        }
+    }
+
+    const pollCommands = async () => {
+        if (!commandUrl) return
+        try {
+            const r = await fetch(commandUrl + '?session_id=' + sessionId
+                + '&after_seq=' + cmdSeq)
+            if (!r.ok) return
+            // 后端端点返回 str，框架把 JSON 文本包成 JSON 字符串（双编码）；
+            // fetch().json() 只解一层得到字符串，需再解一次才到对象。
+            const raw = await r.json()
+            const body = (typeof raw === 'string') ? JSON.parse(raw) : raw
+            const cmds = Array.isArray(body.cmds) ? body.cmds : []
+            for (const c of cmds) {
+                await execCmd(c)
+                if (Number(c.seq) > cmdSeq) {
+                    cmdSeq = Number(c.seq)
+                    window.__reader.cmdSeq = cmdSeq
+                }
+            }
+        } catch (e) {
+            say('cmd poll error: ' + e)
+        }
+    }
+    window.__reader.pollCommands = pollCommands
+    const cmdTimer = setInterval(pollCommands, 1200)
+    window.__reader.cmdTimer = cmdTimer
     return { view, book, loadMs }
 }

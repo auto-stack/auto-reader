@@ -3,7 +3,7 @@
   "engine_revision": "foliate-js@3d7941954a98b136316a795e8200d60c9643b141",
   "scope": "reader-007-product-assets",
   "files": {
-    "engine-adapter.js": "801dcf8cbebaa42755a75f0ec9528ef5682505d0f3c60895fbb97abac1166c20",
+    "engine-adapter.js": "65ae2a87ccbb8ddae2ebf7dd044fee5e63e3f3272a4caf2fc28fbee5bd018aec",
     "foliate-comic-book.js": "e6902bb03e6b6e0bb1f51154cabef5a3919ce1cf2499e3212503c95a0c19f8ff",
     "foliate-dict.js": "9c5f7d9d87ebec302594178f8960539a4573830f9ef84c8a915f599047dcc4aa",
     "foliate-epub.js": "1e59b578cfae580ce32d1818c69d9f3965c9d71ef0cc2f4c9cf527de2d88de7f",
@@ -29,6 +29,6 @@
     "foliate-vendor-fflate.js": "130855b45faa6e69c12b21180de843a3c1d714e1597d37ed92cec8d1af53b85d",
     "foliate-vendor-zip.js": "983ce42f4461c9d718c7f84cdce43dedb8215e1dbb3ce0f60008e315f5351269",
     "foliate-view.js": "2f1dc0a70063140b999fd34bd03356abb5106402334e5480ab026e875bafa725",
-    "native-host.html": "85a29cc8acf9ea775643679b469f181e654194a6df5bbfe320269e12a7614a26"
+    "native-host.html": "f96216cf5b9447e7fc97a83d0480836e03342564b4fd3c95fbfca3edbbe313f3"
   }
 }

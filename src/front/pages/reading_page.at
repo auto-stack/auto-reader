@@ -413,7 +413,7 @@ fn tags_json_of(input str) str {
 }
 
 widget reading_page {
-    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int), ToggleSearch, DoSearch, ToggleAnns, ToggleStyle, SetLayout(str), SetTheme(str), JumpTo(int, int), JumpLink(int, int), SearchInput(str), QuoteInput(str), OccInput(str), CommentInput(str), TagsInput(str), AnnDelete(str), OpenAnnDialog(int), AnnKind(str), AnnSubmit, AnnCancel, DoExport, NoOp }
+    msg { Init, Back, PrevChapter, NextChapter, ToggleToc, SelectChapter(int), TapParagraph(int), ToggleSearch, DoSearch, ToggleAnns, ToggleStyle, SetLayout(str), SetTheme(str), JumpTo(int, int), JumpLink(int, int), SearchInput(str), QuoteInput(str), OccInput(str), CommentInput(str), TagsInput(str), AnnDelete(str), OpenAnnDialog(int), AnnKind(str), AnnSubmit, AnnCancel, DoExport, NoOp, SetFontSize(str), SetFlow(str) }
 
     model {
         var book_id int = 0
@@ -481,6 +481,10 @@ widget reading_page {
         var ann_dlg_title str = "添加注释"
         // 注释 GET 原文（merge_marks/enrichment 共同标量输入）
         var ann_resp str = ""
+        // READER-007 T-04：引擎表面会话 id（发 goto/settings/flow 命令用）
+        var epub_sid str = ""
+        // READER-007 T-04：引擎表面流模式（分页/滚动；显示用）
+        var epub_flow str = "paged"
     }
 
     view {
@@ -704,6 +708,66 @@ widget reading_page {
                             }
                         }
                         text "字号与行距沿顶栏书内偏好（保存于阅读状态）" { style: "text-xs text-muted-foreground px-2" }
+                        if .is_epub {
+                            text "字号" { style: "text-sm text-foreground px-2" }
+                            row {
+                                style: "gap-2 px-2"
+                                button {
+                                    onclick: .SetFontSize("small")
+                                    style: ["px-3 py-1.5 text-sm rounded-lg transition-colors",
+                                        if .font_size == "small" {
+                                            "bg-primary text-primary-foreground"
+                                        } else {
+                                            "text-foreground hover:bg-accent"
+                                        }]
+                                    text "小" {}
+                                }
+                                button {
+                                    onclick: .SetFontSize("medium")
+                                    style: ["px-3 py-1.5 text-sm rounded-lg transition-colors",
+                                        if .font_size == "medium" {
+                                            "bg-primary text-primary-foreground"
+                                        } else {
+                                            "text-foreground hover:bg-accent"
+                                        }]
+                                    text "中" {}
+                                }
+                                button {
+                                    onclick: .SetFontSize("large")
+                                    style: ["px-3 py-1.5 text-sm rounded-lg transition-colors",
+                                        if .font_size == "large" {
+                                            "bg-primary text-primary-foreground"
+                                        } else {
+                                            "text-foreground hover:bg-accent"
+                                        }]
+                                    text "大" {}
+                                }
+                            }
+                            text "版面" { style: "text-sm text-foreground px-2" }
+                            row {
+                                style: "gap-2 px-2"
+                                button {
+                                    onclick: .SetFlow("paged")
+                                    style: ["px-3 py-1.5 text-sm rounded-lg transition-colors",
+                                        if .epub_flow == "paged" {
+                                            "bg-primary text-primary-foreground"
+                                        } else {
+                                            "text-foreground hover:bg-accent"
+                                        }]
+                                    text "分页" {}
+                                }
+                                button {
+                                    onclick: .SetFlow("scrolled")
+                                    style: ["px-3 py-1.5 text-sm rounded-lg transition-colors",
+                                        if .epub_flow == "scrolled" {
+                                            "bg-primary text-primary-foreground"
+                                        } else {
+                                            "text-foreground hover:bg-accent"
+                                        }]
+                                    text "滚动" {}
+                                }
+                            }
+                        }
                     }
                 }
                 // Reading column — READER-007 T-03：EPUB 走 doc-surface 引擎
@@ -736,10 +800,14 @@ widget reading_page {
                         }
                     }
                 }
-                } else {
+                }
+                if !.is_epub {
                 // Reading column — T-25：scroll-pane（PLAN-656 controller）；
                 // 恢复定位由段落 scroll-anchor + scroll_to_child 入队完成。
                 // READER-002：栏宽/主题由本地排版偏好承载（沉浸面）。
+                // 注：EPUB 走上方 doc-surface 分支（互斥 if——vue codegen 对
+                // `} else {` 借用原块闭合会生成无条件渲染的 else div，T-03
+                // 遗留；双 if 语义等价且双轨同源）。
                 scroll-pane (controller: .rsc, style: ["flex-1 min-h-0 w-full", .theme_body_cls]) {
                     if .loaded {
                         col {
@@ -1181,6 +1249,8 @@ widget reading_page {
                 if .is_epub {
                     .loaded = true
                     let sid str = "r7-" + Time.now_ms().to_string()
+                    // T-04：记录会话 id（目录/设置/分页滚动命令的宿主侧手柄）
+                    .epub_sid = sid
                     // 先取书目记录的真实 source_hash（探针里已有），再一次
                     // 建会话——"pending" 占位必被服务端拒（hash 核验），
                     // 属无效调用，不发起。
@@ -1257,8 +1327,33 @@ widget reading_page {
         .ToggleToc -> { .show_toc = !.show_toc }
         .SelectChapter(n int) -> {
             .show_toc = false
-                if n != .chapter_num {
-                    .chapter_num = n
+            if n != .chapter_num {
+                .chapter_num = n
+                // T-04：EPUB 引擎表面换章走引擎内 goto 命令（表面整书装载，
+                // 不整页重载/重装表面——旧行为 router.push 会重新 Init 并
+                // 重建会话、丢失表面状态）。TXT/MD 保持既有换章序列。
+                if .is_epub {
+                    var tidx int = n - 1
+                    if tidx < 0 {
+                        tidx = 0
+                    }
+                    if .epub_sid != "" {
+                        Http.post("/api/reader/command", { session_id: .epub_sid, op: "goto", index: tidx, font_size: "", layout: "", theme: "", flow_mode: "" })
+                    }
+                    var i int = 0
+                    while i < .chapters.len() {
+                        let c2 = .chapters[i]
+                        let cn int = c2.number
+                        if cn == n {
+                            let t2 str = "" + c2.title
+                            if t2 != "" {
+                                .chapter.title = t2
+                            }
+                            i = .chapters.len()
+                        }
+                        i = i + 1
+                    }
+                } else {
                     router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
                     if .is_real {
                         let craw str = Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string())
@@ -1274,33 +1369,40 @@ widget reading_page {
                         .cur_paragraph = -1
                         .cur_para_text = ""
                     } else {
-                    .chapter = Http.get_json("/api/chapters?book_id=" + .book_id.to_string() + "&number=" + .chapter_num.to_string())
+                        .chapter = Http.get_json("/api/chapters?book_id=" + .book_id.to_string() + "&number=" + .chapter_num.to_string())
+                    }
+                    if .is_real {
+                        let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height, .layout, .theme)
+                        var save_ok bool = false
+                        try {
+                            let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl, para_text: "" })
+                            if resp.find("\"ok\":true") >= 0 {
+                                save_ok = true
+                            }
+                        } catch { }
+                        if !save_ok {
+                            .restored_note = "位置保存失败：后端未确认，请重试"
+                        }
+                    } else {
+                        store.SetProgress(.book_id, .progress_pct)
+                    }
                 }
                 let total int = .chapter_count
                 if total > 0 {
                     .progress_pct = pct_of(.chapter_num, total)
                 }
                 .progress_label = pct1(.progress_pct) + "%"
-                if .is_real {
-                    let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height, .layout, .theme)
-                    var save_ok bool = false
-                    try {
-                        let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl, para_text: "" })
-                        if resp.find("\"ok\":true") >= 0 {
-                            save_ok = true
-                        }
-                    } catch { }
-                    if !save_ok {
-                        .restored_note = "位置保存失败：后端未确认，请重试"
-                    }
-                } else {
-                    store.SetProgress(.book_id, .progress_pct)
-                }
             }
         }
         .PrevChapter -> {
             if .chapter_num > 1 {
                 .chapter_num = .chapter_num - 1
+                // T-04：EPUB 引擎表面 prev 走 goto 命令（同 SelectChapter）
+                if .is_epub {
+                    if .epub_sid != "" {
+                        Http.post("/api/reader/command", { session_id: .epub_sid, op: "goto", index: .chapter_num - 1, font_size: "", layout: "", theme: "", flow_mode: "" })
+                    }
+                } else {
                 router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
                 if .is_real {
                     let craw str = Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string())
@@ -1318,11 +1420,6 @@ widget reading_page {
                 } else {
                     .chapter = Http.get_json("/api/chapters?book_id=" + .book_id.to_string() + "&number=" + .chapter_num.to_string())
                 }
-                let total int = .chapter_count
-                if total > 0 {
-                    .progress_pct = pct_of(.chapter_num, total)
-                }
-                .progress_label = pct1(.progress_pct) + "%"
                 if .is_real {
                     let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height, .layout, .theme)
                     var save_ok bool = false
@@ -1338,11 +1435,23 @@ widget reading_page {
                 } else {
                     store.SetProgress(.book_id, .progress_pct)
                 }
+                }
+                let total int = .chapter_count
+                if total > 0 {
+                    .progress_pct = pct_of(.chapter_num, total)
+                }
+                .progress_label = pct1(.progress_pct) + "%"
             }
         }
         .NextChapter -> {
             if .chapter_num < .chapter_count {
                 .chapter_num = .chapter_num + 1
+                // T-04：EPUB 引擎表面 next 走 goto 命令（同 SelectChapter）
+                if .is_epub {
+                    if .epub_sid != "" {
+                        Http.post("/api/reader/command", { session_id: .epub_sid, op: "goto", index: .chapter_num - 1, font_size: "", layout: "", theme: "", flow_mode: "" })
+                    }
+                } else {
                 router.push("/book/" + .route_id + "/chapter/" + .chapter_num.to_string())
                 if .is_real {
                     let craw str = Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + .chapter_num.to_string())
@@ -1360,11 +1469,6 @@ widget reading_page {
                 } else {
                     .chapter = Http.get_json("/api/chapters?book_id=" + .book_id.to_string() + "&number=" + .chapter_num.to_string())
                 }
-                let total int = .chapter_count
-                if total > 0 {
-                    .progress_pct = pct_of(.chapter_num, total)
-                }
-                .progress_label = pct1(.progress_pct) + "%"
                 if .is_real {
                     let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, para_hash(.cur_para_text), .font_size, .line_height, .layout, .theme)
                     var save_ok bool = false
@@ -1380,6 +1484,12 @@ widget reading_page {
                 } else {
                     store.SetProgress(.book_id, .progress_pct)
                 }
+                }
+                let total int = .chapter_count
+                if total > 0 {
+                    .progress_pct = pct_of(.chapter_num, total)
+                }
+                .progress_label = pct1(.progress_pct) + "%"
             }
         }
         // Locator v1：tap 段落即记录（段 index + 段文本指纹），幂等保存。
@@ -1500,6 +1610,12 @@ widget reading_page {
                 .layout = "wide"
             }
             .layout_col_cls = layout_cls_of(.layout)
+            // T-04：EPUB 引擎表面设置经命令通道应用（列宽重排）
+            if .is_epub {
+                if .epub_sid != "" {
+                    Http.post("/api/reader/command", { session_id: .epub_sid, op: "settings", index: 0, font_size: "", layout: .layout, theme: "", flow_mode: "" })
+                }
+            }
             if .is_real {
                 let ph str = para_hash(.cur_para_text)
                 let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, ph, .font_size, .line_height, .layout, .theme)
@@ -1530,6 +1646,12 @@ widget reading_page {
             .theme_marked_cls = theme_marked_of(.theme)
             .para_marked_cls = theme_marked_of(.theme) + " border-primary para-marked"
             .para_idle_cls = "border-transparent " + theme_hover_of(.theme)
+            // T-04：EPUB 引擎表面主题经命令通道应用
+            if .is_epub {
+                if .epub_sid != "" {
+                    Http.post("/api/reader/command", { session_id: .epub_sid, op: "settings", index: 0, font_size: "", layout: "", theme: .theme, flow_mode: "" })
+                }
+            }
             if .is_real {
                 let ph str = para_hash(.cur_para_text)
                 let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, ph, .font_size, .line_height, .layout, .theme)
@@ -1542,6 +1664,53 @@ widget reading_page {
                 } catch { }
                 if !save_ok {
                     .restored_note = "排版保存失败：后端未确认，请重试"
+                }
+            }
+        }
+        // T-04：字号切换（EPUB 引擎表面经命令通道；TXT/MD 走既有 body_style）
+        .SetFontSize(f str) -> {
+            if f == "small" {
+                .font_size = "small"
+            }
+            if f == "medium" {
+                .font_size = "medium"
+            }
+            if f == "large" {
+                .font_size = "large"
+            }
+            .body_style = body_style_of(.font_size, .line_height)
+            storage.set("br-font-size", .font_size)
+            if .is_epub {
+                if .epub_sid != "" {
+                    Http.post("/api/reader/command", { session_id: .epub_sid, op: "settings", index: 0, font_size: .font_size, layout: "", theme: "", flow_mode: "" })
+                }
+            }
+            if .is_real {
+                let ph str = para_hash(.cur_para_text)
+                let pl str = real_payload(.route_id, .chapter_num, .cur_paragraph, ph, .font_size, .line_height, .layout, .theme)
+                var save_ok bool = false
+                try {
+                    let resp str = Http.post("/api/library/progress", { book_id: .route_id, payload: pl, para_text: .cur_para_text })
+                    if resp.find("\"ok\":true") >= 0 {
+                        save_ok = true
+                    }
+                } catch { }
+                if !save_ok {
+                    .restored_note = "排版保存失败：后端未确认，请重试"
+                }
+            }
+        }
+        // T-04：引擎表面流模式（分页/滚动）切换
+        .SetFlow(m str) -> {
+            if m == "paged" {
+                .epub_flow = "paged"
+            }
+            if m == "scrolled" {
+                .epub_flow = "scrolled"
+            }
+            if .is_epub {
+                if .epub_sid != "" {
+                    Http.post("/api/reader/command", { session_id: .epub_sid, op: "flow", index: 0, font_size: "", layout: "", theme: "", flow_mode: .epub_flow })
                 }
             }
         }

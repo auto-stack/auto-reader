@@ -44,6 +44,7 @@ NATIVE_HOST_HTML_TEMPLATE = """<!doctype html>
         host: document.getElementById('seam'),
         documentUrl: '/api/reader/document/' + q.get('doc') + '/file',
         locatorUrl: '/api/reader/locator',
+        commandUrl: '/api/reader/command',
         sessionId: q.get('session'),
         bookId: q.get('doc'),
         sourceHash: q.get('hash'),

@@ -39,6 +39,7 @@ export async function mountProductEngine(
       host,
       documentUrl: '/api/reader/document/' + bookId + '/file',
       locatorUrl: '/api/reader/locator',
+      commandUrl: '/api/reader/command',
       sessionId,
       bookId,
       sourceHash,

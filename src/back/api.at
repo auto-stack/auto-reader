@@ -233,3 +233,16 @@ pub fn reader_session_read(session_id str) str {
 pub fn reader_surface_url() str {
     return db.reader_surface_url_json()
 }
+
+/// POST /api/reader/command — 会话命令（宿主→引擎控制：goto/settings/flow）。
+/// body: { session_id, op, index?, font_size?, layout?, theme?, flow_mode? }。
+#[api(method = "POST", path = "/api/reader/command")]
+pub fn reader_command(session_id str, op str, index int, font_size str, layout str, theme str, flow_mode str) str {
+    return db.reader_command_create(session_id, op, index, font_size, layout, theme, flow_mode)
+}
+
+/// GET /api/reader/command — 拉取会话待执行命令（query: session_id, after_seq）。
+#[api(method = "GET", path = "/api/reader/command")]
+pub fn reader_commands(session_id str, after_seq int) str {
+    return db.reader_command_list(session_id, after_seq)
+}

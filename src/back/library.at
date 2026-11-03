@@ -1621,6 +1621,9 @@ pub fn reader_asset_ok(name str) bool {
 
 /// 资产 content type（同探针 asset_type_of 语义）。
 pub fn reader_asset_type_of(name str) str {
+    if name.find(".json") >= 0 {
+        return "application/json"
+    }
     if name.find(".mjs") >= 0 {
         return "text/javascript"
     }
@@ -1632,9 +1635,6 @@ pub fn reader_asset_type_of(name str) str {
     }
     if name.find(".html") >= 0 {
         return "text/html"
-    }
-    if name.find(".json") >= 0 {
-        return "application/json"
     }
     if name.find(".png") >= 0 {
         return "image/png"
@@ -1843,6 +1843,288 @@ pub fn reader_session_put(session_id str, book_id str, source_hash str, engine s
     okr = okr + json_escape(session_id)
     okr = okr + "\"}"
     return okr
+}
+
+// ── 会话命令队列（T-04：宿主→引擎控制通道；目录/设置/分页滚动命令） ──
+// 命令文件 data/session-cmds/<sid>.json（备份协议写；seq 单调递增）。
+// 引擎表面（adapter 轮询）按 seq 游标拉取待执行命令；拉取即保留（小文件），
+// 会话清理时随 sessions 移除（T-08 生命周期门）。
+
+fn cmds_path(sid str) str {
+    let dd str = data_dir()
+    let dir str = join(dd, "session-cmds")
+    return join(dir, sid + ".json")
+}
+
+fn cmds_dir() str {
+    let dd str = data_dir()
+    return join(dd, "session-cmds")
+}
+
+/// 写一条会话命令。op ∈ goto|settings|flow；goto 带 index（spine 索引 ≥0），
+/// settings 带 font_size/layout/theme 枚举，flow 带 flow_mode 枚举。校验
+/// session 存在 + op/枚举合法，通过则追加写（seq = 当前 max+1）。拒绝零落盘。
+/// 返回 {"ok":true,"seq":N} 或 {"ok":false,"error":...}。
+pub fn reader_command_put(session_id str, op str, index int, font_size str, layout str, theme str, flow_mode str) str {
+    if !session_id_ok(session_id) {
+        return "{\"ok\":false,\"error\":\"rejected_bad_session\"}"
+    }
+    if find_session_json(session_id) == "" {
+        return "{\"ok\":false,\"error\":\"rejected_no_session\"}"
+    }
+    var payload str = ""
+    if op == "goto" {
+        if index < 0 {
+            return "{\"ok\":false,\"error\":\"rejected_bad_goto\"}"
+        }
+        payload = "{\"index\":" + index.to_string() + "}"
+    } else {
+        if op == "settings" {
+            var fs_ok bool = false
+            if font_size != "" {
+                if font_size == "small" {
+                    fs_ok = true
+                }
+                if font_size == "medium" {
+                    fs_ok = true
+                }
+                if font_size == "large" {
+                    fs_ok = true
+                }
+            }
+            var ly_ok bool = false
+            if layout != "" {
+                if layout == "narrow" {
+                    ly_ok = true
+                }
+                if layout == "medium" {
+                    ly_ok = true
+                }
+                if layout == "wide" {
+                    ly_ok = true
+                }
+            }
+            var th_ok bool = false
+            if theme != "" {
+                if theme == "light" {
+                    th_ok = true
+                }
+                if theme == "sepia" {
+                    th_ok = true
+                }
+                if theme == "dark" {
+                    th_ok = true
+                }
+            }
+            if !fs_ok {
+                if font_size != "" {
+                    return "{\"ok\":false,\"error\":\"rejected_bad_settings\"}"
+                }
+            }
+            if !ly_ok {
+                if layout != "" {
+                    return "{\"ok\":false,\"error\":\"rejected_bad_settings\"}"
+                }
+            }
+            if !th_ok {
+                if theme != "" {
+                    return "{\"ok\":false,\"error\":\"rejected_bad_settings\"}"
+                }
+            }
+            if font_size == "" {
+                if layout == "" {
+                    if theme == "" {
+                        return "{\"ok\":false,\"error\":\"rejected_empty_settings\"}"
+                    }
+                }
+            }
+            var out str = "{"
+            var n int = 0
+            if font_size != "" {
+                out = out + "\"font_size\":\""
+                out = out + json_escape(font_size)
+                out = out + "\""
+                n = n + 1
+            }
+            if layout != "" {
+                if n > 0 {
+                    out = out + ","
+                }
+                out = out + "\"layout\":\""
+                out = out + json_escape(layout)
+                out = out + "\""
+                n = n + 1
+            }
+            if theme != "" {
+                if n > 0 {
+                    out = out + ","
+                }
+                out = out + "\"theme\":\""
+                out = out + json_escape(theme)
+                out = out + "\""
+                n = n + 1
+            }
+            out = out + "}"
+            payload = out
+        } else {
+            if op == "flow" {
+                var fm_ok bool = false
+                if flow_mode == "paged" {
+                    fm_ok = true
+                }
+                if flow_mode == "scrolled" {
+                    fm_ok = true
+                }
+                if !fm_ok {
+                    return "{\"ok\":false,\"error\":\"rejected_bad_flow\"}"
+                }
+                payload = "{\"mode\":\"" + json_escape(flow_mode) + "\"}"
+            } else {
+                return "{\"ok\":false,\"error\":\"rejected_bad_op\"}"
+            }
+        }
+    }
+    let mrc int = mkdirs(cmds_dir())
+    if mrc != 0 {
+        return "{\"ok\":false,\"error\":\"fs_error\"}"
+    }
+    let cp str = cmds_path(session_id)
+    var next_seq int = 1
+    var out str = "{\"version\":1,\"cmds\":["
+    var had_prev bool = false
+    if fs.exists(cp) {
+        let raw str = fs.read_text(cp)
+        if raw != "" {
+            try {
+                let parsed = json.parse(raw)
+                let arr = parsed.cmds
+                for c in arr {
+                    let cs int = c.seq
+                    if cs >= next_seq {
+                        next_seq = cs + 1
+                    }
+                    if had_prev {
+                        out = out + ","
+                    }
+                    out = out + reemit_cmd(c)
+                    had_prev = true
+                }
+            } catch {
+                out = "{\"version\":1,\"cmds\":["
+                next_seq = 1
+                had_prev = false
+            }
+        }
+    }
+    if next_seq < 1 {
+        next_seq = 1
+    }
+    if had_prev {
+        out = out + ","
+    }
+    out = out + "{\"seq\":" + next_seq.to_string() + ",\"op\":\""
+    out = out + json_escape(op)
+    out = out + "\",\"payload\":\""
+    out = out + json_escape(payload)
+    out = out + "\"}]}"
+    let wrc int = write_with_backup(cp, out)
+    if wrc != 0 {
+        var fe str = "{\"ok\":false,\"error\":\"fs_error\",\"code\":"
+        fe = fe + wrc.to_string()
+        fe = fe + "}"
+        return fe
+    }
+    var okr str = "{\"ok\":true,\"seq\":"
+    okr = okr + next_seq.to_string()
+    okr = okr + "}"
+    return okr
+}
+
+fn reemit_cmd(c) str {
+    let cs int = c.seq
+    let cop str = "" + c.op
+    var out str = "{\"seq\":"
+    out = out + cs.to_string()
+    out = out + ",\"op\":\""
+    out = out + json_escape(cop)
+    out = out + "\",\"payload\":\""
+    var cpj = c.payload
+    var cp_str str = "{}"
+    try {
+        cp_str = "" + cpj
+    } catch {
+        cp_str = "{}"
+    }
+    out = out + json_escape(cp_str)
+    out = out + "\"}"
+    return out
+}
+
+/// GET 输出形态：payload 还原为对象（adapter 直接读 payload.index 等字段）。
+/// 存储字段是字符串（reemit_cmd 持久化），此处拼接为 JSON 对象文本。
+fn reemit_cmd_out(c) str {
+    let cs int = c.seq
+    let cop str = "" + c.op
+    var out str = "{\"seq\":"
+    out = out + cs.to_string()
+    out = out + ",\"op\":\""
+    out = out + json_escape(cop)
+    out = out + "\",\"payload\":"
+    var cpj = c.payload
+    var cp_str str = "{}"
+    try {
+        cp_str = "" + cpj
+    } catch {
+        cp_str = "{}"
+    }
+    out = out + cp_str
+    out = out + "}"
+    return out
+}
+
+/// 拉取会话待执行命令（seq > after_seq；会话缺失/无命令 → ok:false 或空）。
+/// 返回 {"ok":true,"seq":最大seq,"cmds":[{seq,op,payload},...]}。
+pub fn reader_command_get(session_id str, after_seq int) str {
+    if !session_id_ok(session_id) {
+        return "{\"ok\":false,\"error\":\"rejected_bad_session\"}"
+    }
+    let cp str = cmds_path(session_id)
+    if !fs.exists(cp) {
+        return "{\"ok\":true,\"seq\":0,\"cmds\":[]}"
+    }
+    let raw str = fs.read_text(cp)
+    if raw == "" {
+        return "{\"ok\":true,\"seq\":0,\"cmds\":[]}"
+    }
+    // 收集 seq>after 的命令 JSON 片段 + 最大 seq
+    var parts str = ""
+    var n int = 0
+    var max_seq int = 0
+    try {
+        let parsed = json.parse(raw)
+        let arr = parsed.cmds
+        for c in arr {
+            let cs int = c.seq
+            if cs > max_seq {
+                max_seq = cs
+            }
+            if cs > after_seq {
+                if n > 0 {
+                    parts = parts + ","
+                }
+                parts = parts + reemit_cmd_out(c)
+                n = n + 1
+            }
+        }
+    } catch {
+        return "{\"ok\":true,\"seq\":0,\"cmds\":[]}"
+    }
+    var out str = "{\"ok\":true,\"seq\":"
+    out = out + max_seq.to_string()
+    out = out + ",\"cmds\":["
+    out = out + parts
+    out = out + "]}"
+    return out
 }
 
 fn find_session_json(want str) str {
