@@ -777,9 +777,10 @@ def _vm_product_ui_p03(args, out_dir, bid, shash):
         pw.stop()
 
 
-def _boot_app(args, out_dir):
-    """启动正式 app(双轨同 p01 语义),返回 (proc, data_dir)。"""
-    data_dir = os.path.join(out_dir, f"reader-data-{args.profile}")
+def _boot_app(args, out_dir, data_subdir=None):
+    """启动正式 app(双轨同 p01 语义),返回 (proc, logf, data_dir)。
+    data_subdir 缺省 reader-data-<profile>；t05 数据族用独立目录保证重跑洁净。"""
+    data_dir = os.path.join(out_dir, data_subdir or f"reader-data-{args.profile}")
     env = dict(os.environ,
                AUTO_READER_DATA=data_dir,
                AUTO_HTTP_STEP_BUDGET="1000000000",
@@ -802,9 +803,16 @@ def _boot_app(args, out_dir):
         cmd = [args.auto_bin, "run", "--server=vm"]
     proc = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=logf,
                             stderr=subprocess.STDOUT)
-    ok_back = wait(lambda: http_ok("http://127.0.0.1:17825/api/library/books"), 150)
+    ok_back = wait(lambda: http_ok("http://127.0.0.1:17825/api/library/books"), 240)
+    if not ok_back:
+        # 启动失败显式失败（静默返回会让后续调用以 URLError 崩溃整跑）
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       capture_output=True)
+        proc.wait()
+        logf.close()
+        raise RuntimeError("backend not up in 240s")
     if args.profile == "vue":
-        wait(lambda: http_ok("http://localhost:17824/"), 180)
+        wait(lambda: http_ok("http://localhost:17824/"), 240)
     return proc, logf, data_dir
 
 
@@ -852,7 +860,14 @@ def p02(args, out_dir):
     资产/原件字节）+ 资产独立（不设 probe env,资产端点仍可达且与仓库内
     manifest hash 一致）+ vue 轨真实 UI 引擎表面装载（doc-surface→
     foliate-view 出现）。目录/图/脚注/跨章往返属 T-04。"""
-    proc, logf, data_dir = _boot_app(args, out_dir)
+    try:
+        proc, logf, data_dir = _boot_app(args, out_dir)
+    except RuntimeError as e:
+        record("P-02.load-chain", "FAIL", f"boot: {e}")
+        record("P-02.asset-independence", "FAIL", f"boot: {e}")
+        if args.profile == "vue":
+            record("P-02.ui-mount", "FAIL", f"boot: {e}")
+        return
     try:
         bid, shash, fmt = _import_alpha(data_dir)
         if not bid:
@@ -1077,7 +1092,12 @@ def p03(args, out_dir):
     """P-03（T-04 腿）：分页/滚动切换、字号变化→引擎重排→重排后真实选区
     回传（专门复现 029 Vue 重排订阅风险）。vue 轨 playwright 真实 UI；vm 轨
     CDP 连 WebView2。隐藏显示等生命周期腿归 T-08。"""
-    proc, logf, data_dir = _boot_app(args, out_dir)
+    try:
+        proc, logf, data_dir = _boot_app(args, out_dir)
+    except RuntimeError as e:
+        record("P-03.reflow-selection", "FAIL", f"boot: {e}")
+        record("P-03.flow-switch", "FAIL", f"boot: {e}")
+        return
     try:
         bid, shash, fmt = _import_alpha(data_dir)
         if not bid:
@@ -1095,10 +1115,419 @@ def p03(args, out_dir):
         logf.close()
 
 
+# ─────────────────────── T-05：Locator v2 数据层族（P-04 数据 oracle / P-05 / P-06 数据冷恢复 / P-08 / P-10） ───────────────────────
+
+ENGINE_ID = "foliate-js@3d794195"
+
+
+def _t05_select(sess, bid, shash, resource_index, quote, occ, cfi="epubcfi(/6/4!/4/2,/1:0)",
+                engine=ENGINE_ID, kind="locator_select", book_id=None):
+    """录入环：adapter locator_select 消息 → canonical locator（或具名拒绝）。"""
+    body = {"session_id": sess, "kind": kind, "book_id": book_id or bid,
+            "source_hash": shash, "engine": engine, "resource_index": resource_index,
+            "cfi": cfi, "range_cfi": "", "text_quote": quote, "occurrence": occ,
+            "context_before": "", "context_after": "", "seq": 1, "ts": 0}
+    return _parse2(http_json("http://127.0.0.1:17825/api/reader/locator", "POST",
+                             body, timeout=300))
+
+
+def _t05_verify(bid, locator):
+    """恢复/回访环 oracle：canonical locator 文档 → match/reason（只读）。"""
+    raw = locator if isinstance(locator, str) else json.dumps(locator, ensure_ascii=False)
+    return _parse2(http_json("http://127.0.0.1:17825/api/library/locator/verify", "POST",
+                             {"book_id": bid, "locator": raw}, timeout=300))
+
+
+def _t05_ann(bid, **kw):
+    body = {"book_id": bid, "op": "create", "annotation_id": "", "kind": "highlight",
+            "chapter_number": 0, "para_idx": 0, "occurrence": 0, "comment": "",
+            "tags_json": "[]", "quote": "", "locator_json": ""}
+    body.update(kw)
+    return _parse2(http_json("http://127.0.0.1:17825/api/library/annotations-v2", "POST",
+                             body, timeout=300))
+
+
+def _t05_progress(bid, payload, para_text, locator=""):
+    body = {"book_id": bid, "payload": json.dumps(payload, ensure_ascii=False),
+            "para_text": para_text, "locator": locator}
+    return _parse2(http_json("http://127.0.0.1:17825/api/library/progress-v2", "POST",
+                             body, timeout=300))
+
+
+def _t05_snapshot(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def _t05_books_by(data_dir, needle):
+    books = _parse2(http_json("http://127.0.0.1:17825/api/library/books"))
+    for b in books.get("books", []):
+        if needle in str(b.get("original_path", "")):
+            bid = str(b.get("book_id", ""))
+            bj = _parse2(http_json("http://127.0.0.1:17825/api/library/books/" + bid))
+            return bid, str(bj.get("source_hash", "")), str(bj.get("format", ""))
+    return "", "", ""
+
+
+def p05_data_family(args, out_dir):
+    """T-05 数据层族：独立数据目录（时间戳隔离，重跑洁净）。
+    覆盖 P-04 录入环 oracle（数据面）、P-05 v1 兼容/v2 锚/不可映射/多义、
+    P-06 数据冷恢复、P-08 变异矩阵、P-10 写失败/损坏/恢复。UI 腿诚实
+    not_run（T-06/T-07/T-08 接入）。"""
+    stamp = int(time.time())
+    proc, logf, data_dir = _boot_app(
+        args, out_dir, data_subdir=f"reader-data-t05-{args.profile}-{stamp}")
+    ann_dir = os.path.join(data_dir, "annotations")
+    rd_dir = os.path.join(data_dir, "reading")
+    try:
+        bid, shash, fmt = _import_alpha(data_dir)
+        if not bid or fmt != "epub":
+            record("P-05.v1-compat", "FAIL", f"alpha import bid={bid} fmt={fmt}")
+            return
+        beta_bid, beta_hash, _ = _t05_books_by(data_dir, "product-beta")
+        if not beta_bid:
+            corpus = os.path.join(out_dir, "corpus")
+            imp = _parse2(http_json("http://127.0.0.1:17825/api/library/import", "POST",
+                                    {"path": os.path.join(corpus, "product-beta.epub"),
+                                     "author": "verify", "force": False}, timeout=60))
+            beta_bid, beta_hash, _ = _t05_books_by(data_dir, "product-beta")
+        txt_path = os.path.join(out_dir, f"t05-note-{stamp}.txt")
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write("第一段：TXT 回归面。注释与定位保持 v1 段锚。\n第二段：locator v2 锚不适用本文本路径。\n")
+        _parse2(http_json("http://127.0.0.1:17825/api/library/import", "POST",
+                          {"path": txt_path, "author": "verify", "force": False}, timeout=60))
+        txt_bid, txt_hash, txt_fmt = _t05_books_by(data_dir, "t05-note-")
+        sess = f"r7-t05-{stamp}"
+        s = _parse2(http_json("http://127.0.0.1:17825/api/reader/session", "POST",
+                              {"session_id": sess, "book_id": bid, "source_hash": shash,
+                               "engine": ENGINE_ID}))
+        ok_sess = isinstance(s, dict) and str(s.get("ok", "")).lower() == "true"
+        if not ok_sess or not beta_bid or not txt_bid:
+            record("P-05.v1-compat", "FAIL",
+                   f"session={ok_sess} beta={beta_bid} txt={txt_bid}")
+            return
+
+        # ── P-05.v1-compat：纯 v1 读写、稳定 ID、章书签、version 恒 1 ──
+        ann_file = os.path.join(ann_dir, f"{bid}.json")
+        r1 = _t05_ann(bid, kind="highlight", chapter_number=1, para_idx=2,
+                      occurrence=1, quote=REPEAT_A, comment="v1",
+                      tags_json='["重点"]')
+        r2 = _t05_ann(bid, kind="highlight", chapter_number=1, para_idx=7,
+                      occurrence=1, quote=REPEAT_A, comment="v1-第二处")
+        r3 = _t05_ann(bid, op="create", kind="bookmark", chapter_number=1,
+                      para_idx=-1, occurrence=0)
+        # v1 契约：create 响应不带 annotation_id——读回取号（reading_page 同款）
+        got0 = _parse2(http_json(f"http://127.0.0.1:17825/api/library/annotations?book_id={bid}"))
+        aid1 = aid2 = ""
+        if isinstance(got0, dict):
+            for a in got0.get("annotations", []):
+                if a.get("quote") == REPEAT_A and a.get("para_idx") == 2:
+                    aid1 = str(a.get("annotation_id", ""))
+                if a.get("quote") == REPEAT_A and a.get("para_idx") == 7:
+                    aid2 = str(a.get("annotation_id", ""))
+        v1_ok = False
+        v1_detail = ""
+        if aid1 and aid2 and isinstance(r3, dict) and r3.get("ok"):
+            up = _t05_ann(bid, op="update", annotation_id=aid1, kind="highlight",
+                          comment="v1改", tags_json='["重点"]')
+            with open(ann_file, encoding="utf-8") as f:
+                disk = json.load(f)
+            with open(os.path.join(data_dir, "annotations-get.json"), "w",
+                      encoding="utf-8") as f:
+                f.write(_parse2(http_json(
+                    f"http://127.0.0.1:17825/api/library/annotations?book_id={bid}"))
+                    if isinstance(_parse2(http_json(
+                        f"http://127.0.0.1:17825/api/library/annotations?book_id={bid}")), str)
+                    else json.dumps(_parse2(http_json(
+                        f"http://127.0.0.1:17825/api/library/annotations?book_id={bid}")),
+                        ensure_ascii=False))
+            with open(os.path.join(data_dir, "annotations-get.json"), encoding="utf-8") as f:
+                got = json.load(f)
+            v1_ok = (isinstance(up, dict) and up.get("ok")
+                     and disk.get("version") == 1
+                     and all("locator" not in a for a in disk.get("annotations", []))
+                     and got.get("version") == 1)
+            v1_detail = f"aid1={aid1[:8]} aid2={aid2[:8]} up={isinstance(up, dict) and up.get('ok')} r3={isinstance(r3, dict) and r3.get('ok')} disk_v={disk.get('version')} get_v={got.get('version')}"
+        record("P-05.v1-compat", "PASS" if v1_ok else "FAIL",
+               v1_detail + " (v1 读写/稳定ID/章书签/版本字节兼容)")
+
+        # ── P-04.data-oracle：录入环 canonical + 拒绝矩阵（数据面） ──
+        loc1 = _t05_select(sess, bid, shash, 0, REPEAT_A, 1)
+        loc2 = _t05_select(sess, bid, shash, 0, REPEAT_A, 2)
+        loc3 = _t05_select(sess, bid, shash, 1, REPEAT_A, 3)
+        xloc = _t05_select(sess, bid, shash, 2, CROSS_PARA + "\n" + CROSS_PARA2, 1,
+                           cfi="epubcfi(/6/8!/4/12004,/1:0)")
+        def loc_ok(l, spine, idx):
+            return (isinstance(l, dict) and l.get("ok")
+                    and isinstance(l.get("locator"), dict)
+                    and l["locator"]["resource"]["spine_index"] == spine
+                    and l["locator"]["occurrence"]["index"] == idx
+                    and l["locator"]["resource"]["href"] == f"ch{spine}.xhtml")
+        o4 = (loc_ok(loc1, 1, 1) and loc_ok(loc2, 1, 2) and loc_ok(loc3, 2, 3)
+              and loc_ok(xloc, 3, 1))
+        ctxs = [json.dumps(l["locator"]["context"], ensure_ascii=False)
+                for l in (loc1, loc2, loc3)
+                if isinstance(l, dict) and isinstance(l.get("locator"), dict)]
+        ctx_distinct = len(ctxs) == 3 and len(set(ctxs)) == 3
+        rejects = [
+            (_t05_select("bad shape!", bid, shash, 0, REPEAT_A, 1), "rejected_bad_session"),
+            (_t05_select("r7-t05-unknown-1", bid, shash, 0, REPEAT_A, 1), "rejected_bad_session"),
+            (_t05_select(sess, beta_bid, beta_hash, 0, REPEAT_A, 1), "rejected_bad_session"),
+            (_t05_select(sess, bid, "sha256:deadbeef", 0, REPEAT_A, 1), "rejected_bad_session"),
+            (_t05_select(sess, bid, shash, 0, REPEAT_A, 1, engine="foliate-js@0000111"), "rejected_bad_engine"),
+            (_t05_select(sess, bid, shash, 0, REPEAT_A, 1, kind="weird"), "rejected_bad_kind"),
+            (_t05_select(sess, bid, shash, 0, REPEAT_A[:-2] + "改写。", 1), "rejected_bad_quote"),
+            (_t05_select(sess, bid, shash, 0, REPEAT_A, 99), "rejected_bad_occurrence"),
+            (_t05_select(sess, bid, shash, 0, REPEAT_A, 1, cfi="not-a-cfi"), "rejected_bad_cfi"),
+            (_t05_select(sess, bid, shash, 99, REPEAT_A, 1), "rejected_bad_resource"),
+        ]
+        rej_ok = all(isinstance(r, dict) and not r.get("ok")
+                     and exp in str(r.get("error", "")) for r, exp in rejects)
+        probe = _t05_select(sess, bid, shash, 0, REPEAT_A, 1, kind="input_probe")
+        probe_ok = isinstance(probe, dict) and probe.get("ok") and probe.get("ack") == "input_probe"
+        dirty_sess = []
+        try:
+            with open(os.path.join(data_dir, "sessions.json"), encoding="utf-8") as f:
+                sids = [str(x.get("session_id", "")) for x in json.load(f).get("sessions", [])]
+            dirty_sess = [x for x in sids if not x.startswith("r7-") and not x.startswith("verify-")]
+        except Exception:
+            dirty_sess = ["sessions unreadable"]
+        record("P-04.data-oracle",
+               "PASS" if (o4 and ctx_distinct and rej_ok and probe_ok and not dirty_sess)
+               else "FAIL",
+               f"selects={o4} ctx_distinct={ctx_distinct} rejects10={rej_ok} "
+               f"probe={probe_ok} dirty={dirty_sess[:2]} (UI 创建腿 T-06)")
+
+        # ── P-05.v2-anchor：唯一映射锚定 / 已锚拒绝 / 不可映射 / 多义 ──
+        anch = _t05_ann(bid, op="anchor", annotation_id=aid2,
+                        locator_json=json.dumps(loc2["locator"], ensure_ascii=False))
+        anch2 = _t05_ann(bid, op="anchor", annotation_id=aid2,
+                         locator_json=json.dumps(loc2["locator"], ensure_ascii=False))
+        create_loc = _t05_ann(bid, kind="highlight", chapter_number=2, para_idx=2,
+                              occurrence=1, quote=REPEAT_A, comment="带v2锚",
+                              locator_json=json.dumps(loc3["locator"], ensure_ascii=False))
+        disk_v2 = {}
+        anchor_ok = False
+        if isinstance(anch, dict) and anch.get("ok"):
+            with open(ann_file, encoding="utf-8") as f:
+                disk_v2 = json.load(f)
+            rec2 = [a for a in disk_v2.get("annotations", [])
+                    if a.get("annotation_id") == aid2]
+            anchor_ok = (disk_v2.get("version") == 2 and len(rec2) == 1
+                         and rec2[0].get("quote") == REPEAT_A
+                         and rec2[0].get("chapter_number") == 1
+                         and isinstance(rec2[0].get("locator"), dict)
+                         and rec2[0]["locator"]["occurrence"]["index"] == 2
+                         and isinstance(anch2, dict) and not anch2.get("ok")
+                         and "already anchored" in str(anch2.get("message", ""))
+                         and isinstance(create_loc, dict) and create_loc.get("ok"))
+        # 不可映射：TXT 记录锚定 → 具名拒（TXT/MD 保持 v1 不被改写）
+        txt_ann = _t05_ann(txt_bid, kind="highlight", chapter_number=1, para_idx=0,
+                           occurrence=1, quote="第一段：TXT 回归面。注释与定位保持 v1 段锚。")
+        got_t = _parse2(http_json(f"http://127.0.0.1:17825/api/library/annotations?book_id={txt_bid}"))
+        txt_aid = ""
+        if isinstance(got_t, dict):
+            for a in got_t.get("annotations", []):
+                txt_aid = str(a.get("annotation_id", ""))
+        txt_anchor = _t05_ann(txt_bid, op="anchor", annotation_id=txt_aid,
+                              locator_json=json.dumps(loc1["locator"], ensure_ascii=False))
+        txt_ok = (isinstance(txt_ann, dict) and txt_ann.get("ok")
+                  and isinstance(txt_anchor, dict) and not txt_anchor.get("ok")
+                  and "rejected" in str(txt_anchor.get("message", "")))
+        # 多义：位次/上下文矛盾的 locator 必须被识别（CFI 指另一处重复句形态）
+        forged = json.loads(json.dumps(loc2["locator"]))
+        forged["occurrence"]["index"] = 1
+        fv = _t05_verify(bid, forged)
+        # 零写入断言只圈定被拒的 forged anchor 本身（前序合法写不算）
+        poly_before = _t05_snapshot(ann_file)
+        forged_anchor = _t05_ann(bid, op="anchor", annotation_id=aid1,
+                                 locator_json=json.dumps(forged, ensure_ascii=False))
+        ann_bytes_after = _t05_snapshot(ann_file)
+        ann_bytes_before = poly_before
+        poly_ok = (isinstance(fv, dict) and fv.get("ok") and not fv.get("match")
+                   and "needs_relocate" in str(fv.get("reason", ""))
+                   and isinstance(forged_anchor, dict) and not forged_anchor.get("ok")
+                   and ann_bytes_before == ann_bytes_after)
+        record("P-05.v2-anchor", "PASS" if (anchor_ok and txt_ok and poly_ok) else "FAIL",
+               f"anchor+create={anchor_ok} txt_unmappable={txt_ok} poly_reject={poly_ok}")
+
+        # ── P-08.mutation-matrix：恢复/回访环身份链/逐字/位次/上下文变异 ──
+        ann_bytes_p08 = _t05_snapshot(ann_file)
+        ctrl = [_t05_verify(bid, loc1["locator"]), _t05_verify(bid, loc2["locator"]),
+                _t05_verify(bid, loc3["locator"]), _t05_verify(bid, xloc["locator"])]
+        ctrl_ok = all(isinstance(v, dict) and v.get("ok") and v.get("match") for v in ctrl)
+        m_book = json.loads(json.dumps(loc2["locator"]))
+        m_hash = json.loads(json.dumps(loc2["locator"]))
+        m_hash["source_hash"] = "sha256:deadbeef"
+        m_href = json.loads(json.dumps(loc2["locator"]))
+        m_href["resource"]["href"] = "ch9.xhtml"
+        m_spine = json.loads(json.dumps(loc2["locator"]))
+        m_spine["resource"]["spine_index"] = 4
+        m_spine["resource"]["href"] = "ch4.xhtml"
+        m_ctx = json.loads(json.dumps(loc2["locator"]))
+        m_ctx["occurrence"]["index"] = 1
+        m_quote = json.loads(json.dumps(loc2["locator"]))
+        m_quote["quote"] = REPEAT_A[:-2] + "改写。"
+        muts = [
+            (_t05_verify(beta_bid, m_book), "rejected_book_mismatch"),
+            (_t05_verify(bid, m_hash), "needs_relocate: source_hash mismatch"),
+            (_t05_verify(bid, m_href), "needs_relocate: resource href mismatch"),
+            (_t05_verify(bid, m_spine), "needs_relocate: quote not in resource"),
+            (_t05_verify(bid, m_ctx), "needs_relocate: context.before mismatch"),
+            (_t05_verify(bid, m_quote), "needs_relocate: quote not in resource"),
+        ]
+        mut_ok = all(isinstance(v, dict) and v.get("ok") and not v.get("match")
+                     and exp in str(v.get("reason", "")) for v, exp in muts)
+        mut_clean = _t05_snapshot(ann_file) == ann_bytes_p08
+        record("P-08.mutation-matrix",
+               "PASS" if (ctrl_ok and mut_ok and mut_clean) else "FAIL",
+               f"controls4={ctrl_ok} mutations6={mut_ok} zero_write={mut_clean} "
+               f"(恢复环适配器读回腿 T-06/T-08)")
+
+        # ── P-10.data：损坏/未知版本/伪造锚形状/占用路径/状态损坏/恢复 ──
+        ok10 = True
+        d10 = []
+        # ① 注释文件损坏 → 具名拒 + 原件保留
+        good = _t05_snapshot(ann_file)
+        with open(ann_file, "w", encoding="utf-8") as f:
+            f.write("corrupted{{{")
+        damaged = _t05_snapshot(ann_file)
+        g1 = _parse2(http_json(f"http://127.0.0.1:17825/api/library/annotations?book_id={bid}"))
+        kept = _t05_snapshot(ann_file)
+        d10.append(("damage-refuse", isinstance(g1, dict) and not g1.get("ok")
+                    and kept == damaged))
+        if not d10[-1][1]:
+            print("  damage-refuse detail:", str(g1)[:120],
+                  "kept=", kept == damaged, "kept_len=", len(kept or b""),
+                  "damaged_len=", len(damaged or b""))
+        with open(ann_file, "wb") as f:
+            f.write(good)
+        # ② 未知版本 → 具名拒
+        uv = json.loads(good.decode("utf-8"))
+        uv["version"] = 9
+        with open(ann_file, "w", encoding="utf-8") as f:
+            json.dump(uv, f, ensure_ascii=False)
+        uv_bytes = _t05_snapshot(ann_file)
+        g2 = _parse2(http_json(f"http://127.0.0.1:17825/api/library/annotations?book_id={bid}"))
+        d10.append(("unknown-version", isinstance(g2, dict) and not g2.get("ok")
+                    and _t05_snapshot(ann_file) == uv_bytes))
+        with open(ann_file, "wb") as f:
+            f.write(good)
+        # ③ 伪造锚形状（CFI 非法）→ 读回 canonical 拒绝，原件保留
+        forged_file = json.loads(good.decode("utf-8"))
+        for a in forged_file.get("annotations", []):
+            if isinstance(a.get("locator"), dict):
+                a["locator"]["range"]["start"]["cfi"] = "epubcfi-GARBAGE"
+        with open(ann_file, "w", encoding="utf-8") as f:
+            json.dump(forged_file, f, ensure_ascii=False)
+        ff_bytes = _t05_snapshot(ann_file)
+        g3 = _parse2(http_json(f"http://127.0.0.1:17825/api/library/annotations?book_id={bid}"))
+        d10.append(("forged-cfi-refuse", isinstance(g3, dict) and not g3.get("ok")
+                    and _t05_snapshot(ann_file) == ff_bytes))
+        with open(ann_file, "wb") as f:
+            f.write(good)
+        # ④ 占用路径（<bid>.json 为目录）→ 具名拒零半写；移除后合法写成功
+        occ_path = os.path.join(ann_dir, f"{beta_bid}.json")
+        os.makedirs(occ_path, exist_ok=True)
+        oc = _t05_ann(beta_bid, kind="highlight", chapter_number=1, para_idx=2,
+                      occurrence=1, quote=REPEAT_B)
+        occ_refused = isinstance(oc, dict) and not oc.get("ok") \
+            and ("occupied" in str(oc.get("message", ""))
+                 or "unreadable" in str(oc.get("message", "")))
+        if not occ_refused:
+            print("  occupied detail:", str(oc)[:140])
+        os.rmdir(occ_path)
+        oc2 = _t05_ann(beta_bid, kind="highlight", chapter_number=1, para_idx=2,
+                       occurrence=1, quote=REPEAT_B)
+        if not (isinstance(oc2, dict) and oc2.get("ok")):
+            print("  oc2 detail:", str(oc2)[:140])
+        d10.append(("occupied-then-recover", occ_refused
+                    and isinstance(oc2, dict) and oc2.get("ok")))
+        # ⑤ 阅读状态损坏 → 读侧不冒充有效状态；合法写恢复
+        rp = os.path.join(rd_dir, f"{bid}.json")
+        os.makedirs(rd_dir, exist_ok=True)
+        with open(rp, "w", encoding="utf-8") as f:
+            f.write("broken-state[[[")
+        gr = http_json(f"http://127.0.0.1:17825/api/library/progress?book_id={bid}")
+        d10.append(("state-damage-honest", gr == "" or gr is None))
+        payload = {"book_id": bid, "chapter_number": 1, "paragraph_index": 2,
+                   "font_size": "medium", "line_height": "comfy", "updated_at": 1}
+        pw = _t05_progress(bid, payload, REPEAT_A)
+        d10.append(("state-recover", isinstance(pw, dict) and pw.get("ok")))
+        ok10 = all(c[1] for c in d10)
+        record("P-10.data", "PASS" if ok10 else "FAIL",
+               " ".join(f"{n}={v}" for n, v in d10) + " (只读目录/迁移写失败腿随 T-08 汇入)")
+
+        # ── P-06.data-cold：locator 状态保存/前向延续/进程重启恢复（数据面） ──
+        with open(rp, encoding="utf-8") as f:
+            st_before = json.load(f)
+        has_loc_before = isinstance(st_before.get("locator"), dict)
+        if not has_loc_before:
+            lw = _t05_progress(bid, payload, REPEAT_A,
+                               locator=json.dumps(loc1["locator"], ensure_ascii=False))
+            with open(rp, encoding="utf-8") as f:
+                st_before = json.load(f)
+            has_loc_before = isinstance(st_before.get("locator"), dict) and \
+                isinstance(lw, dict) and lw.get("ok")
+        # settings-only 保存（无 locator 入参）→ 前向延续
+        pw2 = _t05_progress(bid, dict(payload, font_size="large"), REPEAT_A)
+        with open(rp, encoding="utf-8") as f:
+            st_mid = json.load(f)
+        carry_ok = isinstance(pw2, dict) and pw2.get("ok") \
+            and st_mid.get("locator") == st_before.get("locator")
+        # 陈旧 locator → 具名拒 + 状态不变
+        stale = json.loads(json.dumps(loc1["locator"]))
+        stale["source_hash"] = "sha256:deadbeef"
+        lr = _t05_progress(bid, payload, REPEAT_A, locator=json.dumps(stale, ensure_ascii=False))
+        with open(rp, encoding="utf-8") as f:
+            st_after_reject = json.load(f)
+        stale_ok = isinstance(lr, dict) and not lr.get("ok") \
+            and st_after_reject.get("locator") == st_before.get("locator")
+        # 冷重启：杀进程 → 同数据目录重启 → locator 逐字恢复
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       capture_output=True)
+        proc.wait()
+        logf.close()
+        proc2, logf2, data_dir2 = _boot_app(
+            args, out_dir, data_subdir=f"reader-data-t05-{args.profile}-{stamp}")
+        proc, logf = proc2, logf2
+        rp2 = os.path.join(data_dir2, "reading", f"{bid}.json")
+        with open(rp2, encoding="utf-8") as f:
+            st_cold = json.load(f)
+        cold_ok = st_cold.get("locator") == st_before.get("locator") \
+            and st_cold.get("chapter_number") == 1
+        record("P-06.data-coldrestart",
+               "PASS" if (has_loc_before and carry_ok and stale_ok and cold_ok) else "FAIL",
+               f"saved={has_loc_before} carry={carry_ok} stale_reject={stale_ok} "
+               f"cold={cold_ok} (真实 UI 换布局恢复腿 T-07/T-08)")
+        record("P-06.ui-restore", "not_run", "真实保存后 UI pane 可见恢复 T-07/T-08 接入")
+        record("P-04.ui-create", "not_run",
+               "真实产品 UI 选区→高亮/批注→编辑/删除 T-06 接入")
+        record("P-05.visit-ui", "not_run", "v1/v2 回访与导出来源 T-07 接入")
+    except Exception as e:
+        # 族内基础设施故障（app 宿主关闭/连接复位）→ 未记腿显式 FAIL，
+        # 不让整跑崩溃（严格聚合器按 FAIL 非零）
+        print("  family interrupted:", type(e).__name__, str(e)[:120])
+        done = {r["case"] for r in RECORDS}
+        for cid in ("P-05.v1-compat", "P-04.data-oracle", "P-05.v2-anchor",
+                    "P-08.mutation-matrix", "P-10.data", "P-06.data-coldrestart"):
+            if cid not in done:
+                record(cid, "FAIL", f"family interrupted: {type(e).__name__} {str(e)[:80]}")
+        for cid in ("P-06.ui-restore", "P-04.ui-create", "P-05.visit-ui"):
+            if cid not in done:
+                record(cid, "not_run", f"family interrupted before leg: {type(e).__name__}")
+    finally:
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       capture_output=True)
+        proc.wait()
+        logf.close()
 # ─────────────────────── 未实现用例注册（T-03..T-08 接入） ───────────────────────
 
 def register_pending():
-    for cid in ("P-04", "P-05", "P-06", "P-07", "P-08", "P-10", "P-11"):
+    for cid in ("P-07", "P-11"):
         record(cid, "not_run", f"待 {REQUIRED[cid]['task']} 接入")
     record("P-03.hideshow", "not_run", "隐藏显示后重选属 T-08 生命周期腿")
 
@@ -1137,8 +1566,15 @@ def main():
           f"tool={os.environ.get('AUTO_UI_TOOL_BIN', '')}")
 
     p01(args, out_dir)
+    time.sleep(3)
+    # 数据族先跑（新起 app，避开 run_ui 宿主长存活期不稳定面——
+    # 2026-11-03 gate-vue6 实测 ~12min 后 tool host 控制流关闭）
+    p05_data_family(args, out_dir)
+    time.sleep(3)
     p02(args, out_dir)
+    time.sleep(3)
     p03(args, out_dir)
+    time.sleep(3)
     p09_import_legs(args, out_dir)
     p12_structure(args, out_dir)
     register_pending()

@@ -33,9 +33,10 @@
 
 use pathx: join, basename, stem_of, mkdirs, json_escape, normalize, parent
 use hashx: ph1
-use jsonx: valid_index, valid_state, valid_removed_entry
+use jsonx: valid_index, valid_state, valid_removed_entry, valid_locator_document
 use importers: parse_book_json, format_of, scan_meta_json
-use epub: epub_import_json, epub_toc_json, epub_chapter_json, epub_img_type_of
+use epub: epub_import_json, epub_toc_json, epub_chapter_json, epub_img_type_of, epub_href_at
+use locator: count_occurrences, count_occurrences_fast, locator_canonical, locator_emit, has_locator
 
 fn empty_str() str {
     return ""
@@ -1066,7 +1067,11 @@ fn reading_err(msg str) str {
 /// 校验通过后构建**规范存储态**（后端拥有文件形态：提取字段 + 注入
 /// para_text；用户 payload 内不许夹带 para_text），经备份/暂存/提交协议
 /// 落盘；任一步失败不落盘、不损坏上一有效状态。返回 {"ok":bool,"message"}。
-pub fn put_reading_json(book_id str, payload str, para_text_in str) str {
+/// READER-007 T-05：locator_in = 可选顶层 locator v2 文档（方案甲；TXT/MD
+/// 走 v1 段锚不传）。显式传入经恢复环核验通过才入存储态；缺省时前向延续
+/// 存量 locator（settings-only 保存不清位锚）。存内 locator 由顶层参数
+/// 承载，payload 内夹带拒绝（para_text 同款双写歧义防御）。
+pub fn put_reading_json(book_id str, payload str, para_text_in str, locator_in str) str {
     if book_id == "" {
         return reading_err("book_id required")
     }
@@ -1161,6 +1166,14 @@ pub fn put_reading_json(book_id str, payload str, para_text_in str) str {
         }
         if inner_ptext != "" {
             return reading_err("para_text must be a top-level field, not inside payload")
+        }
+        try {
+            let inner_loc = parsed.locator
+            if inner_loc != null {
+                return reading_err("locator must be a top-level field, not inside payload")
+            }
+        } catch {
+            // 缺位 = 正常（v2 锚由顶层参数承载）
         }
     } catch {
         extract_ok = false
@@ -1265,6 +1278,59 @@ pub fn put_reading_json(book_id str, payload str, para_text_in str) str {
             return reading_err(dbg)
         }
     }
+    // ── Locator v2（READER-007 T-05，方案甲）──
+    // 显式入参：恢复环核验（身份链/逐字 quote/位次/上下文重算）通过才
+    // canonical 重发入存储态；缺省入参：前向延续存量 locator——settings-only
+    // 保存不清位锚（冷恢复语义）。存量锚在场但不可重发 → 具名拒绝保原件
+    // （不静默丢锚，不假保存）。
+    var loc_json str = ""
+    if locator_in != "" {
+        let lvr str = locator_verify_str(book_id, locator_in)
+        if lvr != "" {
+            var lmsg str = "locator rejected: "
+            lmsg = lmsg + lvr
+            return reading_err(lmsg)
+        }
+        var lparsed = null
+        try {
+            lparsed = json.parse(locator_in)
+        } catch {
+            return reading_err("locator parse failed")
+        }
+        loc_json = locator_emit(lparsed)
+        if loc_json == "" {
+            return reading_err("locator canonical rebuild failed")
+        }
+    } else {
+        let rp0 str = reading_path(book_id)
+        if fs.exists(rp0) {
+            let raw0 str = fs.read_text(rp0)
+            if raw0 != "" {
+                let v0 str = valid_state(raw0)
+                if v0 == "" {
+                    var carry_ok bool = true
+                    var old_loc str = ""
+                    try {
+                        let p0 = json.parse(raw0)
+                        if has_locator(p0) {
+                            let emitted str = locator_emit(p0.locator)
+                            if emitted == "" {
+                                carry_ok = false
+                            } else {
+                                old_loc = emitted
+                            }
+                        }
+                    } catch {
+                        carry_ok = false
+                    }
+                    if !carry_ok {
+                        return reading_err("stored locator unreadable — refusing overwrite (relocate or repair first)")
+                    }
+                    loc_json = old_loc
+                }
+            }
+        }
+    }
     // 规范存储态（后端拥有文件形态）：已知字段 + 注入的 para_text；
     // para_text 仅在段级定位时注入（章级书签无内容锚点）。
     var stored str = "{\"book_id\":\""
@@ -1302,6 +1368,10 @@ pub fn put_reading_json(book_id str, payload str, para_text_in str) str {
         stored = stored + ",\"theme\":\""
         stored = stored + json_escape(theme)
         stored = stored + "\""
+    }
+    if loc_json != "" {
+        stored = stored + ",\"locator\":"
+        stored = stored + loc_json
     }
     stored = stored + ",\"updated_at\":"
     stored = stored + ua.to_string()
@@ -2217,6 +2287,427 @@ pub fn reader_surface_url() str {
     url = url + lhash
     var out str = "{\"ok\":true,\"url\":\""
     out = out + json_escape(url)
+    out = out + "\"}"
+    return out
+}
+
+// ═══════════════════════════════════════════════════════════
+// READER-007 T-05：Locator v2（reader-locator v1）录入环与恢复/回访环
+// 契约：docs/design/02-epub-engine-reading.md §4/§5（方案甲冻结）。
+//   录入环（reader_locator_select）：会话/书/源版本/资源/逐字 quote/
+//   occurrence 七级校验（029 语义继承）；canonical context 由服务器从
+//   章缓存正文计算（不信任引擎自述）；CFI 只做形状核验（受管 adapter
+//   是唯一 CFI 转换面，此处不引入第二个解析器）。
+//   恢复/回访环（locator_verify_str）：身份链 + 逐字 quote + 作用域位次
+//   + 上下文窗口重算比对——「CFI 指向另一处重复句但 quote 相同」经
+//   context 重算失配识别为 needs_relocate，不静默跳第一处。
+// 版本：locator 对象 reader-locator v1；书/注释文件版本化在 annotations/
+// reading 写侧；书库 import_version 不变。
+// ═══════════════════════════════════════════════════════════
+
+/// 错误响应（与会话拒绝面同构：{"ok":false,"error":...,"detail":...}）。
+fn loc_err(msg str) str {
+    var out str = "{\"ok\":false,\"error\":\""
+    out = out + json_escape(msg)
+    out = out + "\"}"
+    return out
+}
+
+/// 章缓存正文（trim 后）；缺书/缺 meta/占位章/越界 → ""。
+fn chapter_body_or_empty(book_id str, ch int) str {
+    if ch < 1 {
+        return ""
+    }
+    let cj str = chapter_json(book_id, ch)
+    let c = json.parse(cj)
+    let t str = "" + c.title
+    if t == "内容缺失" {
+        return ""
+    }
+    if t == "章节不存在" {
+        return ""
+    }
+    let b str = "" + c.body
+    return b.trim()
+}
+
+/// spine 权威 href（epub meta 派生，不信 adapter 自报 resource_href）。
+fn spine_href_of(book_id str, spine int) str {
+    let meta str = load_epub_meta(book_id)
+    if meta == "" {
+        return ""
+    }
+    let m = json.parse(meta)
+    let hrefs str = "" + m.spine
+    return epub_href_at(hrefs, spine)
+}
+
+/// quote 在 1..limit_ch 章缓存正文中的出现总数（章扫描 ≤2000，同搜索面上限）。
+fn book_count_before(book_id str, quote str, limit_ch int) int {
+    var scan int = limit_ch
+    if scan > 2000 {
+        scan = 2000
+    }
+    var total int = 0
+    var ch int = 1
+    while ch <= scan {
+        let body str = chapter_body_or_empty(book_id, ch)
+        if body != "" {
+            total = total + count_occurrences_fast(body, quote)
+        }
+        ch = ch + 1
+    }
+    return total
+}
+
+/// 全书作用域第 occ 次出现的 canonical 上下文窗口（章缓存正文坐标；
+/// before/after 各 ≤64，多字节 substr 同族自洽口径）。
+/// 返回 {"before":"…","after":"…"}；定位失败 → ""。
+fn ctx_at_occurrence(book_id str, quote str, occ int, ch_total int) str {
+    var scan int = ch_total
+    if scan > 2000 {
+        scan = 2000
+    }
+    var before_count int = 0
+    var ch int = 1
+    while ch <= scan {
+        let body str = chapter_body_or_empty(book_id, ch)
+        if body != "" {
+            let in_ch int = count_occurrences_fast(body, quote)
+            if occ > before_count {
+                if before_count + in_ch >= occ {
+                    let k int = occ - before_count
+                    let hit str = nth_occurrence_window(body, quote, k)
+                    return hit
+                }
+            }
+            before_count = before_count + in_ch
+        }
+        ch = ch + 1
+    }
+    return ""
+}
+
+/// 正文串内第 k 次出现的 ±64 窗口（canonical ctx JSON）；未命中 → ""。
+/// N-r007-xlines1 同源（步数预算）：k-th 定位改 split(quote) 累计——
+/// 与 count_occurrences_fast 同口径（非重叠），长章免 O(正文长) 滑窗。
+fn nth_occurrence_window(body str, quote str, k int) str {
+    let hl int = body.len()
+    let nl int = quote.len()
+    if nl == 0 {
+        return ""
+    }
+    if nl > hl {
+        return ""
+    }
+    let parts = body.split(quote)
+    var i int = 0
+    var pos int = 0
+    var ok bool = false
+    for p in parts {
+        i = i + 1
+        if i == k {
+            ok = true
+            break
+        }
+        pos = pos + p.len() + nl
+    }
+    if !ok {
+        return ""
+    }
+    if pos + nl > hl {
+        return ""
+    }
+    var bstart int = pos - 64
+    if bstart < 0 {
+        bstart = 0
+    }
+    var blen int = pos - bstart
+    let before str = body.substr(bstart, blen)
+    var astart int = pos + nl
+    var alen int = hl - astart
+    if alen < 0 {
+        alen = 0
+    }
+    if alen > 64 {
+        alen = 64
+    }
+    var after str = ""
+    if alen > 0 {
+        after = body.substr(astart, alen)
+    }
+    var out str = "{\"before\":\""
+    out = out + json_escape(before)
+    out = out + "\",\"after\":\""
+    out = out + json_escape(after)
+    out = out + "\"}"
+    return out
+}
+
+/// 录入环：adapter locator_select 消息 → 七级校验 → canonical reader-locator。
+/// session/book/hash/quote/occurrence/cfi 形状/资源身份任一失败具名拒绝，
+/// 零写入。occurrence 口径 = 全书 spine 序（adapter 回传面冻结），
+/// resource.spine_index = resource_index + 1（0-based spine → 1-based 章），
+/// href 由 epub meta 权威派生。返回 {"ok":true,"locator":{…}}。
+pub fn reader_locator_select(kind str, session_id str, book_id str, source_hash str, engine str, resource_index int, cfi str, range_cfi str, text_quote str, occurrence int) str {
+    if kind == "input_probe" {
+        // 输入可达性探针（iframe 无 window.ipc 的 HTTP 回报面，T-03 建立）：
+        // 只 ack 不装配不写盘。
+        return "{\"ok\":true,\"ack\":\"input_probe\"}"
+    }
+    if kind != "locator_select" {
+        return loc_err("rejected_bad_kind")
+    }
+    if !session_id_ok(session_id) {
+        return loc_err("rejected_bad_session: shape")
+    }
+    let sj str = find_session_json(session_id)
+    if sj == "" {
+        return loc_err("rejected_bad_session: unknown session")
+    }
+    var s_book str = ""
+    var s_hash str = ""
+    var s_engine str = ""
+    try {
+        let s = json.parse(sj)
+        s_book = "" + s.book_id
+        s_hash = "" + s.source_hash
+        s_engine = "" + s.engine
+    } catch {
+        return loc_err("rejected_bad_session: parse")
+    }
+    if s_book != book_id {
+        return loc_err("rejected_bad_session: book mismatch (stale event)")
+    }
+    if s_hash != source_hash {
+        return loc_err("rejected_bad_session: source_hash mismatch (stale event)")
+    }
+    if engine != s_engine {
+        return loc_err("rejected_bad_engine: mismatch")
+    }
+    let at int = engine.find("@")
+    if at < 1 {
+        return loc_err("rejected_bad_engine: shape")
+    }
+    let ename str = engine.substr(0, at)
+    let erev str = engine.substr(at + 1, engine.len() - at - 1)
+    let rj str = book_json(book_id)
+    if rj == "" {
+        return loc_err("rejected_bad_document: book not found")
+    }
+    let rec = json.parse(rj)
+    let cur_hash str = "" + rec.source_hash
+    if cur_hash != source_hash {
+        return loc_err("rejected_bad_document: source_hash mismatch (source revised)")
+    }
+    let fmt str = "" + rec.format
+    if fmt != "epub" {
+        return loc_err("rejected_bad_document: locator v2 anchors are epub-only (TXT/MD stay v1)")
+    }
+    let ch_total int = rec.chapter_count
+    let ql int = text_quote.len()
+    if ql < 2 {
+        return loc_err("rejected_bad_quote: too short")
+    }
+    if ql > 8192 {
+        return loc_err("rejected_bad_quote: too long (<=8192)")
+    }
+    if resource_index < 0 {
+        return loc_err("rejected_bad_resource: index")
+    }
+    if resource_index >= ch_total {
+        return loc_err("rejected_bad_resource: spine out of range")
+    }
+    let spine int = resource_index + 1
+    if !cfi.starts_with("epubcfi(") {
+        return loc_err("rejected_bad_cfi: shape")
+    }
+    if cfi.len() > 512 {
+        return loc_err("rejected_bad_cfi: too long")
+    }
+    if range_cfi != "" {
+        if !range_cfi.starts_with("epubcfi(") {
+            return loc_err("rejected_bad_cfi: range shape")
+        }
+        if range_cfi.len() > 512 {
+            return loc_err("rejected_bad_cfi: range too long")
+        }
+    }
+    if occurrence < 1 {
+        return loc_err("rejected_bad_occurrence: must be >= 1")
+    }
+    let href str = spine_href_of(book_id, spine)
+    if href == "" {
+        return loc_err("rejected_bad_resource: spine unavailable")
+    }
+    let body str = chapter_body_or_empty(book_id, spine)
+    if body == "" {
+        return loc_err("rejected_bad_resource: content unavailable")
+    }
+    if count_occurrences_fast(body, text_quote) < 1 {
+        return loc_err("rejected_bad_quote: not in resource (verbatim)")
+    }
+    let total int = book_count_before(book_id, text_quote, ch_total)
+    if occurrence > total {
+        return loc_err("rejected_bad_occurrence: out of range (book scope)")
+    }
+    let ctx str = ctx_at_occurrence(book_id, text_quote, occurrence, ch_total)
+    if ctx == "" {
+        return loc_err("rejected_bad_occurrence: not locatable")
+    }
+    let c = json.parse(ctx)
+    let ctx_b str = "" + c.before
+    let ctx_a str = "" + c.after
+    let now int = time.now_sec()
+    let loc str = locator_canonical("epub_range", book_id, source_hash, spine, href, ename, erev, cfi, range_cfi, text_quote, ctx_b, ctx_a, "book", occurrence, now)
+    var out str = "{\"ok\":true,\"locator\":"
+    out = out + loc
+    out = out + "}"
+    return out
+}
+
+/// 恢复/回访环核心（纯函数面）：locator 文档 → 身份链/资源身份/逐字
+/// quote/作用域位次/上下文窗口重算比对。返回 "" = 通过；非空 = 具名原因
+/// （"rejected_*" = 结构/身份拒；"needs_relocate:…" = 位置失配——原摘录
+/// 保留语义由调用方承担，此处零写入）。
+pub fn locator_verify_str(book_id str, locator_raw str) str {
+    let verr str = valid_locator_document(locator_raw)
+    if verr != "" {
+        return "rejected_bad_locator: " + verr
+    }
+    var parsed = null
+    try {
+        parsed = json.parse(locator_raw)
+    } catch {
+        return "rejected_bad_locator: parse"
+    }
+    let canonical str = locator_emit(parsed)
+    if canonical == "" {
+        return "rejected_bad_locator: canonical rebuild failed"
+    }
+    var lbid str = ""
+    var lhash str = ""
+    var kind str = ""
+    var spine int = 0
+    var href str = ""
+    var cfi str = ""
+    var quote str = ""
+    var scope str = ""
+    var oidx int = 0
+    try {
+        lbid = "" + parsed.book_id
+        lhash = "" + parsed.source_hash
+        kind = "" + parsed.kind
+        quote = "" + parsed.quote
+        scope = "" + parsed.occurrence.scope
+        let rs str = "" + parsed.resource.spine_index
+        spine = rs.to_int()
+        href = "" + parsed.resource.href
+        let rg = parsed.range
+        let st = rg.start
+        cfi = "" + st.cfi
+        let os str = "" + parsed.occurrence.index
+        oidx = os.to_int()
+    } catch {
+        return "rejected_bad_locator: fields"
+    }
+    if lbid != book_id {
+        return "rejected_book_mismatch"
+    }
+    let rj str = book_json(book_id)
+    if rj == "" {
+        return "rejected_bad_document: book not found"
+    }
+    let rec = json.parse(rj)
+    let cur_hash str = "" + rec.source_hash
+    if lhash != cur_hash {
+        return "needs_relocate: source_hash mismatch (source revised)"
+    }
+    let ch_total int = rec.chapter_count
+    if spine < 1 {
+        return "rejected_bad_resource: spine"
+    }
+    if spine > ch_total {
+        return "rejected_bad_resource: spine out of range"
+    }
+    let want_href str = spine_href_of(book_id, spine)
+    if want_href == "" {
+        return "rejected_bad_resource: spine unavailable"
+    }
+    if want_href != href {
+        return "needs_relocate: resource href mismatch at spine"
+    }
+    if kind == "epub_range" {
+        if !cfi.starts_with("epubcfi(") {
+            return "rejected_bad_cfi: shape"
+        }
+    }
+    if quote == "" {
+        return "rejected_bad_quote: empty"
+    }
+    if oidx < 1 {
+        return "rejected_bad_occurrence: must be >= 1"
+    }
+    let body str = chapter_body_or_empty(book_id, spine)
+    if body == "" {
+        return "rejected_bad_resource: content unavailable"
+    }
+    if count_occurrences_fast(body, quote) < 1 {
+        return "needs_relocate: quote not in resource (verbatim)"
+    }
+    // 作用域位次：book = 全书 spine 序；resource/section = 章内序
+    // （换算为全书位次后统一走上下文重算）。
+    var book_occ int = oidx
+    if scope != "book" {
+        let earlier int = book_count_before(book_id, quote, spine - 1)
+        book_occ = earlier + oidx
+    }
+    let available int = book_count_before(book_id, quote, ch_total)
+    if book_occ > available {
+        return "needs_relocate: occurrence out of range"
+    }
+    let ctx str = ctx_at_occurrence(book_id, quote, book_occ, ch_total)
+    if ctx == "" {
+        return "needs_relocate: claimed occurrence not locatable"
+    }
+    let c = json.parse(ctx)
+    let want_b str = "" + c.before
+    let want_a str = "" + c.after
+    var got_b str = ""
+    var got_a str = ""
+    try {
+        let stored = parsed.context
+        got_b = "" + stored.before
+        got_a = "" + stored.after
+    } catch {
+        return "rejected_bad_locator: context"
+    }
+    if got_b != want_b {
+        return "needs_relocate: context.before mismatch at claimed occurrence (may point at another occurrence)"
+    }
+    if got_a != want_a {
+        return "needs_relocate: context.after mismatch at claimed occurrence (may point at another occurrence)"
+    }
+    return ""
+}
+
+/// POST /api/library/locator/verify — 恢复/回访环 oracle（只读比对，零写入）。
+/// body: { book_id, locator }。返回
+/// {"ok":true,"match":true} 或 {"ok":true,"match":false,"reason":"…"}
+/// 或 {"ok":false,"error":"…"}（结构/词法拒—— forged 形态非 relocate）。
+pub fn locator_verify_json(book_id str, locator_raw str) str {
+    if book_id == "" {
+        return loc_err("book_id required")
+    }
+    if locator_raw == "" {
+        return loc_err("locator required")
+    }
+    let vr str = locator_verify_str(book_id, locator_raw)
+    if vr == "" {
+        return "{\"ok\":true,\"match\":true,\"reason\":\"\"}"
+    }
+    var out str = "{\"ok\":true,\"match\":false,\"reason\":\""
+    out = out + json_escape(vr)
     out = out + "\"}"
     return out
 }

@@ -1,0 +1,262 @@
+// locator.at — READER-007 T-05：reader-locator v1 规范形态助手。
+// 契约：docs/design/02-epub-engine-reading.md §4/§5（方案甲冻结：
+// 同文件版本化；locator 对象 schema "reader-locator" version 1；
+// 主键纪律 = CFI + 逐字 quote/context + 显式作用域 occurrence）。
+//
+// 职责（纯形态面）：
+//   - canonical locator JSON 构建（服务器拥有文件形态，cfi_end="" = 单点）
+//   - 已解析 locator 对象 → canonical 重发（reemit/续写不静默丢锚）
+//   - has_locator（记录级 v2 锚在场判别——typed 绑定对缺失字段静默强转，
+//     不可作在场判别，r5 探针实测；concat 访问 raise 才是判别面）
+//   - count_occurrences（重叠口径滑窗计数，自 annotations.at 迁入——
+//     annotations/library 双方共用且禁 library→annotations 反向依赖）
+//
+// 语义校验（录入环/恢复环：会话/书/源版本/资源/逐字 quote/occurrence/
+// 上下文窗口重算比对）在本仓 library.at（有 book/章/会话数据访问）；
+// 词法门在 jsonx.at（valid_ann_locator/valid_locator_document）。
+// 依赖方向：locator ← { annotations, library }，本模块仅 use pathx
+// （json_escape）；不 import 数据模块——禁环。
+//
+// 沿仓纪律：无状态；struct/List 不作 fn 参数；fn 实参先绑定局部变量；
+// 拼接链每步 ≤2 操作数；写侧手工 json_escape。
+
+use pathx: json_escape
+
+// ── 冻结限额（设计 §4；32KiB 选区事件上限由 adapter 传输面继承） ──
+
+fn quote_max() int {
+    return 8192
+}
+
+fn cfi_max() int {
+    return 512
+}
+
+// ═══════════════════════════════════════════════════════════
+// 出现计数（重叠口径；annotations.at 同源迁入）
+// ═══════════════════════════════════════════════════════════
+
+/// 出现计数（重叠口径）：滑窗 substr 逐位比较——len/substr 同族自洽，
+/// 不把 find 的偏移喂进 substr（多字节文本字节/字符口径错位防御）。
+pub fn count_occurrences(hay str, needle str) int {
+    if needle == "" {
+        return 0
+    }
+    let hl int = hay.len()
+    let nl int = needle.len()
+    if nl > hl {
+        return 0
+    }
+    var count int = 0
+    var i int = 0
+    while i + nl <= hl {
+        if hay.substr(i, nl) == needle {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+/// 大正文出现计数（reader-locator v2 契约冻结口径：非重叠精确子串）。
+/// split(needle) 单次 native + for-in 计数——长章（549K 字符）从
+/// O(正文长) 次 substr native（HTTP 计量模式实测 ~275s）降到 1 次。
+/// v1 段锚继续用滑动窗 count_occurrences（READER-002 t10 S11 钉死语义）。
+pub fn count_occurrences_fast(hay str, needle str) int {
+    if needle == "" {
+        return 0
+    }
+    if needle.len() > hay.len() {
+        return 0
+    }
+    let parts = hay.split(needle)
+    var n int = 0
+    for p in parts {
+        n = n + 1
+    }
+    return n - 1
+}
+
+// ═══════════════════════════════════════════════════════════
+// canonical 形态
+// ═══════════════════════════════════════════════════════════
+
+/// canonical reader-locator v1 JSON。cfi_end = "" 表示单点（书签类），
+/// 省略 range.end。字段顺序冻结（服务器拥有形态，重发/比对同源）。
+pub fn locator_canonical(kind str, book_id str, src_hash str, spine int, href str, eng_name str, eng_rev str, cfi_start str, cfi_end str, quote str, ctx_before str, ctx_after str, occ_scope str, occ_index int, created int) str {
+    var out str = "{\"schema\":\"reader-locator\",\"version\":1,\"kind\":\""
+    out = out + json_escape(kind)
+    out = out + "\",\"book_id\":\""
+    out = out + json_escape(book_id)
+    out = out + "\",\"source_hash\":\""
+    out = out + json_escape(src_hash)
+    out = out + "\",\"resource\":{\"spine_index\":"
+    out = out + spine.to_string()
+    out = out + ",\"href\":\""
+    out = out + json_escape(href)
+    out = out + "\"},\"engine\":{\"name\":\""
+    out = out + json_escape(eng_name)
+    out = out + "\",\"revision\":\""
+    out = out + json_escape(eng_rev)
+    out = out + "\"},\"range\":{\"start\":{\"cfi\":\""
+    out = out + json_escape(cfi_start)
+    out = out + "\"}"
+    if cfi_end != "" {
+        out = out + ",\"end\":{\"cfi\":\""
+        out = out + json_escape(cfi_end)
+        out = out + "\"}"
+    }
+    out = out + "},\"quote\":\""
+    out = out + json_escape(quote)
+    out = out + "\",\"context\":{\"before\":\""
+    out = out + json_escape(ctx_before)
+    out = out + "\",\"after\":\""
+    out = out + json_escape(ctx_after)
+    out = out + "\"},\"occurrence\":{\"scope\":\""
+    out = out + json_escape(occ_scope)
+    out = out + "\",\"index\":"
+    out = out + occ_index.to_string()
+    out = out + "},\"created_at\":"
+    out = out + created.to_string()
+    out = out + "}"
+    return out
+}
+
+/// 记录/状态对象是否携带 v2 锚（在场判别用 concat raise，不用 typed 强转）。
+pub fn has_locator(rec) bool {
+    var hit bool = false
+    try {
+        let probe = rec.locator
+        if probe != null {
+            hit = true
+        }
+    } catch {
+        hit = false
+    }
+    return hit
+}
+
+/// 已解析 locator 对象 → canonical JSON。缺必需键/类型不符/schema 不对
+/// → ""（调用方具名拒绝，不静默丢锚：写入路径遇 "" 必须拒绝整笔写）。
+pub fn locator_emit(loc) str {
+    var schema str = ""
+    var kind str = ""
+    var bid str = ""
+    var shash str = ""
+    var spine int = 0
+    var href str = ""
+    var ename str = ""
+    var erev str = ""
+    var cfi_start str = ""
+    var cfi_end str = ""
+    var quote str = ""
+    var ctx_b str = ""
+    var ctx_a str = ""
+    var scope str = ""
+    var oidx int = 0
+    var created int = 0
+    try {
+        schema = "" + loc.schema
+        kind = "" + loc.kind
+        bid = "" + loc.book_id
+        shash = "" + loc.source_hash
+    } catch {
+        return ""
+    }
+    if schema != "reader-locator" {
+        return ""
+    }
+    try {
+        let vs str = "" + loc.version
+        let v int = vs.to_int()
+        if vs != v.to_string() {
+            return ""
+        }
+        if v != 1 {
+            return ""
+        }
+    } catch {
+        return ""
+    }
+    try {
+        let res = loc.resource
+        let ss str = "" + res.spine_index
+        spine = ss.to_int()
+        if ss != spine.to_string() {
+            return ""
+        }
+        href = "" + res.href
+    } catch {
+        return ""
+    }
+    try {
+        let eng = loc.engine
+        ename = "" + eng.name
+        erev = "" + eng.revision
+    } catch {
+        return ""
+    }
+    try {
+        let rg = loc.range
+        let st = rg.start
+        cfi_start = "" + st.cfi
+    } catch {
+        return ""
+    }
+    try {
+        let rg2 = loc.range
+        let en = rg2.end
+        cfi_end = "" + en.cfi
+    } catch {
+        cfi_end = ""
+    }
+    try {
+        quote = "" + loc.quote
+    } catch {
+        return ""
+    }
+    try {
+        let cx = loc.context
+        ctx_b = "" + cx.before
+        ctx_a = "" + cx.after
+    } catch {
+        return ""
+    }
+    try {
+        let oc = loc.occurrence
+        scope = "" + oc.scope
+        let os str = "" + oc.index
+        oidx = os.to_int()
+        if os != oidx.to_string() {
+            return ""
+        }
+    } catch {
+        return ""
+    }
+    try {
+        let cs str = "" + loc.created_at
+        created = cs.to_int()
+        if cs != created.to_string() {
+            return ""
+        }
+    } catch {
+        return ""
+    }
+    if quote.len() > quote_max() {
+        return ""
+    }
+    if cfi_start.len() > cfi_max() {
+        return ""
+    }
+    if cfi_end.len() > cfi_max() {
+        return ""
+    }
+    // epub_range 的 CFI 形状（epubcfi( 前缀）——canonical 面唯一强制点：
+    // 任何写路径（select/anchor/create/续写重发）经此处，伪造形状无法落盘。
+    if kind == "epub_range" {
+        if !cfi_start.starts_with("epubcfi(") {
+            return ""
+        }
+    }
+    return locator_canonical(kind, bid, shash, spine, href, ename, erev, cfi_start, cfi_end, quote, ctx_b, ctx_a, scope, oidx, created)
+}

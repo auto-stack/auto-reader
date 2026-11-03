@@ -3,7 +3,7 @@
 // NOTE: seed strings ASCII-only (field-splitter limitation, see 017-chat).
 
 use api: Book, Chapter
-use library: books_json, book_json, toc_json, chapter_json, import_book_json, remove_book_json, restore_book_json, get_reading_json, put_reading_json, epub_media_response, reader_asset_response, reader_document_response, reader_session_put, reader_session_get, reader_surface_url, reader_command_put, reader_command_get
+use library: books_json, book_json, toc_json, chapter_json, import_book_json, remove_book_json, restore_book_json, get_reading_json, put_reading_json, epub_media_response, reader_asset_response, reader_document_response, reader_session_put, reader_session_get, reader_surface_url, reader_command_put, reader_command_get, reader_locator_select, locator_verify_json
 use annotations: get_annotations_json, put_annotations_json, search_book_json, export_annotations_json
 
 // ═══════════════════════════════════════════════════════════
@@ -218,7 +218,11 @@ pub fn library_get_reading(book_id str) str {
 }
 
 pub fn library_put_reading(book_id str, payload str, para_text str) str {
-    return put_reading_json(book_id, payload, para_text)
+    return put_reading_json(book_id, payload, para_text, "")
+}
+
+pub fn library_put_reading_locator(book_id str, payload str, para_text str, locator str) str {
+    return put_reading_json(book_id, payload, para_text, locator)
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -230,7 +234,21 @@ pub fn library_get_annotations(book_id str) str {
 }
 
 pub fn library_put_annotations(book_id str, op str, annotation_id str, kind str, chapter_number int, para_idx int, occurrence int, comment str, tags_json str, quote str) str {
-    return put_annotations_json(book_id, op, annotation_id, kind, chapter_number, para_idx, occurrence, comment, tags_json, quote)
+    return put_annotations_json(book_id, op, annotation_id, kind, chapter_number, para_idx, occurrence, comment, tags_json, quote, "")
+}
+
+pub fn library_put_annotations_locator(book_id str, op str, annotation_id str, kind str, chapter_number int, para_idx int, occurrence int, comment str, tags_json str, quote str, locator_json str) str {
+    return put_annotations_json(book_id, op, annotation_id, kind, chapter_number, para_idx, occurrence, comment, tags_json, quote, locator_json)
+}
+
+/// READER-007 T-05：locator v2 录入环（adapter locator_select 消息校验 +
+/// canonical 装配）与恢复/回访环 oracle（只读比对）委托。
+pub fn reader_locator(session_id str, kind str, book_id str, source_hash str, engine str, resource_index int, cfi str, range_cfi str, text_quote str, occurrence int) str {
+    return reader_locator_select(kind, session_id, book_id, source_hash, engine, resource_index, cfi, range_cfi, text_quote, occurrence)
+}
+
+pub fn library_locator_verify(book_id str, locator str) str {
+    return locator_verify_json(book_id, locator)
 }
 
 pub fn library_search(book_id str, query str) str {

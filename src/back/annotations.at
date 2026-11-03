@@ -25,8 +25,9 @@
 // "updated_at":N,"annotations":[rec...]}，rec 见 rec_json。
 
 use pathx: join, mkdirs, json_escape
-use library: book_json, chapter_json, data_dir, write_with_backup, verified_write
+use library: book_json, chapter_json, data_dir, write_with_backup, verified_write, locator_verify_str
 use jsonx: valid_annotations
+use locator: count_occurrences, locator_emit, has_locator
 
 // ═══════════════════════════════════════════════════════════
 // 路径与错误面
@@ -55,7 +56,7 @@ fn ann_err(msg str) str {
 // 记录序列化（canonical —— 服务器拥有文件形态）
 // ═══════════════════════════════════════════════════════════
 
-fn rec_json(aid str, kind str, ch int, pi int, quote str, occ int, comment str, tags str, ca int, ua int) str {
+fn rec_json(aid str, kind str, ch int, pi int, quote str, occ int, comment str, tags str, ca int, ua int, lj str) str {
     var out str = "{\"annotation_id\":\""
     out = out + json_escape(aid)
     out = out + "\",\"kind\":\""
@@ -76,21 +77,17 @@ fn rec_json(aid str, kind str, ch int, pi int, quote str, occ int, comment str, 
     out = out + ca.to_string()
     out = out + ",\"updated_at\":"
     out = out + ua.to_string()
+    // READER-007 T-05：可选 v2 锚（reader-locator canonical；"" = 纯 v1 记录）。
+    if lj != "" {
+        out = out + ",\"locator\":"
+        out = out + lj
+    }
     out = out + "}"
     return out
 }
 
-/// 既有记录原样重发（已过词法门；字段直读 — books_json 可靠形态先例）。
-fn reemit(it) str {
-    let fid str = "" + it.annotation_id
-    let fkind str = "" + it.kind
-    let fch int = it.chapter_number
-    let fpi int = it.para_idx
-    let fq str = "" + it.quote
-    let foc int = it.occurrence
-    let fcm str = "" + it.comment
-    let fca int = it.created_at
-    let fua int = it.updated_at
+/// 记录 tags → 规范序列化（reemit/anchor 共用；原样保留既有元素）。
+fn tags_json_of(it) str {
     var tags str = "[]"
     var first bool = true
     for tg in it.tags {
@@ -109,35 +106,45 @@ fn reemit(it) str {
     if !first {
         tags = tags + "]"
     }
-    return rec_json(fid, fkind, fch, fpi, fq, foc, fcm, tags, fca, fua)
+    return tags
 }
 
-// ═══════════════════════════════════════════════════════════
-// 锚点核算（重叠出现计数；find/substr 同源自洽，序数跨轨稳定）
-// ═══════════════════════════════════════════════════════════
+/// 既有记录原样重发（已过词法门；字段直读 — books_json 可靠形态先例）。
+/// lj = 该记录的 canonical v2 锚（"" = 纯 v1）——重发不静默丢锚（方案甲：
+/// 白名单重建曾致 locator_id 引用静默丢失，方案乙否决理由；本形态由
+/// record_emit 强制 canonical 重发，不可重发即具名拒绝整笔写）。
+fn reemit(it, lj str) str {
+    let fid str = "" + it.annotation_id
+    let fkind str = "" + it.kind
+    let fch int = it.chapter_number
+    let fpi int = it.para_idx
+    let fq str = "" + it.quote
+    let foc int = it.occurrence
+    let fcm str = "" + it.comment
+    let fca int = it.created_at
+    let fua int = it.updated_at
+    let tags str = tags_json_of(it)
+    return rec_json(fid, fkind, fch, fpi, fq, foc, fcm, tags, fca, fua, lj)
+}
 
-/// 出现计数（重叠口径）：滑窗 substr 逐位比较——len/substr 同族自洽，
-/// 不把 find 的偏移喂进 substr（多字节文本字节/字符口径错位防御——
-/// CRLF+中文夹具实测暴露：后缀截断式计数对第二处起锚错位致漏计）。
-fn count_occurrences(hay str, needle str) int {
-    if needle == "" {
-        return 0
-    }
-    let hl int = hay.len()
-    let nl int = needle.len()
-    if nl > hl {
-        return 0
-    }
-    var count int = 0
-    var i int = 0
-    while i + nl <= hl {
-        if hay.substr(i, nl) == needle {
-            count = count + 1
+/// 单条记录 canonical 重发（重建/读回路共用）。v2 锚在场必须 canonical
+/// 可重发，否则返回 ""（调用方具名拒绝——不静默丢锚）。
+fn record_emit(it) str {
+    var lj str = ""
+    if has_locator(it) {
+        let emitted str = locator_emit(it.locator)
+        if emitted == "" {
+            return ""
         }
-        i = i + 1
+        lj = emitted
     }
-    return count
+    return reemit(it, lj)
 }
+
+// ═══════════════════════════════════════════════════════════
+// 锚点核算（出现计数迁 locator.at 共用；live_para 段文本）
+// ═══════════════════════════════════════════════════════════
+
 /// 锚段行文本（trim 后）；越界/缺内容/空行回 ""（调用方判空报错）。
 fn live_para(book_id str, ch int, pi int) str {
     let cj str = chapter_json(book_id, ch)
@@ -169,6 +176,81 @@ fn kind_ok(kind str) bool {
         return true
     }
     return false
+}
+
+/// v1 段锚现场核验（create 与 op=anchor 共用语义；消息面与原 create
+/// 分支逐字一致）。返回 "" = 通过。
+fn v1_anchor_err(book_id str, kind str, ch int, pi int, quote str, occ int) str {
+    if kind == "bookmark" {
+        if pi < -1 {
+            return "para_idx must be >= -1 for bookmark"
+        }
+        if quote != "" {
+            if pi < 0 {
+                return "quote anchor requires para_idx >= 0"
+            }
+            let lp str = live_para(book_id, ch, pi)
+            if lp == "" {
+                return "paragraph unavailable"
+            }
+            let occ_live int = count_occurrences(lp, quote)
+            if occ_live < occ {
+                return "quote not found in paragraph (occurrence)"
+            }
+        } else {
+            if pi >= 0 {
+                let lp2 str = live_para(book_id, ch, pi)
+                if lp2 == "" {
+                    return "paragraph unavailable"
+                }
+            }
+        }
+        return ""
+    }
+    // highlight / comment：段级锚必填且逐字可核。
+    if pi < 0 {
+        return "para_idx must be >= 0"
+    }
+    if quote == "" {
+        return "quote required (verbatim anchor)"
+    }
+    if quote.len() > 2000 {
+        return "quote too long (<=2000)"
+    }
+    if occ < 1 {
+        return "occurrence must be >= 1"
+    }
+    let lp3 str = live_para(book_id, ch, pi)
+    if lp3 == "" {
+        return "paragraph unavailable"
+    }
+    let occ_live2 int = count_occurrences(lp3, quote)
+    if occ_live2 < occ {
+        return "quote not found in paragraph (occurrence)"
+    }
+    return ""
+}
+
+/// locator v2 与记录 v1 锚的同一性核验（create/anchor 共用）：
+/// 同一 quote、同一章（resource.spine_index == chapter_number）——
+/// v1/v2 锚必须描述同一处选区，矛盾双锚具名拒绝。
+fn locator_cross_err(lobj, quote str, ch int) str {
+    var lq str = ""
+    var lspine int = 0
+    try {
+        lq = "" + lobj.quote
+        let ss str = "" + lobj.resource.spine_index
+        lspine = ss.to_int()
+    } catch {
+        return "locator fields unreadable"
+    }
+    if lq != quote {
+        return "locator quote must equal the annotation anchor quote"
+    }
+    if lspine != ch {
+        return "locator resource spine must equal annotation chapter_number"
+    }
+    return ""
 }
 
 /// tags_json（"[]" 或字符串数组）→ 规范序列化；非法回 ""。
@@ -226,13 +308,15 @@ fn canonical_tags(tags_json str) str {
 
 /// 读注释集合。无文件 = 空集合（合法初态）；存在但词法/结构非法或
 /// book_id 不符 = {"ok":false}（坏文件原样保留供诊断，不冒充空集）。
+/// READER-007 T-05：响应携带 version（1 = 纯 v1；2 = 含 v2 锚），
+/// 记录级 locator canonical 透传（reemit 不丢锚）。
 pub fn get_annotations_json(book_id str) str {
     if book_id == "" {
         return ann_err("book_id required")
     }
     let ap str = ann_path(book_id)
     if !fs.exists(ap) {
-        var empty str = "{\"ok\":true,\"book_id\":\""
+        var empty str = "{\"ok\":true,\"version\":1,\"book_id\":\""
         empty = empty + json_escape(book_id)
         empty = empty + "\",\"source_hash\":\"\",\"annotations\":[]}"
         return empty
@@ -255,18 +339,25 @@ pub fn get_annotations_json(book_id str) str {
     if t != book_id {
         return ann_err("annotations book_id mismatch")
     }
+    let fver int = parsed.version
     let arr = parsed.annotations
     var records str = ""
     var n int = 0
     for it in arr {
         n = n + 1
+        let rj6 str = record_emit(it)
+        if rj6 == "" {
+            return ann_err("record locator unreadable — refusing rebuild")
+        }
         if n > 1 {
             records = records + ","
         }
-        records = records + reemit(it)
+        records = records + rj6
     }
     let src str = "" + parsed.source_hash
-    var out str = "{\"ok\":true,\"book_id\":\""
+    var out str = "{\"ok\":true,\"version\":"
+    out = out + fver.to_string()
+    out = out + ",\"book_id\":\""
     out = out + json_escape(book_id)
     out = out + "\",\"source_hash\":\""
     out = out + json_escape(src)
@@ -282,8 +373,12 @@ pub fn get_annotations_json(book_id str) str {
 
 /// 现读文件 → 规范重建（服务器拥有文件形态）→ write_with_backup。
 /// 任一步失败不落盘。现存记录重建时保持原序（追加新记录于尾部）。
-fn rebuild_and_write(book_id str, src_hash str, records str, count int, ua int) str {
-    var stored str = "{\"version\":1,\"book_id\":\""
+/// ver = 文件版本（1 = 纯 v1；2 = 含任一 v2 锚——方案甲：仅因存在 v2 锚
+/// 而升 2；末枚 v2 锚删除后回落 1，字节兼容旧客户端）。
+fn rebuild_and_write(book_id str, src_hash str, records str, count int, ua int, ver int) str {
+    var stored str = "{\"version\":"
+    stored = stored + ver.to_string()
+    stored = stored + ",\"book_id\":\""
     stored = stored + json_escape(book_id)
     stored = stored + "\",\"source_hash\":\""
     stored = stored + json_escape(src_hash)
@@ -320,7 +415,7 @@ fn rebuild_and_write(book_id str, src_hash str, records str, count int, ua int) 
     return ok
 }
 
-pub fn put_annotations_json(book_id str, op str, annotation_id str, kind str, chapter_number int, para_idx int, occurrence int, comment str, tags_json str, quote str) str {
+pub fn put_annotations_json(book_id str, op str, annotation_id str, kind str, chapter_number int, para_idx int, occurrence int, comment str, tags_json str, quote str, locator_json str) str {
     if book_id == "" {
         return ann_err("book_id required")
     }
@@ -334,7 +429,9 @@ pub fn put_annotations_json(book_id str, op str, annotation_id str, kind str, ch
     if op != "create" {
         if op != "update" {
             if op != "delete" {
-                return ann_err("op must be create|update|delete")
+                if op != "anchor" {
+                    return ann_err("op must be create|update|delete|anchor")
+                }
             }
         }
     }
@@ -376,70 +473,151 @@ pub fn put_annotations_json(book_id str, op str, annotation_id str, kind str, ch
         if comment.len() > 2000 {
             return ann_err("comment too long (<=2000)")
         }
-        if kind == "bookmark" {
-            if para_idx < -1 {
-                return ann_err("para_idx must be >= -1 for bookmark")
+        let va1 str = v1_anchor_err(book_id, kind, chapter_number, para_idx, quote, occurrence)
+        if va1 != "" {
+            return ann_err(va1)
+        }
+        // 可选 v2 锚（READER-007 T-05）：恢复环核验 + 与 v1 锚同一性 +
+        // canonical 重发；任一失败具名拒绝零落盘。
+        var lc1 str = ""
+        if locator_json != "" {
+            let lv1 str = locator_verify_str(book_id, locator_json)
+            if lv1 != "" {
+                var m1 str = "locator rejected: "
+                m1 = m1 + lv1
+                return ann_err(m1)
             }
-            if quote != "" {
-                if para_idx < 0 {
-                    return ann_err("quote anchor requires para_idx >= 0")
-                }
-                let lp str = live_para(book_id, chapter_number, para_idx)
-                if lp == "" {
-                    return ann_err("paragraph unavailable")
-                }
-                let occ_live int = count_occurrences(lp, quote)
-                if occ_live < occurrence {
-                    return ann_err("quote not found in paragraph (occurrence)")
-                }
-            } else {
-                if para_idx >= 0 {
-                    let lp2 str = live_para(book_id, chapter_number, para_idx)
-                    if lp2 == "" {
-                        return ann_err("paragraph unavailable")
-                    }
-                }
+            var lp1 = null
+            try {
+                lp1 = json.parse(locator_json)
+            } catch {
+                return ann_err("locator parse failed")
             }
-        } else {
-            // highlight / comment：段级锚必填且逐字可核。
-            if para_idx < 0 {
-                return ann_err("para_idx must be >= 0")
+            let cx1 str = locator_cross_err(lp1, quote, chapter_number)
+            if cx1 != "" {
+                return ann_err(cx1)
             }
-            if quote == "" {
-                return ann_err("quote required (verbatim anchor)")
-            }
-            if quote.len() > 2000 {
-                return ann_err("quote too long (<=2000)")
-            }
-            if occurrence < 1 {
-                return ann_err("occurrence must be >= 1")
-            }
-            let lp3 str = live_para(book_id, chapter_number, para_idx)
-            if lp3 == "" {
-                return ann_err("paragraph unavailable")
-            }
-            let occ_live2 int = count_occurrences(lp3, quote)
-            if occ_live2 < occurrence {
-                return ann_err("quote not found in paragraph (occurrence)")
+            lc1 = locator_emit(lp1)
+            if lc1 == "" {
+                return ann_err("locator canonical rebuild failed")
             }
         }
         let aid str = str.uuid()
-        let nr str = rec_json(aid, kind, chapter_number, para_idx, quote, occurrence, comment, ct, now, now)
-        // 原序保留 + 尾部追加：for-in 重建（F-8），每记录一次拼接。
+        let nr str = rec_json(aid, kind, chapter_number, para_idx, quote, occurrence, comment, ct, now, now, lc1)
+        // 原序保留 + 尾部追加：for-in 重建（F-8），每记录一次拼接；
+        // 存量 v2 锚 canonical 重发（不可重发 = 具名拒绝整笔写）。
         var records str = ""
         var n int = 0
+        var any1 bool = false
+        if lc1 != "" {
+            any1 = true
+        }
         for it in arr {
             n = n + 1
+            let rjr str = record_emit(it)
+            if rjr == "" {
+                return ann_err("record locator unreadable — refusing rewrite")
+            }
             if n > 1 {
                 records = records + ","
             }
-            records = records + reemit(it)
+            records = records + rjr
         }
         if n > 0 {
             records = records + ","
         }
         records = records + nr
-        return rebuild_and_write(book_id, src_hash, records, n + 1, now)
+        var ver1 int = 1
+        if any1 {
+            ver1 = 2
+        }
+        return rebuild_and_write(book_id, src_hash, records, n + 1, now, ver1)
+    }
+    if op == "anchor" {
+        // v1 存量记录追加可选 v2 锚（方案甲迁移面）：仅在能证明唯一映射时
+        // 生成——v1 锚现场仍逐字可核 + locator 恢复环核验 + 同一性
+        // （同 quote 同章）；不可映射/多义/失配保留 v1 具名拒绝，无整库改写。
+        if annotation_id == "" {
+            return ann_err("annotation_id required")
+        }
+        if locator_json == "" {
+            return ann_err("locator required for anchor")
+        }
+        var found4 bool = false
+        var records4 str = ""
+        var n4 int = 0
+        var any4 bool = false
+        for it in arr {
+            let tid str = "" + it.annotation_id
+            if tid == annotation_id {
+                found4 = true
+                if has_locator(it) {
+                    return ann_err("annotation already anchored")
+                }
+                let ech int = it.chapter_number
+                let epi int = it.para_idx
+                let ekind str = "" + it.kind
+                let eq str = "" + it.quote
+                let eoc int = it.occurrence
+                if eq == "" {
+                    return ann_err("anchor requires a verbatim quote anchor (chapter-level bookmarks stay v1)")
+                }
+                let va4 str = v1_anchor_err(book_id, ekind, ech, epi, eq, eoc)
+                if va4 != "" {
+                    var m4 str = "v1 anchor no longer verifiable: "
+                    m4 = m4 + va4
+                    return ann_err(m4)
+                }
+                let lv4 str = locator_verify_str(book_id, locator_json)
+                if lv4 != "" {
+                    var m5 str = "locator rejected: "
+                    m5 = m5 + lv4
+                    return ann_err(m5)
+                }
+                var lp4 = null
+                try {
+                    lp4 = json.parse(locator_json)
+                } catch {
+                    return ann_err("locator parse failed")
+                }
+                let cx4 str = locator_cross_err(lp4, eq, ech)
+                if cx4 != "" {
+                    return ann_err(cx4)
+                }
+                let lc4 str = locator_emit(lp4)
+                if lc4 == "" {
+                    return ann_err("locator canonical rebuild failed")
+                }
+                let ecm str = "" + it.comment
+                let eca int = it.created_at
+                let eua int = it.updated_at
+                let tg4 str = tags_json_of(it)
+                n4 = n4 + 1
+                if n4 > 1 {
+                    records4 = records4 + ","
+                }
+                records4 = records4 + rec_json(tid, ekind, ech, epi, eq, eoc, ecm, tg4, eca, eua, lc4)
+                any4 = true
+            } else {
+                let rj4 str = record_emit(it)
+                if rj4 == "" {
+                    return ann_err("record locator unreadable — refusing rewrite")
+                }
+                n4 = n4 + 1
+                if n4 > 1 {
+                    records4 = records4 + ","
+                }
+                records4 = records4 + rj4
+            }
+        }
+        if !found4 {
+            return ann_err("annotation not found")
+        }
+        var ver4 int = 1
+        if any4 {
+            ver4 = 2
+        }
+        return rebuild_and_write(book_id, src_hash, records4, n4, now, ver4)
     }
     if op == "update" {
         if annotation_id == "" {
@@ -458,6 +636,7 @@ pub fn put_annotations_json(book_id str, op str, annotation_id str, kind str, ch
         var found bool = false
         var records2 str = ""
         var n2 int = 0
+        var any2 bool = false
         for it in arr {
             let tid str = "" + it.annotation_id
             n2 = n2 + 1
@@ -466,22 +645,39 @@ pub fn put_annotations_json(book_id str, op str, annotation_id str, kind str, ch
             }
             if tid == annotation_id {
                 found = true
-                // 锚字段（chapter/para/quote/occurrence/created_at）不可变；
-                // kind/comment/tags 可变，updated_at 刷新。
+                // 锚字段（chapter/para/quote/occurrence/created_at/locator）
+                // 不可变——v2 锚原样保留；kind/comment/tags 可变。
                 let ech int = it.chapter_number
                 let epi int = it.para_idx
                 let eq str = "" + it.quote
                 let eoc int = it.occurrence
                 let eca int = it.created_at
-                records2 = records2 + rec_json(tid, kind, ech, epi, eq, eoc, comment, ct2, eca, now)
+                var lj2 str = ""
+                if has_locator(it) {
+                    let em2 str = locator_emit(it.locator)
+                    if em2 == "" {
+                        return ann_err("record locator unreadable — refusing rewrite")
+                    }
+                    lj2 = em2
+                    any2 = true
+                }
+                records2 = records2 + rec_json(tid, kind, ech, epi, eq, eoc, comment, ct2, eca, now, lj2)
             } else {
-                records2 = records2 + reemit(it)
+                let rj2 str = record_emit(it)
+                if rj2 == "" {
+                    return ann_err("record locator unreadable — refusing rewrite")
+                }
+                records2 = records2 + rj2
             }
         }
         if !found {
             return ann_err("annotation not found")
         }
-        return rebuild_and_write(book_id, src_hash, records2, n2, now)
+        var ver2 int = 1
+        if any2 {
+            ver2 = 2
+        }
+        return rebuild_and_write(book_id, src_hash, records2, n2, now, ver2)
     }
     // op == delete
     if annotation_id == "" {
@@ -490,22 +686,31 @@ pub fn put_annotations_json(book_id str, op str, annotation_id str, kind str, ch
     var found3 bool = false
     var records3 str = ""
     var n3 int = 0
+    var any3 bool = false
     for it in arr {
         let tid str = "" + it.annotation_id
         if tid == annotation_id {
             found3 = true
         } else {
+            let rj3 str = record_emit(it)
+            if rj3 == "" {
+                return ann_err("record locator unreadable — refusing rewrite")
+            }
             n3 = n3 + 1
             if n3 > 1 {
                 records3 = records3 + ","
             }
-            records3 = records3 + reemit(it)
+            records3 = records3 + rj3
         }
     }
     if !found3 {
         return ann_err("annotation not found")
     }
-    return rebuild_and_write(book_id, src_hash, records3, n3, now)
+    var ver3 int = 1
+    if any3 {
+        ver3 = 2
+    }
+    return rebuild_and_write(book_id, src_hash, records3, n3, now, ver3)
 }
 
 // ═══════════════════════════════════════════════════════════

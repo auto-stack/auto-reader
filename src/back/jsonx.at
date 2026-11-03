@@ -1020,13 +1020,15 @@ pub fn valid_removed_entry(raw str) str {
 
 // ---- annotations 文件词法校验（READER-002 T-03 落地面） ----
 // 规则：
-//   顶层必须是对象；version 必须为整数字面量 1；book_id/source_hash 必须
+//   顶层必须是对象；version 必须为整数字面量 1 或 2（READER-007 T-05：
+//   2 = 含任一 v2 locator 锚的版本化形态）；book_id/source_hash 必须
 //   为引号串；updated_at 必须为整数字面量；annotations 必须为数组（可空）。
 //   每条记录（对象）：annotation_id/kind/quote/comment 必须为引号串；
 //   chapter_number/para_idx/occurrence/created_at/updated_at 必须为整数
 //   字面量（span_is_int 口径，与 valid_state 同）；kind ∈
 //   {bookmark,highlight,comment}；tags 必须为引号串数组：元素非空、
-//   每元素 ≤32 字符、数量 ≤10。顶层与记录层已知键重复各自拒绝；
+//   每元素 ≤32 字符、数量 ≤10；locator 可选对象（reader-locator v1
+//   词法形态，valid_ann_locator）。顶层与记录层已知键重复各自拒绝；
 //   未知键容忍；结构非法/尾随内容拒绝。错误返回非空消息；"" = 合法。
 // 调用方（annotations.at）在 json.parse 之前执行本门——坏文件不冒充
 // 空集合，原样保留供诊断。
@@ -1069,6 +1071,524 @@ fn valid_ann_tags(t str, start int, end int) str {
     return ""
 }
 
+// ── READER-007 T-05：reader-locator v1 词法门（设计 02 §4.2 冻结形态） ──
+// 对象；已知键类型精确/重复拒绝/必需键在 disc；未知键容忍；schema 字面量
+// reader-locator、version 整数字面量 1、kind ∈ {epub_range,
+// legacy_paragraph}；resource/engine/range/occurrence 子对象必需键齐备、
+// context 可选对象（在场则 before/after 必填）；quote 引号串非空 ≤8192
+// （转义形态上界，与 canonical 写侧同源限额）。CFI 本体是引擎载荷
+// （受管 adapter 唯一转换面）：此处只做字符串/长度形状，epubcfi( 前缀
+// 语义核验在 locator.at emit 与 library 录入/恢复环——不做第二解析器。
+
+/// locator 平铺子对象校验（resource/engine/range.start|end/context/
+/// occurrence 共用）。mode 决定必需键与键面。
+fn valid_loc_plain(t str, start int, end int, mode str) str {
+    var j int = skip_ws(t, start + 1)
+    var seen_spine int = 0
+    var seen_href int = 0
+    var seen_name int = 0
+    var seen_rev int = 0
+    var seen_cfi int = 0
+    var seen_before int = 0
+    var seen_after int = 0
+    var seen_scope int = 0
+    var seen_index int = 0
+    var guard int = 0
+    while j < end {
+        if guard > 64 {
+            return "locator " + mode + " too large"
+        }
+        guard = guard + 1
+        if t.substr(j, 1) == "}" {
+            break
+        }
+        if t.substr(j, 1) == "," {
+            j = skip_ws(t, j + 1)
+            if j < end {
+                if t.substr(j, 1) == "}" {
+                    return "locator " + mode + " unexpected trailing comma"
+                }
+            }
+            continue
+        }
+        if t.substr(j, 1) != "\"" {
+            return "locator " + mode + " expected property name"
+        }
+        let ke int = scan_string_end(t, j)
+        if ke < 0 {
+            return "locator " + mode + " bad property name"
+        }
+        let key str = unquote(t.substr(j, ke - j))
+        j = skip_ws(t, ke)
+        if j >= end || t.substr(j, 1) != ":" {
+            return "locator " + mode + " expected colon"
+        }
+        j = skip_ws(t, j + 1)
+        let ve int = scan_value_end(t, j, 2)
+        if ve < 0 || ve > end {
+            return "locator " + mode + " bad value"
+        }
+        if key == "spine_index" {
+            seen_spine = 1
+            if value_kind(t, j) != "num" {
+                return "locator resource spine_index must be a number"
+            }
+            if !span_is_int(t.substr(j, ve - j)) {
+                return "locator resource spine_index must be an integer"
+            }
+        }
+        if key == "href" {
+            seen_href = 1
+            if value_kind(t, j) != "str" {
+                return "locator resource href must be a string"
+            }
+            if ve - j - 2 < 1 {
+                return "locator resource href must be non-empty"
+            }
+        }
+        if key == "name" {
+            seen_name = 1
+            if value_kind(t, j) != "str" {
+                return "locator engine name must be a string"
+            }
+            if ve - j - 2 < 1 {
+                return "locator engine name must be non-empty"
+            }
+        }
+        if key == "revision" {
+            seen_rev = 1
+            if value_kind(t, j) != "str" {
+                return "locator engine revision must be a string"
+            }
+            if ve - j - 2 < 1 {
+                return "locator engine revision must be non-empty"
+            }
+        }
+        if key == "cfi" {
+            seen_cfi = 1
+            if value_kind(t, j) != "str" {
+                return "locator cfi must be a string"
+            }
+            if ve - j - 2 > 512 {
+                return "locator cfi too long (<=512)"
+            }
+        }
+        if key == "before" {
+            seen_before = 1
+            if value_kind(t, j) != "str" {
+                return "locator context before must be a string"
+            }
+            if ve - j - 2 > 512 {
+                return "locator context before too long"
+            }
+        }
+        if key == "after" {
+            seen_after = 1
+            if value_kind(t, j) != "str" {
+                return "locator context after must be a string"
+            }
+            if ve - j - 2 > 512 {
+                return "locator context after too long"
+            }
+        }
+        if key == "scope" {
+            seen_scope = 1
+            if value_kind(t, j) != "str" {
+                return "locator occurrence scope must be a string"
+            }
+            let sv str = unquote(t.substr(j, ve - j))
+            if sv != "book" {
+                if sv != "resource" {
+                    if sv != "section" {
+                        return "locator occurrence scope invalid"
+                    }
+                }
+            }
+        }
+        if key == "index" {
+            seen_index = 1
+            if value_kind(t, j) != "num" {
+                return "locator occurrence index must be a number"
+            }
+            if !span_is_int(t.substr(j, ve - j)) {
+                return "locator occurrence index must be an integer"
+            }
+            if t.substr(j, ve - j).to_int() < 1 {
+                return "locator occurrence index must be >= 1"
+            }
+        }
+        j = skip_ws(t, ve)
+    }
+    if mode == "resource" {
+        if seen_spine == 0 {
+            return "locator resource missing spine_index"
+        }
+        if seen_href == 0 {
+            return "locator resource missing href"
+        }
+    }
+    if mode == "engine" {
+        if seen_name == 0 {
+            return "locator engine missing name"
+        }
+        if seen_rev == 0 {
+            return "locator engine missing revision"
+        }
+    }
+    if mode == "cfipoint" {
+        if seen_cfi == 0 {
+            return "locator range point missing cfi"
+        }
+    }
+    if mode == "context" {
+        if seen_before == 0 {
+            return "locator context missing before"
+        }
+        if seen_after == 0 {
+            return "locator context missing after"
+        }
+    }
+    if mode == "occurrence" {
+        if seen_scope == 0 {
+            return "locator occurrence missing scope"
+        }
+        if seen_index == 0 {
+            return "locator occurrence missing index"
+        }
+    }
+    return ""
+}
+
+/// locator 子对象 span 校验：必须是对象且通过 mode 键面。
+fn valid_loc_subobj(t str, start int, end int, mode str) str {
+    var i int = skip_ws(t, start)
+    if i >= end || t.substr(i, 1) != "{" {
+        return "locator " + mode + " must be an object"
+    }
+    let ve int = scan_value_end(t, i, 2)
+    if ve < 0 || ve > end {
+        return "locator " + mode + " bad object"
+    }
+    return valid_loc_plain(t, i, ve, mode)
+}
+
+/// locator 对象区间校验（valid_ann_record 的 locator 键值与
+/// valid_locator_document 顶层共用）。返回 "" = 合法。
+pub fn valid_ann_locator(t str, start int, end int) str {
+    var i int = skip_ws(t, start)
+    if i >= end || t.substr(i, 1) != "{" {
+        return "locator must be a JSON object"
+    }
+    let oend int = scan_value_end(t, i, 2)
+    if oend < 0 || oend > end {
+        return "locator bad object"
+    }
+    var j int = skip_ws(t, i + 1)
+    var seen_schema int = 0
+    var seen_version int = 0
+    var seen_kind int = 0
+    var seen_bid int = 0
+    var seen_hash int = 0
+    var seen_resource int = 0
+    var seen_engine int = 0
+    var seen_range int = 0
+    var seen_quote int = 0
+    var seen_context int = 0
+    var seen_occ int = 0
+    var seen_created int = 0
+    var guard int = 0
+    while j < oend {
+        if guard > 512 {
+            return "locator object too large"
+        }
+        guard = guard + 1
+        if t.substr(j, 1) == "}" {
+            break
+        }
+        if t.substr(j, 1) == "," {
+            j = skip_ws(t, j + 1)
+            if j < oend {
+                if t.substr(j, 1) == "}" {
+                    return "locator unexpected trailing comma"
+                }
+            }
+            continue
+        }
+        if t.substr(j, 1) != "\"" {
+            return "locator expected property name"
+        }
+        let ke int = scan_string_end(t, j)
+        if ke < 0 {
+            return "locator bad property name"
+        }
+        let key str = unquote(t.substr(j, ke - j))
+        j = skip_ws(t, ke)
+        if j >= oend || t.substr(j, 1) != ":" {
+            return "locator expected colon"
+        }
+        j = skip_ws(t, j + 1)
+        let ve int = scan_value_end(t, j, 2)
+        if ve < 0 || ve > oend {
+            return "locator bad value"
+        }
+        if key == "schema" {
+            if seen_schema == 1 {
+                return "locator duplicate key: schema"
+            }
+            seen_schema = 1
+            if value_kind(t, j) != "str" {
+                return "locator schema must be a string"
+            }
+            if unquote(t.substr(j, ve - j)) != "reader-locator" {
+                return "locator schema must be reader-locator"
+            }
+        }
+        if key == "version" {
+            if seen_version == 1 {
+                return "locator duplicate key: version"
+            }
+            seen_version = 1
+            if value_kind(t, j) != "num" {
+                return "locator version must be a number"
+            }
+            if !span_is_int(t.substr(j, ve - j)) {
+                return "locator version must be the integer 1"
+            }
+            if t.substr(j, ve - j).to_int() != 1 {
+                return "locator version must be the integer 1"
+            }
+        }
+        if key == "kind" {
+            if seen_kind == 1 {
+                return "locator duplicate key: kind"
+            }
+            seen_kind = 1
+            if value_kind(t, j) != "str" {
+                return "locator kind must be a string"
+            }
+            let kv str = unquote(t.substr(j, ve - j))
+            if kv != "epub_range" {
+                if kv != "legacy_paragraph" {
+                    return "locator kind invalid"
+                }
+            }
+        }
+        if key == "book_id" {
+            if seen_bid == 1 {
+                return "locator duplicate key: book_id"
+            }
+            seen_bid = 1
+            if value_kind(t, j) != "str" {
+                return "locator book_id must be a string"
+            }
+            if ve - j - 2 < 1 {
+                return "locator book_id must be non-empty"
+            }
+        }
+        if key == "source_hash" {
+            if seen_hash == 1 {
+                return "locator duplicate key: source_hash"
+            }
+            seen_hash = 1
+            if value_kind(t, j) != "str" {
+                return "locator source_hash must be a string"
+            }
+            if ve - j - 2 < 1 {
+                return "locator source_hash must be non-empty"
+            }
+        }
+        if key == "resource" {
+            if seen_resource == 1 {
+                return "locator duplicate key: resource"
+            }
+            seen_resource = 1
+            let rerr str = valid_loc_subobj(t, j, ve, "resource")
+            if rerr != "" {
+                return rerr
+            }
+        }
+        if key == "engine" {
+            if seen_engine == 1 {
+                return "locator duplicate key: engine"
+            }
+            seen_engine = 1
+            let eerr str = valid_loc_subobj(t, j, ve, "engine")
+            if eerr != "" {
+                return eerr
+            }
+        }
+        if key == "range" {
+            if seen_range == 1 {
+                return "locator duplicate key: range"
+            }
+            seen_range = 1
+            var ri int = skip_ws(t, j)
+            if ri >= ve || t.substr(ri, 1) != "{" {
+                return "locator range must be an object"
+            }
+            let rend int = scan_value_end(t, ri, 2)
+            if rend < 0 || rend > ve {
+                return "locator range bad object"
+            }
+            var k2 int = skip_ws(t, ri + 1)
+            var saw_start int = 0
+            var rguard int = 0
+            while k2 < rend {
+                if rguard > 64 {
+                    return "locator range too large"
+                }
+                rguard = rguard + 1
+                if t.substr(k2, 1) == "}" {
+                    break
+                }
+                if t.substr(k2, 1) == "," {
+                    k2 = skip_ws(t, k2 + 1)
+                    if k2 < rend {
+                        if t.substr(k2, 1) == "}" {
+                            return "locator range unexpected trailing comma"
+                        }
+                    }
+                    continue
+                }
+                if t.substr(k2, 1) != "\"" {
+                    return "locator range expected property name"
+                }
+                let k2e int = scan_string_end(t, k2)
+                if k2e < 0 {
+                    return "locator range bad property name"
+                }
+                let k2name str = unquote(t.substr(k2, k2e - k2))
+                k2 = skip_ws(t, k2e)
+                if k2 >= rend || t.substr(k2, 1) != ":" {
+                    return "locator range expected colon"
+                }
+                k2 = skip_ws(t, k2 + 1)
+                let k2v int = scan_value_end(t, k2, 2)
+                if k2v < 0 || k2v > rend {
+                    return "locator range bad value"
+                }
+                if k2name == "start" {
+                    saw_start = 1
+                    let serr str = valid_loc_subobj(t, k2, k2v, "cfipoint")
+                    if serr != "" {
+                        return serr
+                    }
+                } else {
+                    if k2name == "end" {
+                        let eerr2 str = valid_loc_subobj(t, k2, k2v, "cfipoint")
+                        if eerr2 != "" {
+                            return eerr2
+                        }
+                    }
+                }
+                k2 = skip_ws(t, k2v)
+            }
+            if saw_start == 0 {
+                return "locator range missing start"
+            }
+        }
+        if key == "quote" {
+            if seen_quote == 1 {
+                return "locator duplicate key: quote"
+            }
+            seen_quote = 1
+            if value_kind(t, j) != "str" {
+                return "locator quote must be a string"
+            }
+            if ve - j - 2 < 1 {
+                return "locator quote must be non-empty"
+            }
+            if ve - j - 2 > 8192 {
+                return "locator quote too long (<=8192)"
+            }
+        }
+        if key == "context" {
+            if seen_context == 1 {
+                return "locator duplicate key: context"
+            }
+            seen_context = 1
+            let cerr str = valid_loc_subobj(t, j, ve, "context")
+            if cerr != "" {
+                return cerr
+            }
+        }
+        if key == "occurrence" {
+            if seen_occ == 1 {
+                return "locator duplicate key: occurrence"
+            }
+            seen_occ = 1
+            let oerr str = valid_loc_subobj(t, j, ve, "occurrence")
+            if oerr != "" {
+                return oerr
+            }
+        }
+        if key == "created_at" {
+            if seen_created == 1 {
+                return "locator duplicate key: created_at"
+            }
+            seen_created = 1
+            if value_kind(t, j) != "num" {
+                return "locator created_at must be a number"
+            }
+            if !span_is_int(t.substr(j, ve - j)) {
+                return "locator created_at must be an integer"
+            }
+        }
+        j = skip_ws(t, ve)
+    }
+    if seen_schema == 0 {
+        return "locator missing schema"
+    }
+    if seen_version == 0 {
+        return "locator missing version"
+    }
+    if seen_kind == 0 {
+        return "locator missing kind"
+    }
+    if seen_bid == 0 {
+        return "locator missing book_id"
+    }
+    if seen_hash == 0 {
+        return "locator missing source_hash"
+    }
+    if seen_resource == 0 {
+        return "locator missing resource"
+    }
+    if seen_engine == 0 {
+        return "locator missing engine"
+    }
+    if seen_range == 0 {
+        return "locator missing range"
+    }
+    if seen_quote == 0 {
+        return "locator missing quote"
+    }
+    if seen_occ == 0 {
+        return "locator missing occurrence"
+    }
+    if seen_created == 0 {
+        return "locator missing created_at"
+    }
+    return ""
+}
+
+/// 独立 locator 文档词法校验（verify 端点 / 写端点入参）。
+pub fn valid_locator_document(raw str) str {
+    let t str = raw.trim()
+    var i int = skip_ws(t, 0)
+    if i >= t.len() || t.substr(i, 1) != "{" {
+        return "locator must be a JSON object"
+    }
+    let verr str = valid_ann_locator(t, i, t.len())
+    if verr != "" {
+        return verr
+    }
+    var j int = skip_ws(t, scan_value_end(t, i, 0))
+    if j != t.len() {
+        return "locator has trailing content"
+    }
+    return ""
+}
 /// 单条注释记录验证：必需字段齐备 + 类型精确 + 已知键重复拒绝。
 fn valid_ann_record(t str, start int, end int) str {
     var i int = skip_ws(t, start + 1)
@@ -1082,6 +1602,7 @@ fn valid_ann_record(t str, start int, end int) str {
     var seen_tags int = 0
     var seen_ca int = 0
     var seen_ua int = 0
+    var seen_loc int = 0
     var guard int = 0
     while i < end {
         if guard > 512 {
@@ -1245,6 +1766,21 @@ fn valid_ann_record(t str, start int, end int) str {
                 return "annotations record updated_at must be an integer"
             }
         }
+        if key == "locator" {
+            if seen_loc == 1 {
+                return "annotations record duplicate key: locator"
+            }
+            seen_loc = 1
+            // READER-007 T-05：可选 v2 锚（方案甲——v1 字段恒在场，锚可选；
+            // 词法形态由 valid_ann_locator 承担，语义核验在写入/回访环）。
+            if kind != "obj" {
+                return "annotations record locator must be an object"
+            }
+            let lerr str = valid_ann_locator(t, i, ve)
+            if lerr != "" {
+                return lerr
+            }
+        }
         i = skip_ws(t, ve)
     }
     if seen_aid == 0 {
@@ -1345,11 +1881,15 @@ pub fn valid_annotations(raw str) str {
             }
             let span str = t.substr(i, ve - i)
             if !span_is_int(span) {
-                return "annotations version must be the integer 1"
+                return "annotations version must be the integer 1 or 2"
             }
             let nv int = span.to_int()
+            // READER-007 T-05：1 = 纯 v1；2 = 含任一 v2 锚（方案甲同文件
+            // 版本化——旧客户端对 version:2 具名拒绝，优于静默丢引用）。
             if nv != 1 {
-                return "annotations version must be the integer 1"
+                if nv != 2 {
+                    return "annotations version must be the integer 1 or 2"
+                }
             }
             ver_ok = 1
         }
@@ -1843,9 +2383,12 @@ fn t_valid_annotations() {
     expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":5,\"annotations\":[{\"annotation_id\":\"a1\",\"kind\":\"highlight\",\"chapter_number\":1,\"para_idx\":2,\"quote\":\"原文\",\"occurrence\":1,\"comment\":\"批注\",\"tags\":[\"重点\"],\"created_at\":3,\"updated_at\":4}]}") == "")
     // 合法：空白与键序无关；未知键容忍
     expect(valid_annotations("{ \"version\" : 1 , \"book_id\" : \"b\" , \"source_hash\" : \"h\" , \"updated_at\" : 0 , \"annotations\" : [ ] , \"extra\":1 }") == "")
-    // 非法：version 非整数字面量 1
-    expect(valid_annotations("{\"version\":2,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[]}") != "")
+    // 非法：version 非整数字面量 1（READER-007 T-05 起：2 = 含 v2 锚形态，合法）
+    expect(valid_annotations("{\"version\":3,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[]}") != "")
     expect(valid_annotations("{\"version\":\"1\",\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[]}") != "")
+    // 合法：version 2（方案甲同文件版本化；纯 v1 记录 + version 2 属写侧纪律面，
+    // 词法门容忍——写侧由 annotations.at 仅在存在 v2 锚时升 2）
+    expect(valid_annotations("{\"version\":2,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[]}") == "")
     // 非法：缺必需顶层键
     expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"source_hash\":\"h\",\"annotations\":[]}") != "")
     expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"updated_at\":0,\"annotations\":[]}") != "")
@@ -1860,6 +2403,24 @@ fn t_valid_annotations() {
     // 非法：tags 元素非串 / 超数量
     expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[{\"annotation_id\":\"a\",\"kind\":\"bookmark\",\"chapter_number\":1,\"para_idx\":-1,\"quote\":\"\",\"occurrence\":1,\"comment\":\"\",\"tags\":[1],\"created_at\":0,\"updated_at\":0}]}") != "")
     expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[{\"annotation_id\":\"a\",\"kind\":\"bookmark\",\"chapter_number\":1,\"para_idx\":-1,\"quote\":\"\",\"occurrence\":1,\"comment\":\"\",\"tags\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\",\"10\",\"11\"],\"created_at\":0,\"updated_at\":0}]}") != "")
+    // READER-007 T-05：记录级可选 locator（v2 锚）——合法形态
+    expect(valid_annotations("{\"version\":2,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[{\"annotation_id\":\"a1\",\"kind\":\"highlight\",\"chapter_number\":3,\"para_idx\":-1,\"quote\":\"重复句\",\"occurrence\":2,\"comment\":\"\",\"tags\":[],\"created_at\":1,\"updated_at\":2,\"locator\":{\"schema\":\"reader-locator\",\"version\":1,\"kind\":\"epub_range\",\"book_id\":\"b\",\"source_hash\":\"h\",\"resource\":{\"spine_index\":3,\"href\":\"ch3.xhtml\"},\"engine\":{\"name\":\"foliate-js\",\"revision\":\"3d794195\"},\"range\":{\"start\":{\"cfi\":\"epubcfi(/6/4!/4/2,/1:0)\"}},\"quote\":\"重复句\",\"context\":{\"before\":\"前文\",\"after\":\"后文\"},\"occurrence\":{\"scope\":\"book\",\"index\":2},\"created_at\":1}}]}") == "")
+    // 非法：locator 非 对象 / 重复键
+    expect(valid_annotations("{\"version\":2,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[{\"annotation_id\":\"a1\",\"kind\":\"highlight\",\"chapter_number\":1,\"para_idx\":0,\"quote\":\"q\",\"occurrence\":1,\"comment\":\"\",\"tags\":[],\"created_at\":0,\"updated_at\":0,\"locator\":5}]}") != "")
+    expect(valid_annotations("{\"version\":2,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[{\"annotation_id\":\"a1\",\"kind\":\"highlight\",\"chapter_number\":1,\"para_idx\":0,\"quote\":\"q\",\"occurrence\":1,\"comment\":\"\",\"tags\":[],\"created_at\":0,\"updated_at\":0,\"locator\":{\"schema\":\"reader-locator\",\"schema\":\"reader-locator\",\"version\":1,\"kind\":\"epub_range\",\"book_id\":\"b\",\"source_hash\":\"h\",\"resource\":{\"spine_index\":1,\"href\":\"c.xhtml\"},\"engine\":{\"name\":\"e\",\"revision\":\"r\"},\"range\":{\"start\":{\"cfi\":\"epubcfi(/6/4)\"}},\"quote\":\"q\",\"context\":{\"before\":\"\",\"after\":\"\"},\"occurrence\":{\"scope\":\"book\",\"index\":1},\"created_at\":0}}]}") != "")
+    // 非法：locator 缺必需子键（resource.spine_index / occurrence.scope）
+    expect(valid_annotations("{\"version\":2,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[{\"annotation_id\":\"a1\",\"kind\":\"highlight\",\"chapter_number\":1,\"para_idx\":0,\"quote\":\"q\",\"occurrence\":1,\"comment\":\"\",\"tags\":[],\"created_at\":0,\"updated_at\":0,\"locator\":{\"schema\":\"reader-locator\",\"version\":1,\"kind\":\"epub_range\",\"book_id\":\"b\",\"source_hash\":\"h\",\"resource\":{\"href\":\"c.xhtml\"},\"engine\":{\"name\":\"e\",\"revision\":\"r\"},\"range\":{\"start\":{\"cfi\":\"epubcfi(/6/4)\"}},\"quote\":\"q\",\"context\":{\"before\":\"\",\"after\":\"\"},\"occurrence\":{\"scope\":\"book\",\"index\":1},\"created_at\":0}}]}") != "")
+    expect(valid_annotations("{\"version\":2,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[{\"annotation_id\":\"a1\",\"kind\":\"highlight\",\"chapter_number\":1,\"para_idx\":0,\"quote\":\"q\",\"occurrence\":1,\"comment\":\"\",\"tags\":[],\"created_at\":0,\"updated_at\":0,\"locator\":{\"schema\":\"reader-locator\",\"version\":1,\"kind\":\"epub_range\",\"book_id\":\"b\",\"source_hash\":\"h\",\"resource\":{\"spine_index\":1,\"href\":\"c.xhtml\"},\"engine\":{\"name\":\"e\",\"revision\":\"r\"},\"range\":{\"start\":{\"cfi\":\"epubcfi(/6/4)\"}},\"quote\":\"q\",\"context\":{\"before\":\"\",\"after\":\"\"},\"occurrence\":{\"index\":1},\"created_at\":0}}]}") != "")
+    // 非法：locator version 非 1 / scope 枚举外 / schema 字面量不符
+    expect(valid_locator_document("{\"schema\":\"reader-locator\",\"version\":2,\"kind\":\"epub_range\",\"book_id\":\"b\",\"source_hash\":\"h\",\"resource\":{\"spine_index\":1,\"href\":\"c.xhtml\"},\"engine\":{\"name\":\"e\",\"revision\":\"r\"},\"range\":{\"start\":{\"cfi\":\"epubcfi(/6/4)\"}},\"quote\":\"q\",\"context\":{\"before\":\"\",\"after\":\"\"},\"occurrence\":{\"scope\":\"book\",\"index\":1},\"created_at\":0}") != "")
+    expect(valid_locator_document("{\"schema\":\"reader-locator\",\"version\":1,\"kind\":\"epub_range\",\"book_id\":\"b\",\"source_hash\":\"h\",\"resource\":{\"spine_index\":1,\"href\":\"c.xhtml\"},\"engine\":{\"name\":\"e\",\"revision\":\"r\"},\"range\":{\"start\":{\"cfi\":\"epubcfi(/6/4)\"}},\"quote\":\"q\",\"context\":{\"before\":\"\",\"after\":\"\"},\"occurrence\":{\"scope\":\"paragraph\",\"index\":1},\"created_at\":0}") != "")
+    expect(valid_locator_document("{\"schema\":\"other\",\"version\":1,\"kind\":\"epub_range\",\"book_id\":\"b\",\"source_hash\":\"h\",\"resource\":{\"spine_index\":1,\"href\":\"c.xhtml\"},\"engine\":{\"name\":\"e\",\"revision\":\"r\"},\"range\":{\"start\":{\"cfi\":\"epubcfi(/6/4)\"}},\"quote\":\"q\",\"context\":{\"before\":\"\",\"after\":\"\"},\"occurrence\":{\"scope\":\"book\",\"index\":1},\"created_at\":0}") != "")
+    // 合法：legacy_paragraph（保留形态）；range.end 可选
+    expect(valid_locator_document("{\"schema\":\"reader-locator\",\"version\":1,\"kind\":\"legacy_paragraph\",\"book_id\":\"b\",\"source_hash\":\"h\",\"resource\":{\"spine_index\":2,\"href\":\"c2.xhtml\"},\"engine\":{\"name\":\"e\",\"revision\":\"r\"},\"range\":{\"start\":{\"cfi\":\"epubcfi(/6/4,/1:0)\"},\"end\":{\"cfi\":\"epubcfi(/6/4,/1:9)\"}},\"quote\":\"q\",\"context\":{\"before\":\"\",\"after\":\"\"},\"occurrence\":{\"scope\":\"resource\",\"index\":1},\"created_at\":0}") == "")
+    // 非法：独立文档尾随内容 / 缺 range.start / 非对象
+    expect(valid_locator_document("{\"schema\":\"reader-locator\",\"version\":1,\"kind\":\"epub_range\",\"book_id\":\"b\",\"source_hash\":\"h\",\"resource\":{\"spine_index\":1,\"href\":\"c.xhtml\"},\"engine\":{\"name\":\"e\",\"revision\":\"r\"},\"range\":{\"end\":{\"cfi\":\"epubcfi(/6/4)\"}},\"quote\":\"q\",\"context\":{\"before\":\"\",\"after\":\"\"},\"occurrence\":{\"scope\":\"book\",\"index\":1},\"created_at\":0}") != "")
+    expect(valid_locator_document("[]") != "")
+    expect(valid_locator_document("{\"schema\":\"reader-locator\",\"version\":1,\"kind\":\"epub_range\",\"book_id\":\"b\",\"source_hash\":\"h\",\"resource\":{\"spine_index\":1,\"href\":\"c.xhtml\"},\"engine\":{\"name\":\"e\",\"revision\":\"r\"},\"range\":{\"start\":{\"cfi\":\"epubcfi(/6/4)\"}},\"quote\":\"q\",\"context\":{\"before\":\"\",\"after\":\"\"},\"occurrence\":{\"scope\":\"book\",\"index\":1},\"created_at\":0} x") != "")
     // 非法：结构坏 / 尾随内容
     expect(valid_annotations("[]") != "")
     expect(valid_annotations("{\"version\":1,\"book_id\":\"b\",\"source_hash\":\"h\",\"updated_at\":0,\"annotations\":[]}x") != "")

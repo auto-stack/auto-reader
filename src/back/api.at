@@ -137,10 +137,21 @@ pub fn library_get_reading(book_id str) str {
 /// 字段（Phase 3 F-08/F-10：段级定位必填，后端与当前原文行逐字核对后
 /// 注入存储态；走外层 JSON 传输，前端零转义）。校验失败以
 /// {"ok":false,"message"} 返回。VM HTTP 层对 PUT+str 返回会丢响应体
-/// （T-02 实测），故写端点用 POST。
+/// （T-02 实测），故写端点用 POST。旧端点形态不变（v2 锚经
+/// /api/library/progress-v2 显式写入；本端点保存前向延续存量锚）。
 #[api(method = "POST", path = "/api/library/progress")]
 pub fn library_put_reading(book_id str, payload str, para_text str) str {
     return db.library_put_reading(book_id, payload, para_text)
+}
+
+/// POST /api/library/progress-v2 — READER-007 T-05：携带可选顶层 v2 锚的
+/// 阅读状态写端点（方案甲）。body: { book_id, payload, para_text,
+/// locator }——locator 为 canonical reader-locator 文档（恢复环核验通过
+/// 才入存储态；空串 = 仅前向延续存量锚）。其余语义与 /api/library/progress
+/// 逐字一致。
+#[api(method = "POST", path = "/api/library/progress-v2")]
+pub fn library_put_reading_v2(book_id str, payload str, para_text str, locator str) str {
+    return db.library_put_reading_locator(book_id, payload, para_text, locator)
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -160,9 +171,21 @@ pub fn library_annotations(book_id str) str {
 ///         occurrence, comment, tags_json, quote }
 /// op=create|update|delete；op=update/delete 时未用锚字段传默认值
 /// （chapter_number=0 等）；tags_json 为字符串数组 JSON 文本。
+/// 旧端点形态不变（v2 锚经 /api/library/annotations-v2；本端点写纯 v1
+/// 记录，存量 v2 锚在读改写中 canonical 保留）。
 #[api(method = "POST", path = "/api/library/annotations")]
 pub fn library_put_annotations(book_id str, op str, annotation_id str, kind str, chapter_number int, para_idx int, occurrence int, comment str, tags_json str, quote str) str {
     return db.library_put_annotations(book_id, op, annotation_id, kind, chapter_number, para_idx, occurrence, comment, tags_json, quote)
+}
+
+/// POST /api/library/annotations-v2 — READER-007 T-05：携带可选 v2 锚的
+/// 注释写端点（方案甲）。body 在旧形态基础上追加 locator_json：
+/// op=create 直接携带（恢复环核验 + 与 v1 锚同一性通过才落盘）、
+/// op=anchor 为存量 v1 记录追加（唯一映射证明才生成）；锚字段不可变，
+/// op=update 不接受改锚。
+#[api(method = "POST", path = "/api/library/annotations-v2")]
+pub fn library_put_annotations_v2(book_id str, op str, annotation_id str, kind str, chapter_number int, para_idx int, occurrence int, comment str, tags_json str, quote str, locator_json str) str {
+    return db.library_put_annotations_locator(book_id, op, annotation_id, kind, chapter_number, para_idx, occurrence, comment, tags_json, quote, locator_json)
 }
 
 /// POST /api/library/search — 段粒度全文搜索。
@@ -245,4 +268,31 @@ pub fn reader_command(session_id str, op str, index int, font_size str, layout s
 #[api(method = "GET", path = "/api/reader/command")]
 pub fn reader_commands(session_id str, after_seq int) str {
     return db.reader_command_list(session_id, after_seq)
+}
+
+// ═══════════════════════════════════════════════════════════
+// READER-007 T-05：Locator v2 录入环与恢复/回访环（契约
+// docs/design/02-epub-engine-reading.md §4/§5 冻结）。
+// ═══════════════════════════════════════════════════════════
+
+/// POST /api/reader/locator — 引擎 adapter locator 回传（T-03 建立的
+/// 传输 seam；此前 404 诚实失败，本端点起为录入环）。body 为 adapter
+/// locator_select/input_probe 消息：{ kind, session_id, book_id,
+/// source_hash, engine, resource_index, cfi, range_cfi, text_quote,
+/// occurrence, ... }（context_*/resource_href/seq/ts 为传输字段，canonical
+/// context 由服务器从章缓存正文计算——不信任引擎自述）。返回
+/// {"ok":true,"locator":{…}}（canonical reader-locator v1，UI 消费面）或
+/// 具名拒绝；零写入。
+#[api(method = "POST", path = "/api/reader/locator")]
+pub fn reader_locator(session_id str, kind str, book_id str, source_hash str, engine str, resource_index int, cfi str, range_cfi str, text_quote str, occurrence int) str {
+    return db.reader_locator(session_id, kind, book_id, source_hash, engine, resource_index, cfi, range_cfi, text_quote, occurrence)
+}
+
+/// POST /api/library/locator/verify — 恢复/回访环 oracle（只读比对零写入）。
+/// body: { book_id, locator }——locator 为 canonical reader-locator 文档。
+/// 返回 {"ok":true,"match":true} / {"ok":true,"match":false,"reason":
+/// "needs_relocate:…"} / {"ok":false,"error":…}（结构/身份拒）。
+#[api(method = "POST", path = "/api/library/locator/verify")]
+pub fn library_locator_verify(book_id str, locator str) str {
+    return db.library_locator_verify(book_id, locator)
 }

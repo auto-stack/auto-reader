@@ -718,6 +718,27 @@ fn img_entry_json(k str, uri str, err str) str {
 /// XHTML → 文本行（段落/标题/图片标记行），"\n" 连接。
 /// 图片：<img src> → "img:<zip 内路径>" 行。实体五预定义解码。
 /// script/style 剥离。v1 边界（能力表记录）：行内链接不拆段。
+/// 开标签文本内属性取值（`attr="value"` 首现；未命中 ""）。
+/// N-r007-xlinks1（READER-007 T-05 缺陷修复）：章链接解析原经
+/// xml_attr(body, pos, …) 对剩余整段正文做 find_after——每块一次
+/// O(剩余正文) 尾复制，长章（12000 块）退化为 O(块数×正文长)
+/// （>300s + GB 级瞬存，product-alpha ch2→ch3 级联/ch3 自身实测挂起，
+/// 2026-11-03）。调用点已在手标签 span（tag），属性取值改为标签内
+/// 局部查找——取值语义不变（同标签同 attr 同值），复杂度 O(标签长)。
+fn tag_attr_of(seg str, attr str) str {
+    let pat str = attr + "=\""
+    let a int = seg.find(pat)
+    if a < 0 {
+        return ""
+    }
+    let vs int = a + pat.len()
+    let ve int = seg.find("\"", vs)
+    if ve < 0 {
+        return ""
+    }
+    return seg.substr(vs, ve - vs)
+}
+
 fn xhtml_to_lines(xhtml str, opf_dir str) str {
     var body str = xml_text(xhtml, 0, "<body", "</body>")
     if body == "" {
@@ -725,57 +746,100 @@ fn xhtml_to_lines(xhtml str, opf_dir str) str {
     }
     body = strip_block(body, "<script", "</script>")
     body = strip_block(body, "<style", "</style>")
+    let parts = body.split("<")
+    // N-r007-xlines1（READER-007 T-05 缺陷修复）：扫描改 split("<") 一次 +
+    // 逐段局部处理。原实现逐 tag find_after——每次调用 substr 复制剩余整段
+    // 正文（O(块数×正文长)），长章（12000 块）实测 >300s 不终止（2026-11-03
+    // product-alpha ch2→ch3 级联/ch3 自身挂起，搜索/注释/locator 全被拖住）。
+    // 步数预算面：实体/图片探测提升到全书一次（正文无 "&"/"<img" 时每段免
+    // find native）；512 段计数 spills（免每段 len native）把不可变串重建
+    // 降到 O(正文长×常数)。语义逐点等价：文本/标签交替序、img/block flush、
+    // 无 ">" 段与超 65536 段守卫按原 break 语义把余段原文并入。
+    let has_ent bool = body.find("&") >= 0
+    let has_img bool = body.find("<img") >= 0
     var out str = ""
-    var pos int = 0
     var cur str = ""
-    var guard int = 0
-    while guard < 65536 {
-        guard = guard + 1
-        let lt int = find_after(body, "<", pos)
-        if lt < 0 {
-            break
-        }
-        if lt > pos {
-            let seg str = body.substr(pos, lt - pos)
+    var batch str = ""
+    var first bool = true
+    var processed int = 0
+    var spilled int = 0
+    var broken bool = false
+    for seg in parts {
+        if first {
+            first = false
             cur = cur + decode_entities(seg)
+            continue
         }
-        let gt int = find_after(body, ">", lt)
+        if broken {
+            cur = cur + decode_entities("<" + seg)
+            continue
+        }
+        if processed >= 65536 {
+            broken = true
+            cur = cur + decode_entities("<" + seg)
+            continue
+        }
+        let gt int = seg.find(">")
         if gt < 0 {
-            break
+            broken = true
+            cur = cur + decode_entities("<" + seg)
+            continue
         }
-        let tag str = body.substr(lt, gt - lt + 1)
-        if tag.find("<img") == 0 {
-            let src str = xml_attr(body, pos, "img", "src")
-            if cur.trim() != "" {
-                out = out + cur.trim()
-                out = out + "\n"
-                cur = ""
-            }
-            let imgpath str = epub_zip_path(opf_dir, src)
-            if imgpath != "" {
-                var il str = "img:"
-                il = il + imgpath
-                out = out + il
-                out = out + "\n"
+        processed = processed + 1
+        var tag str = "<"
+        tag = tag + seg.substr(0, gt + 1)
+        let text str = seg.substr(gt + 1, seg.len() - gt - 1)
+        if has_img {
+            if tag.find("<img") == 0 {
+                // img src 标签内局部取值（同 N-r007-xlinks1 缺陷类）
+                let src str = tag_attr_of(tag, "src")
+                if cur.trim() != "" {
+                    batch = batch + cur.trim()
+                    batch = batch + "\n"
+                    cur = ""
+                }
+                let imgpath str = epub_zip_path(opf_dir, src)
+                if imgpath != "" {
+                    var il str = "img:"
+                    il = il + imgpath
+                    batch = batch + il
+                    batch = batch + "\n"
+                }
+            } else {
+                if is_block_tag(tag) {
+                    if cur.trim() != "" {
+                        batch = batch + cur.trim()
+                        batch = batch + "\n"
+                        cur = ""
+                    }
+                }
             }
         } else {
             if is_block_tag(tag) {
                 if cur.trim() != "" {
-                    out = out + cur.trim()
-                    out = out + "\n"
+                    batch = batch + cur.trim()
+                    batch = batch + "\n"
                     cur = ""
                 }
             }
         }
-        pos = gt + 1
-    }
-    if pos < body.len() {
-        cur = cur + decode_entities(body.substr(pos, body.len() - pos))
+        if has_ent {
+            cur = cur + decode_entities(text)
+        } else {
+            cur = cur + text
+        }
+        spilled = spilled + 1
+        if spilled >= 512 {
+            out = out + batch
+            batch = ""
+            spilled = 0
+        }
     }
     if cur.trim() != "" {
-        out = out + cur.trim()
-        out = out + "\n"
+        batch = batch + cur.trim()
+        batch = batch + "\n"
     }
+    out = out + batch
     return out
 }
 
@@ -826,6 +890,12 @@ fn epub_dir_of(p str) str {
 /// ids: {id: line}（块级元素 id → 其内容 flush 行号；嵌套取首个内层
 /// flush 行——div 包多段时锚其首段，能力表记录）。
 /// 空 label（如纯图链接）不收录（v1 边界）。
+/// N-r007-xlinks1（READER-007 T-05 缺陷修复）：扫描改 split("<") 一次 +
+/// 逐段局部处理（原逐 tag/逐 link find_after 各复制一次剩余正文尾——
+/// O(块数×正文长)，长章挂起实证同 xhtml_to_lines）。行号/ids/links 记录
+/// 判定与原一致；label 由「</a> 前原文 strip_tags」等价改为「顺序累积
+/// 文本部、</a> 截断、4096 同界放弃」（strip_tags(raw) ≡ 文本部拼接，
+/// 标签内嵌文本经分段自然扁平化；嵌套 <a>/异常嵌套边界随 v1 能力表）。
 fn xhtml_links(xhtml str, base_dir str) str {
     var body str = xml_text(xhtml, 0, "<body", "</body>")
     if body == "" {
@@ -833,29 +903,46 @@ fn xhtml_links(xhtml str, base_dir str) str {
     }
     body = strip_block(body, "<script", "</script>")
     body = strip_block(body, "<style", "</style>")
+    let parts = body.split("<")
     var links str = "["
     var lkn int = 0
     var ids str = "{"
     var idn int = 0
     var pending str = ""
     var nline int = 0
-    var pos int = 0
     var cur str = ""
-    var guard int = 0
-    while guard < 65536 {
-        guard = guard + 1
-        let lt int = find_after(body, "<", pos)
-        if lt < 0 {
-            break
+    var first bool = true
+    var processed int = 0
+    var broken bool = false
+    var in_link bool = false
+    var link_href str = ""
+    var link_line int = 0
+    var label str = ""
+    for seg in parts {
+        if first {
+            first = false
+            cur = cur + decode_entities(seg)
+            continue
         }
-        if lt > pos {
-            cur = cur + decode_entities(body.substr(pos, lt - pos))
+        if broken {
+            cur = cur + decode_entities("<" + seg)
+            continue
         }
-        let gt int = find_after(body, ">", lt)
+        if processed >= 65536 {
+            broken = true
+            cur = cur + decode_entities("<" + seg)
+            continue
+        }
+        let gt int = seg.find(">")
         if gt < 0 {
-            break
+            broken = true
+            cur = cur + decode_entities("<" + seg)
+            continue
         }
-        let tag str = body.substr(lt, gt - lt + 1)
+        processed = processed + 1
+        var tag str = "<"
+        tag = tag + seg.substr(0, gt + 1)
+        let text str = seg.substr(gt + 1, seg.len() - gt - 1)
         if tag.find("<img") == 0 {
             // 与 xhtml_to_lines 同形：flush 当前段（可能记 pending id），
             // 再产出 img: 行占位
@@ -887,8 +974,8 @@ fn xhtml_links(xhtml str, base_dir str) str {
                     cur = ""
                 }
                 if tag.substr(1, 1) != "/" {
-                    // 块级开标签可携带 id（锚点目标）
-                    let idv str = xml_attr(body, pos, tag.substr(1, tag.len() - 2), "id")
+                    // 块级开标签可携带 id（锚点目标）——标签内局部取值
+                    let idv str = tag_attr_of(tag, "id")
                     if idv != "" {
                         if pending == "" {
                             pending = idv
@@ -897,7 +984,56 @@ fn xhtml_links(xhtml str, base_dir str) str {
                 }
             }
         }
-        // <a href>：行内不拆段（文本照常入段），仅登记 {line,href,label}
+        // 在链状态：本段是否关闭（</a> 为独立 tag 段，或落在 text 内）
+        if in_link {
+            if tag == "</a>" {
+                let lbl str = label.trim()
+                if lbl != "" {
+                    if lkn > 0 {
+                        links = links + ","
+                    }
+                    var rec str = "{\"line\":"
+                    rec = rec + link_line.to_string()
+                    rec = rec + ",\"href\":\""
+                    rec = rec + json_escape(link_href)
+                    rec = rec + "\",\"label\":\""
+                    rec = rec + json_escape(lbl)
+                    rec = rec + "\"}"
+                    links = links + rec
+                    lkn = lkn + 1
+                }
+                in_link = false
+            } else {
+                let cp int = text.find("</a>")
+                if cp >= 0 {
+                    let part str = text.substr(0, cp)
+                    if label.len() <= 4096 {
+                        label = label + part
+                    }
+                    let lbl2 str = label.trim()
+                    if lbl2 != "" {
+                        if lkn > 0 {
+                            links = links + ","
+                        }
+                        var rec2 str = "{\"line\":"
+                        rec2 = rec2 + link_line.to_string()
+                        rec2 = rec2 + ",\"href\":\""
+                        rec2 = rec2 + json_escape(link_href)
+                        rec2 = rec2 + "\",\"label\":\""
+                        rec2 = rec2 + json_escape(lbl2)
+                        rec2 = rec2 + "\"}"
+                        links = links + rec2
+                        lkn = lkn + 1
+                    }
+                    in_link = false
+                } else {
+                    if label.len() <= 4096 {
+                        label = label + text
+                    }
+                }
+            }
+        }
+        // <a href>：行内不拆段（文本照常入段），登记在链状态
         var is_a bool = false
         if tag.len() > 3 {
             if tag.substr(0, 3) == "<a " {
@@ -908,35 +1044,38 @@ fn xhtml_links(xhtml str, base_dir str) str {
             is_a = true
         }
         if is_a {
-            let href str = xml_attr(body, pos, "a", "href")
-            if href != "" {
-                let ac int = find_after(body, "</a>", gt)
-                if ac >= 0 {
-                    if ac - gt < 4096 {
-                        let raw str = body.substr(gt + 1, ac - gt - 1)
-                        let lbl str = decode_entities(strip_tags(raw)).trim()
-                        if lbl != "" {
+            if !in_link {
+                let href str = tag_attr_of(tag, "href")
+                if href != "" {
+                    in_link = true
+                    link_href = href
+                    link_line = nline
+                    // label 种子 = 本段 text（</a> 前文本；同段闭合则截断）
+                    label = text
+                    let cp2 int = text.find("</a>")
+                    if cp2 >= 0 {
+                        label = text.substr(0, cp2)
+                        let lbl3 str = label.trim()
+                        if lbl3 != "" {
                             if lkn > 0 {
                                 links = links + ","
                             }
-                            var rec str = "{\"line\":"
-                            rec = rec + nline.to_string()
-                            rec = rec + ",\"href\":\""
-                            rec = rec + json_escape(href)
-                            rec = rec + "\",\"label\":\""
-                            rec = rec + json_escape(lbl)
-                            rec = rec + "\"}"
-                            links = links + rec
+                            var rec3 str = "{\"line\":"
+                            rec3 = rec3 + link_line.to_string()
+                            rec3 = rec3 + ",\"href\":\""
+                            rec3 = rec3 + json_escape(link_href)
+                            rec3 = rec3 + "\",\"label\":\""
+                            rec3 = rec3 + json_escape(lbl3)
+                            rec3 = rec3 + "\"}"
+                            links = links + rec3
                             lkn = lkn + 1
                         }
+                        in_link = false
                     }
                 }
             }
         }
-        pos = gt + 1
-    }
-    if pos < body.len() {
-        cur = cur + decode_entities(body.substr(pos, body.len() - pos))
+        cur = cur + decode_entities(text)
     }
     if cur.trim() != "" {
         if pending != "" {
@@ -1014,70 +1153,115 @@ fn strip_block(s str, open str, close str) str {
 }
 
 fn is_block_tag(tag str) bool {
-    if tag.find("<p") == 0 {
+    // N-r007-xlinks1（步数预算面）：前缀集 {p,/p,h1..h6,/h1../h6,li,/li,
+    // div,/div,br,tr} 经 2-3 次 substr + 等值链判别（原 10-22 次 find；
+    // 语义逐点等价——前缀匹配含 <pre 等由 "<p" 二字符前缀天然覆盖）。
+    let h2 str = tag.substr(0, 2)
+    if h2 == "<p" {
         return true
     }
-    if tag.find("</p") == 0 {
-        return true
+    if h2 == "<h" {
+        let h3 str = tag.substr(0, 3)
+        if h3 == "<h1" {
+            return true
+        }
+        if h3 == "<h2" {
+            return true
+        }
+        if h3 == "<h3" {
+            return true
+        }
+        if h3 == "<h4" {
+            return true
+        }
+        if h3 == "<h5" {
+            return true
+        }
+        if h3 == "<h6" {
+            return true
+        }
+        return false
     }
-    if tag.find("<h1") == 0 {
-        return true
+    if h2 == "<l" {
+        let h3b str = tag.substr(0, 3)
+        if h3b == "<li" {
+            return true
+        }
+        return false
     }
-    if tag.find("</h1") == 0 {
-        return true
+    if h2 == "<d" {
+        let h4 str = tag.substr(0, 4)
+        if h4 == "<div" {
+            return true
+        }
+        return false
     }
-    if tag.find("<h2") == 0 {
-        return true
+    if h2 == "<b" {
+        let h3c str = tag.substr(0, 3)
+        if h3c == "<br" {
+            return true
+        }
+        return false
     }
-    if tag.find("</h2") == 0 {
-        return true
+    if h2 == "<t" {
+        let h3d str = tag.substr(0, 3)
+        if h3d == "<tr" {
+            return true
+        }
+        return false
     }
-    if tag.find("<h3") == 0 {
-        return true
-    }
-    if tag.find("</h3") == 0 {
-        return true
-    }
-    if tag.find("<h4") == 0 {
-        return true
-    }
-    if tag.find("</h4") == 0 {
-        return true
-    }
-    if tag.find("<h5") == 0 {
-        return true
-    }
-    if tag.find("</h5") == 0 {
-        return true
-    }
-    if tag.find("<h6") == 0 {
-        return true
-    }
-    if tag.find("</h6") == 0 {
-        return true
-    }
-    if tag.find("<li") == 0 {
-        return true
-    }
-    if tag.find("</li") == 0 {
-        return true
-    }
-    if tag.find("<div") == 0 {
-        return true
-    }
-    if tag.find("</div") == 0 {
-        return true
-    }
-    if tag.find("<br") == 0 {
-        return true
-    }
-    if tag.find("<tr") == 0 {
-        return true
+    if h2 == "</" {
+        let h3e str = tag.substr(0, 3)
+        if h3e == "</p" {
+            return true
+        }
+        if h3e == "</h" {
+            let h4b str = tag.substr(0, 4)
+            if h4b == "</h1" {
+                return true
+            }
+            if h4b == "</h2" {
+                return true
+            }
+            if h4b == "</h3" {
+                return true
+            }
+            if h4b == "</h4" {
+                return true
+            }
+            if h4b == "</h5" {
+                return true
+            }
+            if h4b == "</h6" {
+                return true
+            }
+            return false
+        }
+        if h3e == "</l" {
+            let h4c str = tag.substr(0, 4)
+            if h4c == "</li" {
+                return true
+            }
+            return false
+        }
+        if h3e == "</d" {
+            let h4d str = tag.substr(0, 5)
+            if h4d == "</div" {
+                return true
+            }
+            return false
+        }
+        return false
     }
     return false
 }
 
 fn decode_entities(s str) str {
+    // N-r007-xlines1 同源（VM 步数预算）：无 "&" 文本占绝对多数——
+    // 单次 find 短路，免 5 次 replace（每段 ~10 native 调用 → 1）。
+    if s.find("&") < 0 {
+        return s
+    }
     var out str = s
     out = out.replace("&amp;", "&")
     out = out.replace("&lt;", "<")
@@ -1131,20 +1315,16 @@ pub fn epub_chapter_json(bid str, managed str, opf_dir str, hrefs str, number in
     // 提取（失败无半写残留）→ 应用自有媒体 URI（/api/reader/media，传输层
     // GET/HEAD/区间 + root 越界 403）；缓存命中同样返回 URI。错误项带
     // 拒绝码诚实可见，不删行不静默（书与位置不受损）。
+    // N-r007-xlines2（READER-007 T-05 缺陷修复）：图片扫描改 split 一次 +
+    // for-in。原 find_after(lines, "\n", lpos) 每行复制剩余正文尾
+    // （O(行数×正文长)，长章 4096 行守卫内即 ~GB 级复制、实测挂起）；
+    // 顺带移除 4096 行处理上限（守卫是防死锁面而非语义面——超限行静默
+    // 丢图与「不静默丢内容」相悖，长章尾部插图因此曾被漏处理）。
     var images str = "["
     var lines str = t
-    var lpos int = 0
-    var lguard int = 0
     var img_n int = 0
-    while lguard < 4096 {
-        lguard = lguard + 1
-        let eol int = find_after(lines, "\n", lpos)
-        var line str = ""
-        if eol < 0 {
-            line = lines.substr(lpos, lines.len() - lpos)
-        } else {
-            line = lines.substr(lpos, eol - lpos)
-        }
+    let lns = lines.split("\n")
+    for line in lns {
         if line.find("img:") == 0 {
             let zpath str = line.substr(4, line.len() - 4)
             let ctype str = epub_img_type_of(zpath)
@@ -1186,10 +1366,6 @@ pub fn epub_chapter_json(bid str, managed str, opf_dir str, hrefs str, number in
             images = images + entry
             img_n = img_n + 1
         }
-        if eol < 0 {
-            break
-        }
-        lpos = eol + 1
     }
     images = images + "]"
     // ── T-03 链接目标解析 ──
