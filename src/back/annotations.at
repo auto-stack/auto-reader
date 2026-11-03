@@ -975,6 +975,31 @@ pub fn export_annotations_json(book_id str) str {
             md = md + "\n\n"
         }
         md = md + "（annotation_id: " + fid + "）\n\n"
+        // READER-007 T-07：v2 锚记录追加版本化定位信息（可独立解析——
+        // spine/cfi/occurrence 全部来自 canonical locator 字段；纯 v1
+        // 记录无此行，不伪造定位）。
+        if has_locator(it) {
+            let lemitted str = locator_emit(it.locator)
+            if lemitted != "" {
+                var loc_line str = ""
+                try {
+                    let lo = it.locator
+                    let lspine str = "" + lo.resource.spine_index
+                    let lcfi str = "" + lo.range.start.cfi
+                    let lscope str = "" + lo.occurrence.scope
+                    let lidx str = "" + lo.occurrence.index
+                    loc_line = "定位（v2）：spine=" + lspine
+                    loc_line = loc_line + " cfi=" + lcfi
+                    loc_line = loc_line + " occurrence=" + lscope
+                    loc_line = loc_line + "#" + lidx
+                } catch {
+                    loc_line = ""
+                }
+                if loc_line != "" {
+                    md = md + loc_line + "\n\n"
+                }
+            }
+        }
     }
     let ed str = data_dir()
     let exp_dir str = join(ed, "exports")

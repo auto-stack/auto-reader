@@ -1309,6 +1309,62 @@ widget reading_page {
                         if mres != "ok" {
                             .engine_note = "引擎装载失败：" + mres
                         }
+                        // READER-007 T-07：冷恢复 v1/v2——阅读状态含 locator
+                        // （EPUB v2 位次面）按其 spine 定位；否则按既有
+                        // chapter_number；无状态默认章 1（doc-surface 初态）。
+                        // goto 经会话命令队列（adapter 就绪后执行）。
+                        var rest_ch int = 0
+                        var prj str = ""
+                        try {
+                            prj = Http.get_json("/api/library/progress?book_id=" + .route_id)
+                        } catch {
+                            prj = ""
+                        }
+                        if prj != "" {
+                            let pr = parse_lib(prj)
+                            if pr != null {
+                                var has_loc2 bool = false
+                                try {
+                                    let lchk = pr.locator
+                                    has_loc2 = true
+                                } catch {
+                                    has_loc2 = false
+                                }
+                                if has_loc2 {
+                                    try {
+                                        let rs str = "" + pr.locator.resource.spine_index
+                                        rest_ch = rs.to_int()
+                                    } catch {
+                                        rest_ch = 0
+                                    }
+                                }
+                                if rest_ch < 1 {
+                                    try {
+                                        let cs str = "" + pr.chapter_number
+                                        rest_ch = cs.to_int()
+                                    } catch {
+                                        rest_ch = 0
+                                    }
+                                }
+                            }
+                        }
+                        if rest_ch >= 1 {
+                            if rest_ch <= .chapter_count {
+                                if rest_ch != .chapter_num {
+                                    .chapter_num = rest_ch
+                                    let craw str = Http.get_json("/api/library/chapter?book_id=" + .route_id + "&number=" + rest_ch.to_string())
+                                    let chv = parse_lib(craw)
+                                    if chv != null {
+                                        .chapter = chv
+                                    }
+                                    .chapter_src = craw
+                                }
+                                if .epub_sid != "" {
+                                    Http.post("/api/reader/command", { session_id: .epub_sid, op: "goto", index: rest_ch - 1, font_size: "", layout: "", theme: "", flow_mode: "" })
+                                }
+                                .restored_note = "已恢复到上次位置（第 " + rest_ch.to_string() + " 章）"
+                            }
+                        }
                     } else {
                         .engine_note = "引擎表面装载失败（会话或资源不可用）"
                     }
@@ -1760,6 +1816,14 @@ widget reading_page {
                         }
                         .progress_label = pct1(.progress_pct) + "%"
                     }
+                }
+            }
+            // READER-007 T-07：EPUB 搜索/注释跳转的引擎定位——文本章切换
+            // 后引擎 goto（与 SelectChapter 同式）；各命中按章分明（重复句
+            // 第 1/2 处→章 1，第 3 处→章 2）。
+            if .is_epub {
+                if .epub_sid != "" {
+                    Http.post("/api/reader/command", { session_id: .epub_sid, op: "goto", index: .chapter_num - 1, font_size: "", layout: "", theme: "", flow_mode: "" })
                 }
             }
             var found bool = false

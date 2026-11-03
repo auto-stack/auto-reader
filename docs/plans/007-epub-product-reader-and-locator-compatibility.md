@@ -195,6 +195,14 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 
 ## 9. 复审记录
 
+### 2026-11-04：work阶段——T-07 进行中（导出 v2 定位行已交付且门绿；三处 UI 导航子面在途）——outcome: 记录（非交付收口，T-07 不勾选）
+
+- stage: work | plan_id: READER-007 | plan_revision: r1 | task: T-07（进行中）| outcome: 部分交付（导出 v2 定位行 + JumpTo EPUB 引擎 goto + Init locator 冷恢复已落地；门 P-07.export PASS，P-07.search-jump/P-05.visit-ui/P-06.ui-restore 三腿红——UI 导航语义待一轮运行时状态诊断）| 执行位: D:/autostack/auto-reader main | commit: 本轮工作区（未提交，随下轮收口提交）| next: work（T-07 收口）。
+- **已交付绿**：①export_annotations_json v2 记录追加「定位（v2）：spine=N cfi=epubcfi(...) occurrence=scope#idx」行（canonical 字段直取，纯 v1 无此行不伪造）；门 P-07.export PASS（id/src/loc 独立解析全 true）。②JumpTo 增 EPUB 引擎 goto（文本章切换后 command goto，各命中按章分明）。③Init EPUB 冷恢复：progress 读回 locator 优先（spine）回落 chapter_number → 文本章同步 + command goto + restored_note。
+- **三处红腿诊断（下轮入口）**：①P-07.search-jump hits=[]——搜索抽屉 DOM 查询形态（`第 N 章 · ¶M` 正则/容器选择）与实际渲染不匹配，需抓真实 DOM；click=not-found 同源。②P-06.ui-restore sectionIndex=2（且 note 空——恢复分支未走）：引擎初开 sectionIndex 恒 2（所有运行实测——foliate 初始节面非 0），恢复 goto(index=1) 未生效——需页面运行时状态捕获（__reader.sectionIndex 时间线 + session-cmds 文件 + 页内 progress 读回）定位是命令未写/未消费/goto 失败。③P-05.visit-ui click=clicked ✓ verify=True ✓ 仅 note=False（断言面，次级）。
+- 注意：所有运行引擎初开 sectionIndex=2（非 0）——P-02/P-03 既有腿的断言若依赖初开=0 需复核（现证未受影响）。
+- 未改 canonical Spec；未创建用户数据。
+
 ### 2026-11-04：work阶段——T-06 闭合（解锁动作 b）——outcome: pass
 
 - stage: work | plan_id: READER-007 | plan_revision: r1 | task: T-06 | outcome: pass（两门腿经 §9 登记的解锁动作 b 闭合；门 findings=0 not_run=7 exit3；auto test 7/7、verify_epub 22/22、t06 冒烟 0 failures 含 reflow-selection 面）| 执行位: D:/autostack/auto-reader main | commit: 394fa9e | next: T-07。
