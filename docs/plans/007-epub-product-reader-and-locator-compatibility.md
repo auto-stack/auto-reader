@@ -195,6 +195,20 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 
 ## 9. 复审记录
 
+### 2026-11-04：work阶段——T-06 产品 UI 选区批注接线（AC-04/06）——outcome: blocked（门两条腿自动化输入环境红，核心链已绿）
+
+- stage: work | plan_id: READER-007 | plan_revision: r1 | task: T-06 | outcome: blocked（交付完成且核心链双证绿；两条门腿在门环境因自动化输入族红——精确阻断与解锁动作见下）| 执行位: D:/autostack/auto-reader main | commit: 52287f3 | next: work（按解锁动作重跑门）或 review 裁决冒烟 oracle 形态。
+- **交付（全部落地）**：①adapter——canonical quote（块行模型与 xhtml_to_lines 同构：块叶 textContent trim + "
+" 连接；选区按跨越块分片拼接）+ occurrence 非重叠书界（章 canonical 文本缓存、选区起始块前缀计数+1）+ POST 加固（失败也进事件面）+ XML tagName 大小写归一（foliate createDocument 返回 XML 文档，源小写）。②后端——locator-proposals/<sid>.json 会话级提案（canonical locator；非用户数据，同会话幂等）+ GET /api/reader/locator 消费面（locator_json 转义串直传，页面免二次序列化）+ POST /api/library/locator/verify-ann（按注释记录取锚跑恢复环；纯 v1 诚实 anchored:false）。③reading_page.at——「批注所选」（提案→抽屉预填 canonical）+ AnnSubmit EPUB 携锚经 annotations-v2 + 回访按钮（verify-ann 匹配才引擎 goto；needs_relocate 诚实不跳第一处；纯 v1 诚实提示）+ AnnSubmit/Cancel/OpenAnnDialog 的 ann_locator 生命周期 + vue fetch/get_json 双重编码面修正（包装串 find 需转义形态/token，完整解析需双解——substr(0,1)=="{" 判别）。④annotations.at——v1_anchor_err has_v2 面：跨段/引擎选区记录章级回退 pi=-1 放行（位置由 v2 锚承载、quote 走恢复环强核验；无 v2 语义逐字不变）。⑤engine-assets 重打包（manifest hash 刷新）。
+- **绿证据**：t06 冒烟 13/13（真实 click+Shift+click 选区→canonical 提案 occ=2→「批注所选」→抽屉真实键入→annotations-v2 落盘 v2+locator→verify-ann match:true→跨段选区 "
+" quote 提案）；门 occ1=2/verify_ann=True/annotation_id 稳定多次复现；auto test 7/7。
+- **blocked 精确诊断（cap 3+ 轮修复后停止盲试）**：①门 P-04 跨段腿：保存交互后同一真实选择链（click 置符+Shift+click 后继块）在门环境不再产生跨段提案（五轮复现；独立冒烟同链绿）——选区几何/焦点面在「抽屉交互后」状态劣化，属自动化输入族（029/P-03 已录）。②门 P-03.reflow-selection 事件面 0→0（shift-click/键盘全选均不触发事件计数；同链在 P-04/冒烟可产提案）——事件计数断言在门环境失效，回传实质由 P-04 提案链覆盖。③run_ui 工具宿主 ~12min 存活不稳定持续干扰长门跑（§10.5 已录）。
+- **解锁动作（任一即可闭合两腿）**：a) 门在有真实桌面输入的会话跑（非后台服务上下文）；b) review 裁决接受 t06 冒烟（headed 真实输入全链）作为该两腿的 oracle 形态，门腿改引冒烟证据；c) 框架修复 headless 合成输入选区（auto-lang/auto-ui owner）。
+- **未交付面（诚实）**：UI 编辑/删除的门内 oracle 未走通（抽屉编辑/删除按钮与服务器 locator 保留语义已接线，T-05 record_emit 保锚已证；门内 UI 自动化未达）。
+- 未改 canonical Spec；未创建用户数据（全部隔离目录）。
+
+- stage: goal | plan_id: READER-007 | plan_revision: r1 | round: 3 | from: work | to: work | status: executing | outcome: blocked | worktree: D:/autostack/auto-reader main | commit: 52287f3 | next: user（解锁动作 a/b/c 择一，或指示继续 T-07 边际面）。
+
 ### 2026-11-04：work阶段——T-05 Locator v2 数据层与 main 既有 epub 扫描缺陷修复（AC-04/05/08）
 
 - stage: work | plan_id: READER-007 | plan_revision: r1 | task: T-05 | outcome: pass（双轨数据族全绿：vue findings=0 not_run=8 exit3（22 PASS）；vm 数据族 5/5 PASS；verify_epub 22/22、auto test 7/7、smoke 16/16；UI 腿诚实 not_run）| 执行位: D:/autostack/auto-reader main | commit: 37528c9 | next: T-06。
