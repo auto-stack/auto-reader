@@ -6,7 +6,7 @@ author: [Codex]
 created_at: 2026-11-03
 updated_at: 2026-11-03
 plan_revision: 1
-current_step: 1
+current_step: 2
 total_steps: 13
 base_branch: main
 base_commit: 28c765a4dbf66a3482f5bc03d4cb5c64d792c394
@@ -178,7 +178,7 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 | ID | owner_stage | 依赖 | 路径/动作与产物 | 验证入口与预期 | AC |
 |---|---|---|---|---|---|
 | T-00 | work | 029全门/独立review/固定交付 | [x] 在Reader main核WIP与依赖cohort、正式启动/表面/HTTP接口；确认029实验与产品组合差异——见§9 2026-11-03 T-00记录 | P-01、source/tool/hash/窗口/后端事实齐；029欠项或正式组合不通则dependency_not_ready，后续不实现 | AC-01 |
-| T-01 | work | T-00 | 新docs/design/02-epub-engine-reading.md冻结profile/资源/CFI核验owner、至多两方案比较后的v2存储与兼容/迁移契约 | 实际源码/接口对照、v1/v2合法/失配/写失败样例和预算边界有oracle；不先造空字段 | AC-02/04/05/08 |
+| T-01 | work | T-00 | [x] 新docs/design/02-epub-engine-reading.md冻结profile/资源/CFI核验owner、至多两方案比较后的v2存储与兼容/迁移契约——见§9 2026-11-03 T-01记录 | 实际源码/接口对照、v1/v2合法/失配/写失败样例和预算边界有oracle；不先造空字段 | AC-02/04/05/08 |
 | T-02 | work | T-01 | 新tests/product/verify_epub_product.py与版本/语料清单、独立oracle；应用固定引擎资产来源/许可/打包方案 | P-01～12注册唯一ID、0/缺项/GAP非零；语料生成/hash与预期可重算，未实现例不伪绿 | AC-02/09 |
 | T-03 | work | T-02 | src/back/api.at/db.at/library.at等接产品资源/会话，新增产品adapter/固定资产路径按T-01确定 | 正式UI自动装载，原件/资源受控，断网和移走probe目录仍用；P-02/09合法/拒绝对照 | AC-02/07 |
 | T-04 | work | T-03 | reading_page.at与必要组件接真实引擎、目录/脚注往返、图/基本结构与分页/滚动/设置 | P-02/03双端正常产品路由，重排后真实选区仍能回传，不靠driver注入 | AC-03 |
@@ -194,6 +194,13 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 **计数说明**：T-00～T-12共13项，total_steps=13、current_step=已完成执行任务数（T-00 后=1）。work拥有T-00～10，review/merge分别拥有T-11/T-12，不为凑执行完成先勾未来阶段。
 
 ## 9. 复审记录
+
+### 2026-11-03：work阶段——T-01 设计冻结（AC-02/04/05/08）
+
+- stage: work | plan_id: READER-007 | plan_revision: r1 | task: T-01 | outcome: pass（docs/design/02-epub-engine-reading.md 冻结）| 执行位: D:/autostack/auto-reader main | next: T-02。
+- **冻结内容**：①产品 profile（支持/非本期/装载/启动 profile/表面接口/引擎）与受管资源安全边界、引擎预算（继承 30MiB/4096/12MiB + 15/5/30/10/600s + 32KiB 选区上限，产品化不降配额）；②**Locator v2 方案甲（同文件版本化）**冻结——annotations 带 v2 锚的书升 version:2（v1 字段不变 + 记录可选 `locator` 对象），reading 状态可选顶层 `locator`；方案乙（独立 locators 注册表）经比较否决（旧客户端重写丢 locator_id 引用→孤儿条目，双文件原子性负担）；③locator 对象 schema reader-locator v1：kind(epub_range/legacy_paragraph)、book_id/source_hash/resource(spine_index+href)、engine(name/revision)、range(start/end CFI)、quote/context、occurrence(scope 显式)、created_at；主键纪律=CFI+quote/context+occurrence，百分比/裸偏移不作主键；④**CFI 核验 owner=Reader**，三环不信任引擎自述（录入环七级校验、恢复环回读文本逐字比对含重复句反例识别、回访环真实 range+oracle）；⑤版本管理（annotations 1→2、locator v1、reading 无全局版本、import_version 不变）；⑥消费者入口与永久验收入口（verify_epub_product.py，T-02 建立）。
+- **源码对照事实（设计依据）**：jsonx.valid_annotations 要求 version==1、容忍未知顶层键、记录级容忍未知键（jsonx.at L1285/L1419）；valid_state 容忍未知键（L442）；rec_json/reemit 按白名单重建（annotations.at L58）→ 方案乙旧客户端重写静默丢 locator_id 成立；probe.at L49 `doc-surface (url: .surface_url, height: 420)` 为消费者入口语法（vue 轨退化透传 div）；029 SD-02 document-surface-native-input §1.3 事件身份链继承。
+- 未创建数据/资产/代码/测试结果；未修改 canonical Spec（SD-01～05 落地属 T-10）。
 
 ### 2026-11-03：work阶段——T-00 029交付核查与正式启动profile冻结（AC-01）
 
