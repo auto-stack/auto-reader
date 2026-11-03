@@ -194,8 +194,17 @@ def _mcp_call(base, name, args=None, timeout=30):
 
 
 def _mcp_text(base, name, args=None):
-    v = _mcp_call(base, name, args)
-    return v["result"]["content"][0].get("text", "")
+    # MCP 端点会瞬时挂起/拒连（oninput 阻塞族，t09-final8 N-05 段实测打断
+    # 门内裸调用）——有界重试兜底；重试预算耗尽才上抛（各腿具名处理）。
+    last = None
+    for attempt in range(4):
+        try:
+            v = _mcp_call(base, name, args)
+            return v["result"]["content"][0].get("text", "")
+        except Exception as e:  # noqa: BLE001
+            last = e
+            time.sleep(5 * (attempt + 1))
+    raise last
 
 
 def _mcp_text_safe(base, name, args=None):
