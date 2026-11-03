@@ -6,7 +6,7 @@ author: [Codex]
 created_at: 2026-11-03
 updated_at: 2026-11-03
 plan_revision: 1
-current_step: 2
+current_step: 3
 total_steps: 13
 base_branch: main
 base_commit: 28c765a4dbf66a3482f5bc03d4cb5c64d792c394
@@ -179,7 +179,7 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 |---|---|---|---|---|---|
 | T-00 | work | 029全门/独立review/固定交付 | [x] 在Reader main核WIP与依赖cohort、正式启动/表面/HTTP接口；确认029实验与产品组合差异——见§9 2026-11-03 T-00记录 | P-01、source/tool/hash/窗口/后端事实齐；029欠项或正式组合不通则dependency_not_ready，后续不实现 | AC-01 |
 | T-01 | work | T-00 | [x] 新docs/design/02-epub-engine-reading.md冻结profile/资源/CFI核验owner、至多两方案比较后的v2存储与兼容/迁移契约——见§9 2026-11-03 T-01记录 | 实际源码/接口对照、v1/v2合法/失配/写失败样例和预算边界有oracle；不先造空字段 | AC-02/04/05/08 |
-| T-02 | work | T-01 | 新tests/product/verify_epub_product.py与版本/语料清单、独立oracle；应用固定引擎资产来源/许可/打包方案 | P-01～12注册唯一ID、0/缺项/GAP非零；语料生成/hash与预期可重算，未实现例不伪绿 | AC-02/09 |
+| T-02 | work | T-01 | [x] 新tests/product/verify_epub_product.py与版本/语料清单、独立oracle；应用固定引擎资产来源/许可/打包方案——见§9 2026-11-03 T-02记录 | P-01～12注册唯一ID、0/缺项/GAP非零；语料生成/hash与预期可重算，未实现例不伪绿 | AC-02/09 |
 | T-03 | work | T-02 | src/back/api.at/db.at/library.at等接产品资源/会话，新增产品adapter/固定资产路径按T-01确定 | 正式UI自动装载，原件/资源受控，断网和移走probe目录仍用；P-02/09合法/拒绝对照 | AC-02/07 |
 | T-04 | work | T-03 | reading_page.at与必要组件接真实引擎、目录/脚注往返、图/基本结构与分页/滚动/设置 | P-02/03双端正常产品路由，重排后真实选区仍能回传，不靠driver注入 | AC-03 |
 | T-05 | work | T-01/04 | library/annotations/jsonx及新增locator模块（T-01定路径）实现版本化读写/核验、兼容与恢复 | P-04/05/06/08/10；v1不假迁移，跨段/重复句/CFI真实一致；失败保留旧文件 | AC-04/05/08 |
@@ -194,6 +194,15 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 **计数说明**：T-00～T-12共13项，total_steps=13、current_step=已完成执行任务数（T-00 后=1）。work拥有T-00～10，review/merge分别拥有T-11/T-12，不为凑执行完成先勾未来阶段。
 
 ## 9. 复审记录
+
+### 2026-11-03：work阶段——T-02 产品永久门与语料清单（AC-02/09）
+
+- stage: work | plan_id: READER-007 | plan_revision: r1 | task: T-02 | outcome: pass（tests/product/verify_epub_product.py + gen_product_corpus.py 建立并实跑验证）| 执行位: D:/autostack/auto-reader main | next: T-03。
+- **统一入口**：`python tests/product/verify_epub_product.py --profile vue|vm --auto-bin <固定auto> --out-dir <自有隔离> [--corpus-dir]`。P-01～12 注册唯一 ID（profile 适用性显式）；严格聚合器（缺项/重复/未声明根/GAP/FAIL/not_run/0选择非零；exit 0/1/2/3 语义）；out-dir 守卫（拒用户根/盘符/无标记非空/reparse，safe_rmtree 限 scope）；cohort 指纹（坏 --auto-bin/缺 AUTO_UI_TOOL_BIN 具名退出）。
+- **已实现腿（实跑验证）**：P-01 全过（cohort-desk：029 归档+T-10 pass+landing 65bb455f 在位+auto g47d8f7b+tool 含 doc-surface 字符串；vue=后端 17825+前端 localhost:17824；vm=后端+窗口「图书阅读器」+MCP 9247）；P-09.import-bounds 全过（verify_epub 22/22 交付 cohort 绿，30MiB/12MiB/坏 container 负例继承）；P-12.strict-aggregator 过。**未实现例诚实 not_run → 本轮两 profile 均 exit 3（findings=0、not_run=11），不伪绿**。
+- **语料（冻结）**：tests/product/gen_product_corpus.py 确定性生成——product-alpha（10 章真实风格：标题/段落/列表/表格/代码/2 PNG/nav 目录/脚注/跨章链/重复句甲全书3次(第1章2次)/重复句乙跨章2次/跨段引文(段尾+下段首)/长章 ch3≈642KB/emoji 多字节）、product-beta（变体书，双实例/串书隔离）、negative-malformed；corpus-manifest.json 记录每文件 sha256 + 预期（章标题/重复位次/跨段文本/图片数）。alpha sha256=2ba0f73e…、beta=5e03b22f…（本次生成值，重建可重算）。
+- **引擎资产打包（固化）**：foliate-js = MIT（readest packages/foliate-js LICENSE，2022 John Factotum）→ 可再分发；打包=扁平化 flat 重写（prepare_engine_assets.py 模式）→ 应用自有受管资产（路由接入 T-03），不依赖 readest 运行时检出；设计文档 §1 已更新。
+- 未改 canonical Spec；未创建用户数据。瞬时环境记录：vue frontend 首跑 esbuild「service was stopped」flake（README 在案族），重跑绿——门按严格语义记录 FAIL 而非吞掉（首跑 FAIL、复跑 PASS，均留档）。
 
 ### 2026-11-03：work阶段——T-01 设计冻结（AC-02/04/05/08）
 

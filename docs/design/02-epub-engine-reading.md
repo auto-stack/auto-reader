@@ -19,7 +19,7 @@ Locator v2 存储/协议与 v1 兼容/迁移语义、版本管理、CFI 核验 o
 | 装载方式 | 书架/正常路由自动装载应用自有固定资产与受管原件，默认本地离线 | 不依赖 tests/probe、D:/autostack/readest、PROBE_DATA_DIR/PROBE_ASSETS_DIR、驱动注入或旁路服务 |
 | 启动 profile | vm 分离模式 `auto run -r vm --no-merge [-B 17825]`；vue 模式 `auto run --server=vm` | T-00 实测冻结；`-r vm --server=vm` 实测=仅后端无窗口（README 旧记载修订列入 T-10） |
 | 表面接口 | 029 交付 `doc-surface (url: .model_url, height: N)`（auto-ui compiler feature `doc-surface`，windows；vue 轨退化为透传 div） | 事件/URL 契约以 document-surface-native-input §1 为准；产品 adapter 消费交付版引擎，不复制旧 bug、不靠驱动兜底 |
-| 引擎 | foliate-js fork@3d794195（固定只读来源）+ 应用自有 engine-adapter（产品版，T-03/T-04 从 029 adapter 演化） | 固定 source/许可清单由 T-02 打包方案固化 |
+| 引擎 | foliate-js fork@3d794195（固定只读来源）+ 应用自有 engine-adapter（产品版，T-03/T-04 从 029 adapter 演化） | **许可与打包（T-02 固化）**：foliate-js = **MIT**（readest packages/foliate-js/package.json + LICENSE，2022 John Factotum）——可再分发；打包=按 prepare_engine_assets.py 模式做扁平化 flat 重写（含 vendor 引用一致化）→ 应用自有受管资产（默认随 app 分发，路由接入 T-03）；每次打包产出 manifest 记录文件 hash；不依赖 D:/autostack/readest 运行时检出 |
 
 ## 2. 受管资源与安全边界
 
