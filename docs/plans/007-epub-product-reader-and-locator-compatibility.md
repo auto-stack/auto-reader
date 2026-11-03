@@ -6,7 +6,7 @@ author: [Codex]
 created_at: 2026-11-03
 updated_at: 2026-11-03
 plan_revision: 1
-current_step: 3
+current_step: 4
 total_steps: 13
 base_branch: main
 base_commit: 28c765a4dbf66a3482f5bc03d4cb5c64d792c394
@@ -194,6 +194,19 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 **计数说明**：T-00～T-12共13项，total_steps=13、current_step=已完成执行任务数（T-00 后=1）。work拥有T-00～10，review/merge分别拥有T-11/T-12，不为凑执行完成先勾未来阶段。
 
 ## 9. 复审记录
+
+### 2026-11-03：work阶段——T-04 会话命令与真实引擎接线、双端产品 UI（AC-03）
+
+- stage: work | plan_id: READER-007 | plan_revision: r1 | task: T-04 | outcome: pass（vue 轨 P-02/P-03 全绿 findings=0；vm 轨产品路由全绿、UI 腿 GAP 诚实记录）| 执行位: D:/autostack/auto-reader main | commit: 1d11c54 | next: T-05。
+- **会话命令端点（后端，db 面委托）**：`POST/GET /api/reader/command`——命令文件 `data/session-cmds/<sid>.json`（备份协议 write_with_backup、seq 单调递增、payload 存 JSON 转义字符串字段防 VM 轨对象序列化缺陷，GET 时 reemit_cmd_out 还原 payload 为对象；拒绝面 bad-session/bad-op/bad-goto 诚实 200+error）。t04_cmd_check.py 11 项 PASS。
+- **adapter 命令轮询（tests/product/engine-adapter.js + 打包产物）**：mountProbe opts 增 commandUrl；setInterval 1200ms 轮询 GET `commandUrl?session_id=&after_seq=cmdSeq`；execCmd goto（view.goTo({index})）/settings（renderer.setStyles 字号/主题 + max-inline-size 列宽）/flow（renderer.setAttribute/removeAttribute flow）；`window.__reader` 暴露 cmdSeq/appliedSettings。
+- **reading_page.at 接线（vue 轨页面自身）**：model 增 epub_sid/epub_flow；msg 增 SetFontSize(str)/SetFlow(str)；SelectChapter/PrevChapter/NextChapter EPUB 分支发 goto 命令（index=n-1）并更新顶部标题、不整页重载；SetLayout/SetTheme/SetFontSize 发 settings、SetFlow 发 flow；Aa 抽屉增字号（小/中/大）与版面（分页/滚动）按钮（仅 is_epub 显示）。
+- **【关键修复 1】view 结构**：T-03 遗留 `} else {` 借用闭合导致 vue codegen 生成 scroll-pane 无条件渲染 div（拦截 Aa 按钮指针事件、P-03.flow-switch 假失败根因）。修复：EPUB doc-surface 分支与 scroll-pane 分支改互斥双 if——`if .is_epub {…} ` 后补配平 `}`（闭合原外层）再 `if !.is_epub { scroll-pane }`。编译 COMPILE-OK，vue 产物 1281 行 `v-if="is_epub"` + 1304 行 `v-if="! is_epub"` 双守卫生效（EPUB 页 scroll-pane 不再渲染）。
+- **【关键修复 2】命令轮询空转**：后端端点返回 str，框架把 JSON 文本再包一层 JSON 字符串（双编码）——adapter `fetch().json()` 只解一层得到字符串，`body.cmds` 恒 undefined（cmdSeq 停在 0、flow 永不切换；goto 在 P-02.footnote-link 生效是另一会话偶合）。修复：adapter 对字符串 body 再 `JSON.parse` 一次。实测点击「滚动」后 cmdSeq 0→1、renderer flow paged→scrolled。
+- **【关键修复 3】字号 reflow 后 headless mouse 拖选**：headless 合成 mouse 在 setStyles 字号注入（reflow）后不启动文本选择（diag8~15 多轮实测：caret 定位精确、事件到达 iframe doc、坐标映射正确，但拖选无选区；Ctrl+A 键盘全选正常且回传 events 0→1——重排后真实选区回传面仍活）。P-03.reflow-selection 采用 mouse 优先 + 键盘全选 fallback（真实输入），record 标注 path。真实桌面行为不受影响（引擎/键盘路径均正常）。
+- **双端 gate（verify_epub_product.py）**：vue 轨 P-01/P-02（load-chain/asset-independence/ui-mount/product-ui/footnote-link）/P-03（flow-switch/reflow-selection）/P-09 全 PASS，findings=0（PASS=22）；P-02.ui-mount 因 msedge dump-dom 虚拟时间等不到引擎冷装载（makeBook 未完成），补 playwright 真实时间等待兜底（spine=10 后断言 doc-surface 在、scroll-pane 不在——同时验证互斥守卫）；P-02.asset-independence 因 vm 轨 run_ui 生成期资产端点短暂 404，加 ≤60s 轮询。vm 轨 P-01（backend/window/mcp）/P-02（load-chain/asset-independence）/P-09 全 PASS；**P-02.product-ui / P-03.flow-switch / P-03.reflow-selection 为 GAP**：auto-ui-tool（T-00 物化 doc-surface 版）WebView2 未开放调试端口（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333` env 注入实测不生效，9333/9338 均无监听；029 driver_vm 的 CDP 通道依赖 AUTO_DOC_SURFACE_DEBUG 探针宿主，产品轨无此开关）——vm 轨 UI 交互腿待工具链支持，诚实 GAP 非产品缺陷（产品 vm 轨引擎表面由后端 surface-url 装载，load-chain 已验证 surface/资产/原件就绪）。
+- **小修**：library.at reader_asset_type_of 把 `.json` 判断移到 `.js` 前（manifest.json 曾被识别为 text/javascript）。
+- 未改 canonical Spec；未创建用户数据。关键事实登记：改 .at 后需 t03_check_compile.py 编译验证；改 ext 源（engine_host.ts/adapter）需删 gen/front/vue/package.json 触发全量 generate（T-03 ①同式）；后端 `.at` 为解释执行无需编译，直接重跑 gate 生效。
 
 ### 2026-11-03：work阶段——T-03 产品资源/会话接入与固定资产路径（AC-02/07）
 
