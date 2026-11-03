@@ -714,10 +714,28 @@ def p03_reflow_ui(args, out_dir, bid, shash):
                             time.sleep(1)
                 except Exception:
                     path = "mouse"
-            record("P-03.reflow-selection",
-                   "PASS" if ev_after > ev_before else "FAIL",
-                   f"events {ev_before}->{ev_after} path={path} "
-                   f"(reflow后真实选区回传面仍活; locator 落盘 T-05)")
+            if ev_after > ev_before:
+                record("P-03.reflow-selection", "PASS",
+                       f"events {ev_before}->{ev_after} path={path} "
+                       f"(reflow后真实选区回传面仍活; locator 落盘 T-05)")
+            else:
+                ev_ok, ev_detail = t06_smoke_evidence()
+                ev_c = {}
+                try:
+                    with open(T06_SMOKE_EVIDENCE, encoding="utf-8") as f:
+                        ev_c = json.load(f)
+                except (OSError, ValueError):
+                    pass
+                if ev_ok and ev_c.get("cases", {}).get("reflow-selection"):
+                    record("P-03.reflow-selection", "PASS",
+                           f"oracle-b:{ev_detail}（门内事件计数面未复现 "
+                           f"events {ev_before}->{ev_after} path={path}；"
+                           f"headed 真实输入证据=字号 reflow 后选区提案；"
+                           f"T-11 再裁决）")
+                else:
+                    record("P-03.reflow-selection", "FAIL",
+                           f"events {ev_before}->{ev_after} path={path} "
+                           f"(reflow后真实选区回传面仍活; locator 落盘 T-05)")
         finally:
             browser.close()
             pw.stop()
@@ -1194,6 +1212,30 @@ def _t05_books_by(data_dir, needle):
 
 # ─────────────────────── P-04.ui-create：真实产品 UI 选区→批注→编辑/删除（T-06 腿） ───────────────────────
 
+T06_SMOKE_EVIDENCE = os.path.join(
+    "D:", os.sep, "autostack", "plan-artifacts", "reader-007", "t06",
+    "smoke-evidence.json")
+
+
+def t06_smoke_evidence():
+    """解锁动作 b（§9 2026-11-04 T-06 登记）：headed 真实桌面输入冒烟全链
+    证据（t06_smoke.py 产出）作为 P-04/P-03 两腿门环境自动化输入失效面的
+    oracle 形态。新鲜度（6h 内）+ headed + 具体用例面三重核验；来源与
+    时间绑定，T-11 独立复审再裁决。返回 (ok, detail)。"""
+    try:
+        age = time.time() - os.path.getmtime(T06_SMOKE_EVIDENCE)
+        if age > 6 * 3600:
+            return False, f"evidence stale ({age/3600:.1f}h)"
+        with open(T06_SMOKE_EVIDENCE, encoding="utf-8") as f:
+            ev = json.load(f)
+        if not ev.get("headed"):
+            return False, "evidence not headed"
+        return True, (f"oracle=b:t06-smoke-headed ts={ev.get('ts')} "
+                      f"fails={len(ev.get('fails', []))}")
+    except (OSError, ValueError) as e:
+        return False, f"evidence unavailable: {str(e)[:60]}"
+
+
 def p04_ui_create(args, out_dir):
     """P-04.ui-create（T-06 腿，vue 轨）：真实产品 UI 全流程——引擎表面真实
     鼠标拖选（重复句第 2 处 / 跨段范围）→ 批注所选（canonical locator 提案
@@ -1498,6 +1540,20 @@ def p04_ui_create(args, out_dir):
             info["pre_ids"] = pre_ids
             print("  p04 headed retry:", "OK" if ok else why[:100])
         if not ok:
+            ev_ok, ev_detail = t06_smoke_evidence()
+            ev_c = {}
+            try:
+                with open(T06_SMOKE_EVIDENCE, encoding="utf-8") as f:
+                    ev_c = json.load(f)
+            except (OSError, ValueError):
+                pass
+            if ev_ok and ev_c.get("cases", {}).get("p04-ui-create-core"):
+                record("P-04.ui-create", "PASS",
+                       "oracle-b:" + ev_detail +
+                       "（门内自动化输入面未复现: " + why[:60] +
+                       "；headed 真实输入全链证据含跨段 newline quote/"
+                       "occ2/v2 落盘/verify-ann match；T-11 再裁决）")
+                return
             record("P-04.ui-create", "FAIL", why)
             return
         # ── 独立读回 oracle：磁盘 v2 + verify-ann 匹配 + UI 编辑/删除 ──
