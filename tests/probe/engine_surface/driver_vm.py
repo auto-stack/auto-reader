@@ -1106,8 +1106,32 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
     （输入框↔文档表面，值变化/CDP 选区为归属证据）。"""
     import urllib.request
 
-    def mcp_text(name, args=None):
-        return _mcp_text(mcp_base, name, args)
+    def ime_value(patience=20.0):
+        # 输入框值读取（MCP 阻塞期重试；解析失败短暂重读一次以防渲染瞬态）
+        t0 = time.monotonic()
+        while True:
+            t = mcp_text("autoui_snapshot", patience=8.0)
+            m = re.search(r'input\s+#vnode_\d+\s*\{[\s\S]{0,600}?value:\s*"([^"]*)"', t)
+            if m:
+                return m.group(1)
+            if time.monotonic() - t0 > patience:
+                return None
+            time.sleep(1.2)
+
+    def mcp_text(name, args=None, patience=25.0):
+        # MCP 端点在输入框 oninput 键入期间会阻塞挂起（实验 profile 已知
+        # 行为，t09-final4 实测打断裸调用）——有界重试等它恢复；预算耗尽
+        # 返回空串由调用方具名处理，不炸聚合。
+        t0 = time.monotonic()
+        while True:
+            try:
+                return _mcp_text(mcp_base, name, args)
+            except Exception as e:
+                if time.monotonic() - t0 > patience:
+                    print(f"[n04] mcp_text '{name}' giving up after {patience:.0f}s: "
+                          + repr(e)[:90], flush=True)
+                    return ""
+                time.sleep(1.5)
 
     cpt = ctypes.wintypes.POINT(0, 0)
     user32.ClientToScreen(win_hwnd, ctypes.byref(cpt))
@@ -1130,7 +1154,7 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
     base_x = col_left + 273.0  # 输入框中心（256 宽，行内偏移 145+128）
     found_x = None
     tries = []
-    v0 = _ime_input_value(mcp_base)
+    v0 = ime_value()
     # 捕获态冲刷：N-02 的真实拖选可能让 Chromium 持有鼠标捕获（button-up
     # 竞态），后续父窗点击全被路由进 webview——先在表面内补一次完整
     # down+up，并在每次尝试记录 hwndCapture。
@@ -1176,7 +1200,7 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
             time.sleep(0.2)
             _send_key(0x0D)  # 组合中 Enter=提交原文（MS Pinyin），值才可见
             time.sleep(1.0)
-            v1 = _ime_input_value(mcp_base)
+            v1 = ime_value()
             tries.append(f"x{fx:.0f}y{gy}:{hit_cls}:cap{cap:#x}:{v1!r}")
             if v1 is not None and (v0 is None or v1 != v0):
                 found_x = fx
@@ -1211,28 +1235,28 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
 
     # ① 组合 + Esc 取消 → 值不变。
     click_input()
-    before = _ime_input_value(mcp_base)
+    before = ime_value()
     for ch in "ni":
         _send_char(ch)
         time.sleep(0.15)
     time.sleep(0.4)
     _send_key(0x1B)  # Esc 取消组合
     time.sleep(1.0)
-    after = _ime_input_value(mcp_base)
+    after = ime_value()
     cancel_ok = after == before
     results(tag + ".ime-cancel", "PASS" if cancel_ok else "FAIL",
             f"before={before!r} after={after!r} (Esc cancels composition)")
 
     # ② 组合 + Space 提交 → 值以中文落定（唯一能拉丁→汉字的管线=IME）。
     click_input()
-    base = _ime_input_value(mcp_base)
+    base = ime_value()
     for ch in "nihao":
         _send_char(ch)
         time.sleep(0.15)
     time.sleep(0.4)
     _send_key(0x20)  # Space 首选转换提交
     time.sleep(1.3)
-    committed = _ime_input_value(mcp_base)
+    committed = ime_value()
     has_cjk = committed is not None and committed != base and \
         any('\u4e00' <= c <= '\u9fff' for c in committed)
     results(tag + ".ime-commit", "PASS" if has_cjk else "FAIL",
@@ -1241,7 +1265,7 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
     # ③ 组合期快捷键：组合中按 Enter——MS Pinyin 语义=提交原文拉丁，
     # 不触发页面命令；核验：仅期望增量，session_state/表面不变。
     click_input()
-    pre = _ime_input_value(mcp_base)
+    pre = ime_value()
     state_pre = "connected" in _mcp_text(mcp_base, "autoui_snapshot")
     for ch in "zh":
         _send_char(ch)
@@ -1249,7 +1273,7 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
     time.sleep(0.3)
     _send_key(0x0D)  # Enter（组合中）——须只提交原文，不得触发页面命令
     time.sleep(1.2)
-    post = _ime_input_value(mcp_base)
+    post = ime_value()
     state_post = "connected" in _mcp_text(mcp_base, "autoui_snapshot")
     # 插入点=点击处（可在文本中部）：核验语义而非位置——pre 是 post 的
     # 子序列、长度恰 +2（原文 zh 提交）、页面状态不变（无命令误触）。
@@ -1271,7 +1295,7 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
     time.sleep(0.2)
     _send_key(0x0D)
     time.sleep(0.8)
-    v_in = _ime_input_value(mcp_base)
+    v_in = ime_value()
     # 点击表面中心（logical 居中偏下，避开页头；物理换算）。
     sx0 = ox + int(lw * 0.5 * scale)
     sy0 = oy + int((lh * 0.45) * scale)
@@ -1313,7 +1337,7 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
     except Exception as e:
         results(tag + ".focus-roundtrip", "GAP", "CDP unavailable: " + repr(e)[:80])
         return
-    v_after_surface = _ime_input_value(mcp_base)
+    v_after_surface = ime_value()
     class GUIINFO(ctypes.Structure):
         _fields_ = [("cbSize", ctypes.c_uint), ("flags", ctypes.c_uint),
                     ("hwndActive", ctypes.c_void_p), ("hwndFocus", ctypes.c_void_p),
@@ -1383,7 +1407,7 @@ def _run_ime_n04(mcp_base, win_hwnd, results, tag="N-04", rect=None,
         time.sleep(0.2)
         _send_key(0x0D)
         time.sleep(0.9)
-        v_try = _ime_input_value(mcp_base)
+        v_try = ime_value()
         gi2 = GUIINFO()
         gi2.cbSize = ctypes.sizeof(gi2)
         user32.GetGUIThreadInfo(0, ctypes.byref(gi2))
