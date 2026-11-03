@@ -4,9 +4,9 @@ status: executing
 feature_name: 正式EPUB阅读表面接入与定位兼容
 author: [Codex]
 created_at: 2026-11-03
-updated_at: 2026-11-03
+updated_at: 2026-11-04
 plan_revision: 1
-current_step: 4
+current_step: 5
 total_steps: 13
 base_branch: main
 base_commit: 28c765a4dbf66a3482f5bc03d4cb5c64d792c394
@@ -182,7 +182,7 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 | T-02 | work | T-01 | [x] 新tests/product/verify_epub_product.py与版本/语料清单、独立oracle；应用固定引擎资产来源/许可/打包方案——见§9 2026-11-03 T-02记录 | P-01～12注册唯一ID、0/缺项/GAP非零；语料生成/hash与预期可重算，未实现例不伪绿 | AC-02/09 |
 | T-03 | work | T-02 | [x] src/back/api.at/db.at/library.at接产品资源/会话（asset/document/session/surface-url 经 db 面委托），新增产品adapter/固定资产路径按T-01确定（src/assets/engine-assets + manifest，prepare_product_assets.py）——见§9 2026-11-03 T-03记录 | 正式UI自动装载（vue 轨 reading_page 自身经 use.web 宿主装载引擎表面，doc-surface→foliate-view 正文/图/标题实测；VM 轨 doc-surface 由 surface-url 自动装载），原件/资源受控，断网和移走probe目录仍用；P-02/09合法/拒绝对照（双轨 PASS，未实现例诚实 not_run） | AC-02/07 |
 | T-04 | work | T-03 | reading_page.at与必要组件接真实引擎、目录/脚注往返、图/基本结构与分页/滚动/设置 | P-02/03双端正常产品路由，重排后真实选区仍能回传，不靠driver注入 | AC-03 |
-| T-05 | work | T-01/04 | library/annotations/jsonx及新增locator模块（T-01定路径）实现版本化读写/核验、兼容与恢复 | P-04/05/06/08/10；v1不假迁移，跨段/重复句/CFI真实一致；失败保留旧文件 | AC-04/05/08 |
+| T-05 | work | T-01/04 | [x] library/annotations/jsonx及新增locator模块实现版本化读写/核验、兼容与恢复——src/back/locator.at（reader-locator v1 canonical/emit/count_fast）+ jsonx 词法门（valid_ann_locator/valid_locator_document、version 1|2）+ library 录入环 reader_locator_select / 恢复环 locator_verify_str（context 重算识别重复句错位）+ put_reading 可选 locator（carry-forward）+ annotations reemit 保锚/create 携带/op=anchor/version 1↔2 + api/db 端点（/api/reader/locator、/api/library/locator/verify、annotations-v2/progress-v2；旧端点逐字不变）——见§9 2026-11-04 T-05记录 | P-04 数据 oracle/P-05/P-06 数据冷恢复/P-08/P-10 双轨全绿（vue findings=0 not_run=8 exit3；vm 数据族 5/5 PASS）；verify_epub 22/22、auto test 7/7、smoke 16/16；UI 腿诚实 not_run；顺带修复 main 既有 epub 扫描 O(n²) 缺陷（长章 204.8s/不终止→19s） | AC-04/05/08 |
 | T-06 | work | T-05 | reading_page/annotation产品UI选区工具、高亮批注CRUD/回访 | P-04产品真实UI→.at→落盘→回访，稳定ID/逐字原文、输入不抢键，无HTTP预写 | AC-04/06 |
 | T-07 | work | T-06 | 搜索范围跳转、v1/v2恢复与Markdown导出，兼容旧入口 | P-05/06/07各次重复命中分明、导出来源可独立解析、旧/新冷恢复不串书 | AC-05/06 |
 | T-08 | work | T-07 | 安全/资源/跨实例/隐藏/输入/无障碍/生命周期、写失败/迁移回退与变异负例 | P-08～11实际合法/非法对照和原oracle红→还原绿，预算/系统接缝实证，失败不转纯文本假成功 | AC-07/08 |
@@ -194,6 +194,19 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 **计数说明**：T-00～T-12共13项，total_steps=13、current_step=已完成执行任务数（T-00 后=1）。work拥有T-00～10，review/merge分别拥有T-11/T-12，不为凑执行完成先勾未来阶段。
 
 ## 9. 复审记录
+
+### 2026-11-04：work阶段——T-05 Locator v2 数据层与 main 既有 epub 扫描缺陷修复（AC-04/05/08）
+
+- stage: work | plan_id: READER-007 | plan_revision: r1 | task: T-05 | outcome: pass（双轨数据族全绿：vue findings=0 not_run=8 exit3（22 PASS）；vm 数据族 5/5 PASS；verify_epub 22/22、auto test 7/7、smoke 16/16；UI 腿诚实 not_run）| 执行位: D:/autostack/auto-reader main | commit: 37528c9 | next: T-06。
+- **数据层（冻结契约 docs/design/02 §4/§5 全量落地）**：①src/back/locator.at（零数据依赖纯形态面）——reader-locator v1 canonical 构建/重发（locator_canonical/locator_emit，emit 兼 epubcfi( 前缀强制——伪造形状不可落盘）、has_locator（concat raise 在场判别）、count_occurrences（滑窗，v1 语义保持）+ count_occurrences_fast（split 单次 native，v2 书界契约=非重叠精确子串）。②jsonx.at——valid_ann_locator/valid_locator_document 词法门（嵌套 3 层、必需键 disc、限额同 canonical）+ annotations version 1|2（方案甲同文件版本化）+ #[test] 7/7。③library.at——录入环 reader_locator_select（session/book/hash/resource spine+权威 href/逐字 quote/occurrence 书界在界/cfi 形状七级；**canonical context 由服务器从章缓存正文计算**，客户端 context_* 不采信）；恢复/回访环 locator_verify_str（身份链+资源身份+逐字+作用域位次+**context 窗口重算比对**——「CFI 指另一处重复句但 quote 相同」经 context 失配识别为 needs_relocate）；put_reading_json 可选顶层 locator（核验通过 canonical 入存储态；缺省**前向延续存量锚**——settings-only 保存不清位锚；存量锚不可重发具名拒绝保原件）。④annotations.at——reemit/record_emit 保留 v2 锚（不可重发具名拒绝整笔写——方案乙白名单丢锚教训内建防御）；create 携带 locator（恢复环核验+与 v1 锚同一性：同 quote 同章）；op=anchor 存量 v1 追加（唯一映射证明：v1 锚现场逐字+恢复环核验+同一性；无 quote 章书签诚实拒锚）；版本 1↔2 仅因 v2 锚存在性（末枚删除回落 1 字节兼容）；GET 暴露 version+locator。⑤api/db——POST /api/reader/locator（T-03 建立的 adapter seam 落地：locator_select→canonical、input_probe→ack）、POST /api/library/locator/verify（只读 oracle）、annotations-v2/progress-v2 写端点；**旧端点逐字不变**（实测缺 HTTP body 参数=400 非缺省——verify_epub E-02 首跑 400 抓获后改回，v2 写走新端点）。
+- **【main 既有缺陷修复】（T-05 全书扫描首次暴露，pristine main 复现证明）**：①epub.at xhtml_to_lines/xhtml_links 逐 tag/link find_after 每次复制剩余正文尾=O(块数×正文长)——12000 块长章（product-alpha ch3 1.5MiB）>300s 不终止（含 GB 级瞬存），ch2→ch3 跨章链接把代价级联；搜索/注释/locator 全被拖住。修复=split("<") 一次+逐段局部处理+标签内属性取值（tag_attr_of）+512 段计数 spill 重建+实体短路+is_block substr/等值链：**长章转换 204.8s→19.0s**（一次性，章缓存后 2.0s）；verify_epub E-01..E-05 22/22 绿。②图片循环 find_after 每行复制+4096 行静默上限→split+for-in（超限行不再丢图——长章尾部插图曾被漏处理，修后 ch3 images=1 实证）。③大正文出现计数 O(n) 次 substr native（HTTP 计量 ~275s）→split 单次；nth 窗口同式。**语义纪律**：v1 段锚计数保持滑窗口径（READER-002 t10 S11 钉死不动）；v2 契约冻结非重叠口径（T-06 adapter countOccurrences 需同式对齐——seam 已记录）。
+- **双轨门证据（plan-artifacts/reader-007/t05/）**：vue=gate-vue8（findings=0 not_run=8 exit3；P-01 cohort/backend/frontend、P-02 load-chain/asset-independence/ui-mount/product-ui/footnote-link、P-03 flow-switch/reflow-selection、P-05.v1-compat（v1 读写/稳定ID/章书签/版本字节兼容）、P-04.data-oracle（occ2/occ3 canonical+10 拒绝阵+input_probe ack+零写）、P-05.v2-anchor（锚定+带锚 create+TXT 不可映射拒+多义 context 错位 needs_relocate 拒+零写）、P-08.mutation-matrix（4 对照 match+6 变异具名 needs_relocate/rejected+零写）、P-10.data（损坏/未知版本/伪造 CFI 形状/占用路径/状态损坏/恢复全具名）、P-06.data-coldrestart（locator 保存+前向延续+陈旧拒+**进程重启逐字恢复**）、P-09 import-bounds/resource-gate、P-12 strict-aggregator）=22 PASS；vm=gate-vm 首跑（数据族 P-05/P-04/P-08/P-10/P-06 5/5 PASS+P-01 window/MCP+P-09）；verify_epub 22/22（旧端点回归）；auto test 7/7；smoke 16/16。
+- **诚实未闭合（not_run，非本轮缺陷）**：P-04.ui-create/P-05.visit-ui（T-06/T-07 真实 UI 面）、P-06.ui-restore（T-07/T-08）、P-09.engine-bounds（T-08）、P-12.old-gates 冻结跑（T-09）、P-07/P-11/P-03.hideshow（T-07/T-08）。vm 轨工具面 FAIL/GAP（gate-vm 5 findings：asset 端点窗口期 2×、CDP UI 腿 3×=T-04 已录 GAP 同类；retry run 因 run_ui 宿主不稳定劣化，按上限停止——gate-vm 首跑为 vm 证据）。
+- **环境/流程事实登记**：①HTTP 计量模式 VM 每指令步数预算使能跑慢 ~10×（781 语义）——长章一次性转换 19s 为已知成本（缓存后 2s）；②python -I 隔离模式屏蔽用户站点 playwright（门必须非 -I 跑）；AUTO_UI_TOOL_BIN=D:/autostack/auto-ui/target/debug/auto-ui-tool.exe（T-00 重建版）；③run_ui 工具宿主 ~12min 存活期不稳定（双轨实测，控制流关闭）→门数据族提前跑+族内崩溃隔离（未记腿显式 FAIL 不崩整跑）；boot 等待 240s+阶段 settle；④`auto build` 严格模式 schema drift（doc-surface/textarea height/sidebar props——**pristine main 同败，T-03/T-04 表面既有债**）阻断 verify_local --auto 生命周期；verify_local 实跑 L-01..L-20=41 PASS 零 FAIL（真实 vue UI 注释 CRUD+导出全过），L-21 起受 --no-auto tmp-dir 服务器数据目录假设限制——全量复演归 T-09 冻结 cohort（schema drift 债需 owner 处置，见§10.5）。
+- **T-06 seam 契约（本轮冻结）**：①adapter 选区 quote 必须与服务器章缓存正文逐字一致（entry ring 拒绝否则——跨段拼接=块边界 "\n" 连接）；②occurrence=全书 spine 序非重叠位次（adapter countOccurrences 改 split 同式）；③canonical locator 由 /api/reader/locator 响应下发（UI 持 canonical 提交 annotations-v2），客户端不构造 CFI/occurrence 语义；④恢复环 adapter 读回比对（readback text/context vs locator）在 T-06/T-08 接线，本阶段 verify oracle 端点已就绪。
+- 未改 canonical Spec（SD-01～05 落地属 T-10）；未创建用户数据（全部 plan-artifacts 隔离目录）。
+
+- stage: goal | plan_id: READER-007 | plan_revision: r1 | round: 2 | from: work | to: work | status: executing | outcome: pass | worktree: D:/autostack/auto-reader main（本计划 main 为唯一实现位）| commit: 37528c9 | next: T-06。
 
 ### 2026-11-03：work阶段——T-04 会话命令与真实引擎接线、双端产品 UI（AC-03）
 
@@ -253,7 +266,8 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 
 ## 10. 待澄清事项
 
-1. 029的最新完整交付cohort与独立复审/验收回执目前未查到，用户同意先起草等待。执行前由T-00核实，未满足不得产品化。
-2. 原生正式Reader的启动与HTTP/merged组合是否沿029接口可用？T-00整路径证明，不以实验窗替代，不凭旧命令推断。
-3. Locator v2存储/协议、跨段与v1映射、可信CFI核验、引擎资源/性能预算，由T-01在实现前冻结；未决时不先写用户数据。机制实证失败须回规划/owner前置，不降低AC。
-4. 固定引擎分发/许可与真实语料可再分发性由T-01/02核查；不内嵌用户书、凭据或未经说明的外部目录依赖。后续正式计划只交付本期profile，不把Readest全部能力塞入一份计划。
+1. 029的最新完整交付cohort与独立复审/验收回执目前未查到，用户同意先起草等待。执行前由T-00核实，未满足不得产品化。（T-00 已闭合：029 归档 12/12 + landing 65bb455f 实证。）
+2. 原生正式Reader的启动与HTTP/merged组合是否沿029接口可用？T-00整路径证明，不以实验窗替代，不凭旧命令推断。（T-00 已闭合：双端启动 profile 冻结。）
+3. Locator v2存储/协议、跨段与v1映射、可信CFI核验、引擎资源/性能预算，由T-01在实现前冻结；未决时不先写用户数据。机制实证失败须回规划/owner前置，不降低AC。（T-01/T-05 已闭合：方案甲+reader-locator v1 落地。）
+4. 固定引擎分发/许可与真实语料可再分发性由T-01/02核查；不内嵌用户书、凭据或未经说明的外部目录依赖。后续正式计划只交付本期profile，不把Readest全部能力塞入一份计划。（T-02 已闭合：MIT+打包 manifest。）
+5. **T-05 新增登记（2026-11-04）**：①`auto build` 严格模式 schema drift（reading_page doc-surface/textarea height/sidebar props）阻断一切 build 基生命周期——pristine main 同败（T-03/T-04 表面既有债，非 T-05）；T-09 冻结 cohort 前需 owner 处置（SCHEMA_DRIFT_GENERATE_AT=1 实测不生效）或 verify_local 改用 dev-server 形态。②run_ui 工具宿主 ~12min 存活期不稳定（双轨，控制流关闭）——门已数据族前置+族内隔离，框架侧根因待 owner。③vm 轨工具面（asset 端点窗口期 404、WebView2 CDP 9333 不开放）=T-04 已录 GAP 同类，UI 腿待工具链，非产品缺陷。④已知成本：HTTP 计量 VM ~10× 慢——长章一次性转换 19s（缓存后 2s）；v2 occurrence=非重叠口径，T-06 adapter countOccurrences 需同式对齐。
