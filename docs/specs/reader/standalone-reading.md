@@ -64,3 +64,26 @@ profile、工具身份、应用自有媒体/链接契约与永久用户任务门
   磁盘仅作独立读回 oracle；原生 UI 写传输缺口（N-005-A-1/A-2，见
   reading-annotations.md）为具名跨仓债——修复后重跑驱动即转正，不以
   历史 skip 顶替。
+
+## READER-007 产品 profile 与永久验收入口（SD-05，T-09 沉淀）
+
+- **新产品 profile**：EPUB 书经 doc-surface 引擎表面渲染（SD-01），
+  TXT/MD 保持本文件的 scroll-pane 文本面；同组件路由换书不重挂引擎为
+  已知形态（测试以独立页规避并登记）。历史成绩（本文件上部 005 冻结
+  工具/成绩）单列有效——表面已由 READER-007 更新。
+- **永久验收入口**：`python tests/product/verify_epub_product.py
+  --profile vue|vm --auto-bin <auto> --out-dir <隔离>`——P-01～12 必需
+  集（0 选择/缺项/GAP/not_run 非零）；2026-11-04 gate-final4：vue
+  aggregate ok=True findings=0 not_run=0（31 PASS 全腿含旧门取证）。
+- **旧门 cohort（T-09 冻结跑，2026-11-04）**：verify_standalone vue
+  28/28（standalone_ui specs 表面 oracle 已随 SD-05 更新为引擎面：
+  R-02 引擎内图像解码/src 互异、R-03 跨章链接→getContents 目标章+
+  逐字文本、无效链接不导航；R-06 变异目标改受管原件 zip 图像条目——
+  变异红→还原绿）；verify_local vue 50/50；verify_epub 22/22；
+  auto test 7/7。vm 原生驱动面 = N-003-8/T-04 已录工具链缺口
+  （WebView2 CDP 不开放 + EPUB 文本面部件已由引擎面替换的同源后果）
+  ——诚实记录不冒充通过。
+- **`auto build` 严格模式 schema drift**：doc-surface/textarea height/
+  sidebar props（pristine main 既有，T-03/T-04 表面债）——基于 build
+  的旧门入口需 schema 同步（auto-ui owner）或 dev-server 形态；
+  verify_local 已加 SFC 现势容错（T-09）。

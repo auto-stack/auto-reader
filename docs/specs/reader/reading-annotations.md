@@ -73,3 +73,18 @@
 - `python tests/annotations/verify_local.py --profile vue|vm [--auto]`：A-01..04 面（3 格式导入、20+ 注释、重复句 occurrence、诚实拒绝、导出独立解析、损坏诚实、layout/theme 持久、冷重启 annotation_id 稳定、Playwright UI 面）。基线成绩（005 r1，CLI e7dd7df1/tool 4d2198b8）：vue 50/50、vm 49+原生面由 005 驱动承载。
 - `python tests/native/test_native_standalone_ui.py --auto-bin <auto.exe>`：原生注释抽屉/对话框按压、type_text model 回写、导出/删除数据契约、冷重启恢复（005 交付）。
 - `auto tests/spec/t10_annotations_spec.as`：服务端规格 69 检查（CRUD/occurrence/锚点拒绝/损坏容错/搜索/导出/layout-theme/源改版/CRLF+多字节计数）。
+
+## 精确 range 新形态与版本化导出（READER-007 T-05/T-07 交付）
+
+- v2 记录 = v1 字段恒在场（回退面，跨段/引擎选区诚实章级 pi=-1）+ 可选
+  canonical `locator` 对象（SD-02 语义）。create 经
+  `/api/library/annotations-v2` 携带（恢复环核验 + 同一性通过才落盘）；
+  op=anchor 为存量 v1 追加（唯一映射证明才生成）；锚字段不可变。
+- 永久门：`tests/product/verify_epub_product.py` P-04（重复句第 2 处/
+  跨段范围真实 UI 选区→canonical locator→v2 落盘→verify-ann 匹配→
+  编辑/删除）、P-05.v2-anchor（唯一映射锚定/已锚拒绝/TXT 不可映射/
+  多义 context 错位 needs_relocate）、P-08.mutation-matrix（身份链/
+  资源身份/位次/上下文六变异具名拒+零写入）。
+- 导出：v2 记录追加「定位（v2）：spine=N cfi=<start.cfi>
+  occurrence=scope#idx」行（canonical 字段直取，独立可解析；纯 v1 记录
+  无此行不伪造定位）——P-07.export 独立解析门 PASS。

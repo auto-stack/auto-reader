@@ -314,3 +314,31 @@ T-02 实测）。**直连客户端请求体必须 ASCII 安全（\u 转义）**�
 - Locator v1 + settings 基础上，reading 状态新增**可选键** `layout`（narrow|medium|wide，阅读列宽）与 `theme`（light|sepia|dark，阅读沉浸面底色）：词法门（jsonx.known_state_key）按 str 判别+重复拒绝；写侧出现才枚举校验并写入 canonical 态，**缺位不写键**（旧存储形态逐字节兼容，001 回归 t01/t02 绿）；读侧在场才核枚举，坏值拒绝冒充有效状态。
 - 消费面：reading_page 以可选键缺位=默认（medium/light）渲染；保存沿既有 POST /api/library/progress 面（payload 可选键直传）。
 - 注释/书签/搜索/导出的现实现规范见 [reading-annotations.md](reading-annotations.md)（SD-01，阶段A 交付）。
+## Locator v2 与版本化（READER-007 T-05 交付，方案甲同文件版本化）
+
+- **阅读状态可选顶层 `locator`**（canonical reader-locator v1，SD-01）：
+  写侧经恢复环核验（身份链/逐字 quote/作用域位次/上下文窗口重算）通过才
+  canonical 入存储态；缺省入参**前向延续**存量 locator（settings-only
+  保存不清位锚）；存内 locator 在场但不可重发 → 具名拒绝保原件（不静默
+  丢锚、不假保存）。payload 内夹带 locator 拒绝（顶层参数承载，防双写
+  歧义——para_text 同款）。
+- **注释记录可选 `locator` 对象**：create 携带（恢复环核验 + 与 v1 锚
+  同一性：同 quote 同章）或 op=anchor 存量追加（唯一映射证明：v1 锚现场
+  逐字可核 + locator 核验 + 同一性）；不可映射/多义/失配具名拒绝保留
+  v1，无整库改写。reemit/record_emit canonical 重发不丢锚；不可重发 =
+  具名拒绝整笔写（方案乙白名单丢锚教训内建防御）。update 不接受改锚
+  （锚字段不可变）。
+- **版本管理**：annotations 文件 version 1→2——仅因存在任一 v2 锚升 2，
+  末枚 v2 锚删除回落 1（字节兼容旧客户端）；旧客户端对 version:2 具名
+  拒绝（refuse-to-load 不误解不静默丢）。词法门（jsonx.valid_ann_locator/
+  valid_locator_document）：schema 字面量/嵌套形态/限额/已知键重复拒绝。
+- **三环核验**：录入环 `/api/reader/locator`（七级校验，canonical
+  context 服务器从章缓存正文计算——不信任引擎自述）；恢复/回访环
+  `/api/library/locator/verify`（locator 文档）与
+  `/api/library/locator/verify-ann`（按注释记录取锚）——身份链/资源身份
+  （spine + 权威 href）/逐字 quote/作用域位次/上下文窗口重算比对，失配
+  → needs_relocate 具名原因（「CFI 指另一处重复句但 quote 相同」由
+  context 失配识别，不跳第一处）。CFI 本体为引擎载荷（受管 adapter 唯一
+  转换接缝，后端只做形状核验，不引入第二解析器）。
+- 出现计数口径：v2 书界 = 非重叠精确子串（split 单次 native）；v1 段锚
+  保持滑动窗口径（READER-002 t10 S11 钉死）——双口径并存且各自钉死。
