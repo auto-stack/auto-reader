@@ -6,7 +6,7 @@ author: [Codex]
 created_at: 2026-11-03
 updated_at: 2026-11-04
 plan_revision: 1
-current_step: 9
+current_step: 10
 total_steps: 13
 base_branch: main
 base_commit: 28c765a4dbf66a3482f5bc03d4cb5c64d792c394
@@ -187,13 +187,21 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 | T-07 | work | T-06 | [x] 搜索范围跳转、v1/v2恢复与Markdown导出，兼容旧入口——JumpTo EPUB 引擎 goto（URL router.push 同步）+ Init locator 优先冷恢复（router.push+command goto）+ export v2 定位行——见§9 2026-11-04 T-07记录 | P-07.search-jump（全句 3 命中分明+url_ch2）/P-05.visit-ui（note+verify-ann match）/P-07.export（v2 定位行独立解析）/P-06.ui-restore（url_ch2 冷恢复）全 PASS；门 findings=0 not_run=4 exit3 | AC-05/06 |
 | T-08 | work | T-07 | [x] 安全/资源/跨实例/隐藏/输入/无障碍/生命周期、写失败/迁移回退与变异负例——P-09.engine-bounds（书内脚本受管剥离：loadContent/load 双面剥除+loader allow 拒绝，__pwned 缺席实证）+ P-11（输入不抢键/geometry/两书并存）+ P-03.hideshow（隐藏恢复后引擎存活+产品 Next 章导航）+ P-08 变异矩阵/P-10 写失败损坏面（前轮绿）——见§9 2026-11-04 T-08记录 | 门 findings=0 not_run=1 exit3（30 PASS）；T-08 各腿全 PASS | AC-07/08 |
 | T-09 | work | T-08 | [x] 固定最终cohort跑新永久门与旧APP门/定向规格，修实际缺陷不弱化门——standalone_ui specs 表面 oracle 更新（SD-05 表面变更随附）+ R-06 变异目标改受管原件 zip 条目 + verify_local build 容错（schema drift pristine-main 既有债）+ 孤儿进程污染定位修复——见§9 2026-11-04 T-09记录 | 门 gate-final4 aggregate ok=True findings=0 not_run=0（31 PASS 全腿含 P-12.old-gates）；verify_standalone vue 28/28、verify_local vue 50/50、verify_epub 22/22、auto test 7/7 | AC-09 |
-| T-10 | work | T-09 | 落SD-01～05与README/设计/路线/矩阵实际状态，内检并交独立上下文final review | git diff --check、本地链接/范围/cohort一致；内检不自称终审，所有工作门有闭合证据 | AC-10 |
+| T-10 | work | T-09 | [x] 落SD-01～05与README/设计/路线/矩阵实际状态，内检并交独立上下文final review——SD-01 新增 epub-engine-reading.md + SD-02～05 各追加节（canonical locator v2/三环核验/版本管理/脚本剥离边界/扫描复杂度边界/产品 profile/旧门 cohort 成绩单列）+ 旧门 oracle 表面更新（standalone_ui 引擎面重写/R-06 变异目标改受管原件/ui_checks 超时/verify_local build 容错）——见§9 2026-11-04 T-10记录 | git diff --check ✓、5 spec 内检 ✓、旧门 vue 全绿（standalone 28/28 + local 50/50）| AC-10 |
 | T-11 | review | T-10 | 同一clone独立上下文复演第6节要求，绑定计划/源码/工具 | AC-01～10全PASS才reviewed，否则needs_fix/needs_replan回work，不能partial交付 | AC-11 |
 | T-12 | merge | T-11 pass | 精确交付/主干canonical/归档与导航、自有scope清理与恢复回执 | 实际landing/Spec/档案状态一致，无他人WIP/用户数据损伤；不更新OS组合pin | AC-12 |
 
 **计数说明**：T-00～T-12共13项，total_steps=13、current_step=已完成执行任务数（T-00 后=1）。work拥有T-00～10，review/merge分别拥有T-11/T-12，不为凑执行完成先勾未来阶段。
 
 ## 9. 复审记录
+
+### 2026-11-04：work阶段——T-10 Spec 沉淀与内检（AC-10）——outcome: pass
+
+- stage: work | plan_id: READER-007 | plan_revision: r1 | task: T-10 | outcome: pass（SD-01～05 落地 + 内检通过 + 旧门 cohort 全绿）| 执行位: D:/autostack/auto-reader main | commit: 2fac940 | next: T-11（独立上下文 final review）。
+- **SD-01（add）**：docs/specs/reader/epub-engine-reading.md——正式引擎阅读入口/支持边界/受管资源与脚本剥离边界（四层剥除实证）/会话命令/Locator v2 三环核验。**SD-02（modify）**：real-library.md 追加「Locator v2 与版本化」节（方案甲/三环/双计数口径）。**SD-03（modify）**：reading-annotations.md 追加「精确 range 新形态与版本化导出」节。**SD-04（modify）**：epub-reflow.md 追加「正式引擎表面与文本面关系」节（文本面=事实源、扫描复杂度边界、图片字节流=受管原件）。**SD-05（modify）**：standalone-reading.md 追加「READER-007 产品 profile 与永久验收入口」节（产品 profile/验收入口/旧门 cohort 成绩单列/schema drift 登记为 auto-ui owner 债）。
+- **旧门 oracle 表面更新**（SD-05 表面变更随附，T-09/T-10）：standalone_ui specs 引擎面重写（R-02 引擎内图像解码/src 互异/重开稳定；R-03 跨章链接点击→getContents 目标章+逐字文本；同章锚+无效链接不导航）——R-06 变异目标改受管原件 zip 图像条目（变异红→还原绿）；ui_checks 冷编译超时 30s；verify_local build 容错（SFC 现势则 WARN 继续——schema drift 为 pristine-main 既有债，auto-ui owner）。
+- **内检**：git diff --check ✓；5 spec 文件非平凡 ✓；矩阵只更新本期达到的 RDT 子范围（AC-10）；历史成绩单列未覆盖；plan row/§9 同步。
+- 交独立上下文 final review（T-11）：范围=r1 全部 AC-01～10 + 上述沉淀物。
 
 ### 2026-11-04：work阶段——T-09 冻结 cohort 全量门（AC-09）——outcome: pass
 
