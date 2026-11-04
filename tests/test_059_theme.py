@@ -332,8 +332,13 @@ def vm_leg(name, app_env, expect, failures, data_dir, log_name, log_grep=None):
                 rgb = interior_pixel(shot)
                 want = expect["pixel"]
                 hexv = f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
-                print(f"  [*] interior pixel {hexv} (expect {want})", flush=True)
-                if hexv != want:
+                tol = int(expect.get("pixel_tol", 0))
+                print(f"  [*] interior pixel {hexv} (expect {want} ±{tol})", flush=True)
+                if tol:
+                    want_rgb = tuple(int(want[i:i + 2], 16) for i in (1, 3, 5))
+                    if any(abs(a - b) > tol for a, b in zip(rgb, want_rgb)):
+                        failures.append(f"{name}: pixel {hexv} != {want} ±{tol}")
+                elif hexv != want:
                     failures.append(f"{name}: pixel {hexv} != {want}")
             else:
                 failures.append(f"{name}: screenshot not saved")
@@ -525,6 +530,16 @@ def main() -> int:
                {"state": [("dark_mode: true", "reopen adopts latest policy")],
                 "pixel": "#09090b"},
                failures, os.path.join(ART, "data-FR"), "boot-FR.log")
+
+    # SL: Solarized x light（VM 轨）—— 两族×明暗矩阵补全（review R-1）
+    cfg_sl = os.path.join(ART, "cfg-sl", "config.at")
+    write_solarized_config(cfg_sl, mode="light")
+    if run("SL"):
+        vm_leg("SL", {"AUTOOS_DESKTOP_CONFIG": cfg_sl,
+                      "AUTOOS_THEME_PACKAGE_DIR": r"D:\autostack\.wt\os-059\auto-ui\packages\themes"},
+               {"state": [("dark_mode: false", "Solarized light derived mode")],
+                "pixel": "#fdf6e2", "pixel_tol": 2},
+               failures, os.path.join(ART, "data-SL"), "boot-SL.log")
 
     # S1: apply sepia via real UI picker (persists to reading-state), light boot（vue 轨）
     if run("S1"):

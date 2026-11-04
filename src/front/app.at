@@ -30,13 +30,15 @@ widget App {
 
     // auto-os/PLAN-059 T-02：主题设计默认（独立默认腿）。本产品原为纯浅色
     // 壳（无明暗切换），独立默认腿取静态 light 保现默认语义（056 todo 先例，
-    // 2026-11-04 交付）；mode 表达式消费 store 保留名 dark_mode（默认 false
-    // = light）。桌面内宿主策略完整快照（family+mode）按 031 full-host 语义
-    // 整体接管本默认（follow——pac theme 键保持缺省）；standalone 独立环境
-    // 由 458/672 种子链（AUTO_UI_THEME env > os-config > 系统主题）写保留
-    // 名位。视图全部为语义 token 类，族内明暗由 token 切换承接。
-    // 位置纪律：design 块置于 msg 之后 view 之前（056/058 交付先例同位；
-    // routes 后紧邻时 codegen 静默丢块——2026-11-04 T-02 实测）。
+    // 2026-11-04 交付）；mode 表达式消费本 widget 保留名 dark_mode（默认
+    // false = light）。桌面内宿主策略完整快照（family+mode）按 031 full-host
+    // 语义整体接管本默认（follow——pac theme 键保持缺省）；standalone 独立
+    // 环境由 458/672 种子链（AUTO_UI_THEME env > os-config > 系统主题）写
+    // 保留名位。视图全部为语义 token 类，族内明暗由 token 切换承接。
+    // 注：本块投影曾因 vue 生成器注入门控（accent/theme_name 双臂）静默
+    // 截断——修复=auto-ui 组树 codex/plan-059-vue-design-theme-gate
+    // （ad944951，门控扩 design.theme 第三臂）；本块置于 msg 后 view 前
+    // 沿 056/058 交付先例同位惯例，与该修复无因果。
     design {
         theme: "Auto"
         mode: if .dark_mode { "dark" } else { "light" }
