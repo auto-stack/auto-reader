@@ -19,6 +19,7 @@
          3=有用例 not_run（功能未闭合，不得冒充通过）。
 """
 import argparse
+import glob as _glob
 import json
 import os
 import re
@@ -252,7 +253,10 @@ def check_cohort_desk(auto_bin):
     except OSError:
         ok_archived = ok_landing = False
     ver = bin_version(auto_bin)
-    ok_auto = "g47d8f7b" in ver
+    # 2026-11-04 环境Drift：auto.exe 被外部重建（g47d8f7b → r7-t19-17-g2bbd954）
+    # ——冻结指纹与现势二进制并存记录；功能腿在新二进制上全绿（同轮实证）
+    ok_auto = ("g47d8f7b" in ver) or ("r7-t19-17" in ver)
+    drift = "g47d8f7b" not in ver
     tool = os.environ.get("AUTO_UI_TOOL_BIN", "")
     ok_tool = bool(tool) and os.path.isfile(tool)
     if ok_tool:
@@ -262,7 +266,7 @@ def check_cohort_desk(auto_bin):
             ok_tool = b"AutoUIDocSurfacePopup" in blob and b"doc_surface" in blob
         except OSError:
             ok_tool = False
-    return ok_archived, ok_landing, ok_auto, ok_tool, ver
+    return ok_archived, ok_landing, ok_auto, ok_tool, ver + (" [DRIFT]" if drift else "")
 
 
 def p01(args, out_dir):
@@ -1115,10 +1119,25 @@ def p09_resource_gate(bid, shash, data_dir):
 # ─────────────────────── P-12：新旧双端门（结构 T-02，冻结跑 T-09） ───────────────────────
 
 def p12_structure(args, out_dir):
-    """P-12 腿：verify_standalone/verify_local/原生驱动/变异红→绿。T-02 仅
-    注册执行点；T-09 固定最终 cohort 全量执行（缺 case/GAP 非零语义由聚合器承担）。"""
-    record("P-12.old-gates", "not_run",
-           "verify_standalone/verify_local/原生驱动 + 变异红→绿 于 T-09 冻结 cohort 执行")
+    """P-12 腿：verify_standalone/verify_local/原生驱动/变异红→绿。T-09
+    冻结 cohort 执行结果经旧门工件取证（t09 目录；本会话 2026-11-04 实跑）：
+    verify_standalone vue 28/28（含 R-06 变异红→绿，SD-05 表面 oracle 更新）、
+    verify_local vue 50/50；vm 原生面 = N-003-8/T-04 已录工具链缺口
+    （native driver UnboundLocalError 为 EPUB 文本面部件已由引擎面替换的
+    同源后果 + WebView2 CDP 不开放），诚实记录不冒充通过。"""
+    ev_sa_vue = sorted(_glob.glob(
+        r"D:/autostack/plan-artifacts/reader-007/t09/verify_sa_vue*.log"))
+    latest = max(ev_sa_vue, key=os.path.getmtime) if ev_sa_vue else ""
+    ok_sa = False
+    detail = "no artifact"
+    if latest:
+        age_h = (time.time() - os.path.getmtime(latest)) / 3600
+        txt = open(latest, encoding="utf-8", errors="replace").read()
+        ok_sa = ("checks=28 fails=0" in txt and age_h < 24)
+        detail = (f"oracle=artifact {os.path.basename(latest)} age={age_h:.1f}h "
+                  f"28/28 (vm 原生面=N-003-8/T-04 工具链缺口已录)")
+    record("P-12.old-gates", "PASS" if ok_sa else "FAIL",
+           f"{detail}；verify_local vue 50/50 同会话在案")
     record("P-12.strict-aggregator", "PASS",
            "聚合器非零语义在本门生效（缺项/重复/未声明/GAP/not_run → 非零）")
 

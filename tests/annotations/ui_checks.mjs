@@ -20,13 +20,15 @@ function check(cond, name) {
 
 const browser = await chromium.launch(exe ? { executablePath: exe } : {})
 const page = await browser.newPage()
-page.setDefaultTimeout(9000)
+// READER-007 T-09：vite dev 冷启动按需编译首个路由——9s 在冷 gen 树上
+// 不够（书架卡 L-25 两次实录）；默认放宽到 30s
+page.setDefaultTimeout(30000)
 try {
   // ── 进入书 ──
   await page.goto(base + '/#/', { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(2200)
   const card = page.locator('text=' + bookTitle).first()
-  await card.waitFor({ timeout: 9000 })
+  await card.waitFor({ timeout: 30000 })
   await card.click()
   await page.waitForTimeout(1200)
   let entered = false

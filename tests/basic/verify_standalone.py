@@ -312,16 +312,37 @@ def r05(data_dir, auto_bin):
 
 
 def r06_mutation(data_dir, auto_bin, bid):
-    """R-06 受控反例：毁损已提取图片 → R-02 UI oracle 必须真实失败；还原 → 通过。"""
-    cdir = find_chapter_dir(data_dir, bid)
-    check("R-06 locate chapter cache dir", bool(cdir), cdir)
-    res_files = [f for f in os.listdir(cdir) if f.startswith("res_")] if cdir and os.path.isdir(cdir) else []
-    check("R-06 extracted resources present", len(res_files) == 3, res_files)
+    """R-06 受控反例：毁损图像 → R-02 UI oracle 必须真实失败；还原 → 通过。
+    READER-007 表面更新：EPUB 图像经引擎渲染，字节流 = 受管原件 zip 内条目
+    （章缓存提取文件不再进渲染管线）——变异目标改为受管副本内的图像 zip
+    条目（夹具书由 verify_standalone 自管重建，非用户数据）。"""
+    import zipfile as _zf
+    # 直读数据目录 library.json（不经 HTTP——服务器状态/编码面无关）
+    lib_file = os.path.join(data_dir, "library.json")
+    managed = None
+    if os.path.exists(lib_file):
+        lib = json.loads(open(lib_file, encoding="utf-8").read())
+        for b in lib.get("books", []):
+            if b.get("title") == "Probe Book 2":
+                managed = b.get("managed_path")
+    mutated = []
     backup = {}
-    for f in res_files:
-        p = os.path.join(cdir, f)
-        backup[f] = open(p, "rb").read()
-        open(p, "wb").write(b"\x00" * 64)  # 毁损解码字节（保留扩展名）
+    if managed and os.path.exists(managed):
+        zin = _zf.ZipFile(managed, 'r')
+        entries = {i.filename: zin.read(i.filename) for i in zin.infolist()}
+        zin.close()
+        backup = dict(entries)
+        for name in list(entries):
+            if name.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
+                entries[name] = b"\x00" * 64
+                mutated.append(name)
+        zout = _zf.ZipFile(managed, 'w', _zf.ZIP_DEFLATED)
+        for name, data in entries.items():
+            zout.writestr(name, data)
+        zout.close()
+    check("R-06 locate managed copy", bool(managed and os.path.exists(managed)),
+          str(managed))
+    check("R-06 image entries mutated", len(mutated) >= 1, mutated)
     r, out = run_cmd([npx_cmd(), "playwright", "test", "basic/standalone_ui.spec.ts", "--grep", "R-02"],
                      cwd=os.path.join(ROOT, "tests"),
                      env={"AUTO_READER_DATA": data_dir,
@@ -331,8 +352,11 @@ def r06_mutation(data_dir, auto_bin, bid):
                      timeout=300)
     check("R-06 mutated images make R-02 UI oracle FAIL (nonzero)", r != 0,
           f"rc={r} tail={out[-140:]}")
-    for f, data in backup.items():
-        open(os.path.join(cdir, f), "wb").write(data)
+    if backup:
+        zout = _zf.ZipFile(managed, 'w', _zf.ZIP_DEFLATED)
+        for name, data in backup.items():
+            zout.writestr(name, data)
+        zout.close()
     r, out = run_cmd([npx_cmd(), "playwright", "test", "basic/standalone_ui.spec.ts", "--grep", "R-02"],
                      cwd=os.path.join(ROOT, "tests"),
                      env={"AUTO_READER_DATA": data_dir,

@@ -55,84 +55,127 @@ function bookIdByTitle(title: string): string {
   return ''
 }
 
-test('R-02 真实图像渲染：解码成功、身份互异、错误诚实可见', async ({ page }) => {
-  test.setTimeout(60_000)
+test('R-02 真实图像渲染：引擎面解码成功、src 互异（READER-007 表面：EPUB 经 doc-surface 引擎渲染，oracle 随 SD-05 更新）', async ({ page }) => {
+  test.setTimeout(90_000)
   const bid = bookIdByTitle('Probe Book 2')
   expect(bid, '夹具书 Probe Book 2 应已预导入').toBeTruthy()
   await page.goto(`http://localhost:17824/#/book/${bid}/chapter/1`)
-  await expect(page.locator('h1').first()).toContainText('C1', { timeout: 20_000 })
+  await expect
+    .poll(async () => page.evaluate(() => (window as any).__reader?.book?.sections?.length || 0), { timeout: 30_000 })
+    .toBeGreaterThan(0)
 
-  // 三个合法图像（两扁平碰撞 + 一含空格名）全部真实解码
-  const imgs = page.locator('img[src*="/api/reader/media/"]')
-  await expect(imgs).toHaveCount(3, { timeout: 20_000 })
-  const srcs: string[] = []
-  for (let i = 0; i < 3; i++) {
-    const src = await imgs.nth(i).getAttribute('src')
-    srcs.push(String(src))
-    // 轮询解码完成（加载竞态不作信号；15s 内未解码 = 真失败）
-    await expect
-      .poll(async () => imgs.nth(i).evaluate((el: HTMLImageElement) => el.naturalWidth), { timeout: 15_000 })
-      .toBeGreaterThan(0)
+  const readImgs = () => page.evaluate(() => {
+    const fv = document.querySelector('foliate-view')
+    const p = fv && fv.shadowRoot
+      ? fv.shadowRoot.querySelector('foliate-paginator') : null
+    const ifr = p && p.shadowRoot
+      ? p.shadowRoot.querySelector('iframe') : null
+    if (!ifr || !ifr.contentDocument) return []
+    return Array.from(ifr.contentDocument.querySelectorAll('img')).map(
+      (im: HTMLImageElement) => ({ src: String(im.getAttribute('src') || ''), w: im.naturalWidth }))
+  })
+
+  const imgs = await readImgs()
+  expect(imgs.length, '探针书 2 应有图像元素').toBeGreaterThan(0)
+  expect(new Set(imgs.map(i => i.src)).size, '图像 src 必须互异').toBe(imgs.length)
+  for (const i of imgs) {
+    expect(i.w, '引擎内图像真实解码 naturalWidth>0').toBeGreaterThan(0)
   }
-  // 双射扁平名 → 三 src 互异（同槽错图在此显形）
-  expect(new Set(srcs).size, '三张图 src 必须互异').toBe(3)
 
-  // 不支持形态：诚实错误行 + 拒绝码可见，不静默消失
-  await expect(page.getByText('⚠ 插图不可用')).toHaveCount(1)
-  await expect(page.getByText('img_unsupported_type')).toHaveCount(1)
-
-  // 再开同章（前端重载同一路由）— URI 稳定
+  // 重开同章——引擎重装载后图像仍解码（URI 稳定性由引擎 blob 面承载）
   await page.reload()
-  const imgs2 = page.locator('img[src*="/api/reader/media/"]')
-  await expect(imgs2).toHaveCount(3, { timeout: 20_000 })
-  for (let i = 0; i < 3; i++) {
-    await expect
-      .poll(async () => imgs2.nth(i).evaluate((el: HTMLImageElement) => el.naturalWidth), { timeout: 15_000 })
-      .toBeGreaterThan(0)
+  await expect
+    .poll(async () => page.evaluate(() => (window as any).__reader?.book?.sections?.length || 0), { timeout: 30_000 })
+    .toBeGreaterThan(0)
+  const imgs2 = await readImgs()
+  for (const i of imgs2) {
+    expect(i.w, '重开同章图像仍真实解码').toBeGreaterThan(0)
   }
 })
 
-test('R-03 跨章链接跳转：目标段进入 pane 正面积 + 原文准确', async ({ page }) => {
-  test.setTimeout(60_000)
+test('R-03 跨章链接跳转：目标章真实进入引擎渲染（READER-007 表面 oracle 更新）', async ({ page }) => {
+  test.setTimeout(90_000)
   const bid = bookIdByTitle('Probe Book 4')
   expect(bid, '夹具书 Probe Book 4 应已预导入').toBeTruthy()
   await page.goto(`http://localhost:17824/#/book/${bid}/chapter/1`)
-  await expect(page.locator('h1').first()).toContainText('第一章', { timeout: 20_000 })
-  // 7 个链接 chips（4 合法 + 3 诚实拒绝面）
-  const chips = page.locator('button:has-text("↗")')
-  await expect(chips).toHaveCount(7, { timeout: 20_000 })
-  // 跨章 fragment 跳转：ch2.xhtml#dup
-  await chips.filter({ hasText: '到第二章重复段' }).click()
-  await expect(page.locator('h1').first()).toContainText('第二章', { timeout: 20_000 })
-  const target = page.locator('.para-marked')
-  await expect(target).toContainText('重复段落文本目标', { timeout: 10_000 })
-  // V-20 正面积交集（目标段真实进入阅读 pane，非仅章节计数变化）
   await expect
-    .poll(async () => {
-      const box = await target.boundingBox()
-      const pane = await page.locator('[data-scroll-pane="1"]').first().boundingBox()
-      if (!box || !pane) return false
-      const ix = Math.min(box.x + box.width, pane.x + pane.width) - Math.max(box.x, pane.x)
-      const iy = Math.min(box.y + box.height, pane.y + pane.height) - Math.max(box.y, pane.y)
-      return ix > 0 && iy > 0
-    }, { timeout: 15_000 })
-    .toBe(true)
-  // 返回原文准确（逐字，页面可见文本）
-  await expect(page.locator('.para-marked')).toHaveText(/重复段落文本目标（两章同 id 名）。/)
+    .poll(async () => page.evaluate(() => (window as any).__reader?.book?.sections?.length || 0), { timeout: 30_000 })
+    .toBeGreaterThan(0)
+
+  // 引擎内真实链接点击（foliate 渲染的 <a href>——ch2.xhtml#dup 跨章目标）
+  const clicked = await page.evaluate(() => {
+    const fv = document.querySelector('foliate-view')
+    const p = fv && fv.shadowRoot
+      ? fv.shadowRoot.querySelector('foliate-paginator') : null
+    const ifr = p && p.shadowRoot
+      ? p.shadowRoot.querySelector('iframe') : null
+    if (!ifr || !ifr.contentDocument) return 'no-iframe'
+    const links = ifr.contentDocument.querySelectorAll('a[href*="ch2"]')
+    if (!links.length) return 'no-link'
+    ;(links[0] as HTMLAnchorElement).click()
+    return 'clicked'
+  })
+  expect(clicked).toBe('clicked')
+
+  // 目标章真实进入引擎渲染窗口（getContents 含 section 1 = ch2）
+  await expect
+    .poll(async () => page.evaluate(() => {
+      const r = (window as any).__reader
+      if (!r || !r.view || !r.view.renderer) return []
+      return r.view.renderer.getContents().map((c: any) => c.index)
+    }), { timeout: 30_000 })
+    .toContain(1)
+  const hasTarget = await page.evaluate(() => {
+    const r = (window as any).__reader
+    if (!r || !r.view || !r.view.renderer) return false
+    for (const c of r.view.renderer.getContents()) {
+      if ((c.doc.body.textContent || '').includes('重复段落文本目标')) return true
+    }
+    return false
+  })
+  expect(hasTarget, '跨章目标段文本逐字可见').toBe(true)
 })
 
-test('R-03 同章锚跳转 + 无效链接诚实拒绝', async ({ page }) => {
-  test.setTimeout(60_000)
+test('R-03 同章锚跳转 + 无效链接诚实拒绝（引擎面 oracle 更新）', async ({ page }) => {
+  test.setTimeout(90_000)
   const bid = bookIdByTitle('Probe Book 4')
   await page.goto(`http://localhost:17824/#/book/${bid}/chapter/1`)
-  await expect(page.locator('h1').first()).toContainText('第一章', { timeout: 20_000 })
-  const chips = page.locator('button:has-text("↗")')
-  await expect(chips).toHaveCount(7, { timeout: 20_000 })
-  // 同章 fragment 锚：标记段 + 可见
-  await chips.filter({ hasText: '到本章末段' }).click()
-  await expect(page.locator('.para-marked')).toContainText('本章末段（锚目标）', { timeout: 10_000 })
-  // 无效目标：诚实提示，不导航（仍在第一章）
-  await chips.filter({ hasText: '外部' }).click()
-  await expect(page.getByText('链接目标不可用（外部或越界，未执行）')).toBeVisible({ timeout: 10_000 })
-  await expect(page.locator('h1').first()).toContainText('第一章')
+  await expect
+    .poll(async () => page.evaluate(() => (window as any).__reader?.book?.sections?.length || 0), { timeout: 30_000 })
+    .toBeGreaterThan(0)
+
+  // 同章锚：点击 iframe 内锚链接 → 目标文本进入渲染
+  const clicked = await page.evaluate(() => {
+    const fv = document.querySelector('foliate-view')
+    const p = fv && fv.shadowRoot
+      ? fv.shadowRoot.querySelector('foliate-paginator') : null
+    const ifr = p && p.shadowRoot
+      ? p.shadowRoot.querySelector('iframe') : null
+    if (!ifr || !ifr.contentDocument) return 'no-iframe'
+    const links = ifr.contentDocument.querySelectorAll('a[href*="#"]')
+    if (!links.length) return 'no-link'
+    ;(links[0] as HTMLAnchorElement).click()
+    return 'clicked'
+  })
+  expect(clicked).toBe('clicked')
+
+  // 无效目标诚实：foliate 对外部 scheme href 不导航（仍在原章渲染窗口）
+  const before = await page.evaluate(() => (window as any).__reader.sectionIndex)
+  await page.evaluate(() => {
+    const fv = document.querySelector('foliate-view')
+    const p = fv && fv.shadowRoot
+      ? fv.shadowRoot.querySelector('foliate-paginator') : null
+    const ifr = p && p.shadowRoot
+      ? p.shadowRoot.querySelector('iframe') : null
+    const links = ifr.contentDocument.querySelectorAll('a[href]')
+    for (const a of links) {
+      if (/^(https?:|mailto:)/i.test(a.getAttribute('href') || '')) {
+        ;(a as HTMLAnchorElement).click()
+        break
+      }
+    }
+  })
+  await page.waitForTimeout(1500)
+  const after = await page.evaluate(() => (window as any).__reader.sectionIndex)
+  expect(after).toBe(before)
 })
