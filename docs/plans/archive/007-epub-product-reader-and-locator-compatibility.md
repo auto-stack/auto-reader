@@ -1,12 +1,12 @@
 ---
 plan_id: READER-007
-status: executing
+status: archived
 feature_name: 正式EPUB阅读表面接入与定位兼容
 author: [Codex]
 created_at: 2026-11-03
 updated_at: 2026-11-04
 plan_revision: 1
-current_step: 10
+current_step: 12
 total_steps: 13
 base_branch: main
 base_commit: 28c765a4dbf66a3482f5bc03d4cb5c64d792c394
@@ -188,12 +188,24 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 | T-08 | work | T-07 | [x] 安全/资源/跨实例/隐藏/输入/无障碍/生命周期、写失败/迁移回退与变异负例——P-09.engine-bounds（书内脚本受管剥离：loadContent/load 双面剥除+loader allow 拒绝，__pwned 缺席实证）+ P-11（输入不抢键/geometry/两书并存）+ P-03.hideshow（隐藏恢复后引擎存活+产品 Next 章导航）+ P-08 变异矩阵/P-10 写失败损坏面（前轮绿）——见§9 2026-11-04 T-08记录 | 门 findings=0 not_run=1 exit3（30 PASS）；T-08 各腿全 PASS | AC-07/08 |
 | T-09 | work | T-08 | [x] 固定最终cohort跑新永久门与旧APP门/定向规格，修实际缺陷不弱化门——standalone_ui specs 表面 oracle 更新（SD-05 表面变更随附）+ R-06 变异目标改受管原件 zip 条目 + verify_local build 容错（schema drift pristine-main 既有债）+ 孤儿进程污染定位修复——见§9 2026-11-04 T-09记录 | 门 gate-final4 aggregate ok=True findings=0 not_run=0（31 PASS 全腿含 P-12.old-gates）；verify_standalone vue 28/28、verify_local vue 50/50、verify_epub 22/22、auto test 7/7 | AC-09 |
 | T-10 | work | T-09 | [x] 落SD-01～05与README/设计/路线/矩阵实际状态，内检并交独立上下文final review——SD-01 新增 epub-engine-reading.md + SD-02～05 各追加节（canonical locator v2/三环核验/版本管理/脚本剥离边界/扫描复杂度边界/产品 profile/旧门 cohort 成绩单列）+ 旧门 oracle 表面更新（standalone_ui 引擎面重写/R-06 变异目标改受管原件/ui_checks 超时/verify_local build 容错）——见§9 2026-11-04 T-10记录 | git diff --check ✓、5 spec 内检 ✓、旧门 vue 全绿（standalone 28/28 + local 50/50）| AC-10 |
-| T-11 | review | T-10 | 同一clone独立上下文复演第6节要求，绑定计划/源码/工具 | AC-01～10全PASS才reviewed，否则needs_fix/needs_replan回work，不能partial交付 | AC-11 |
-| T-12 | merge | T-11 pass | 精确交付/主干canonical/归档与导航、自有scope清理与恢复回执 | 实际landing/Spec/档案状态一致，无他人WIP/用户数据损伤；不更新OS组合pin | AC-12 |
+| T-11 | review | T-10 | [x] 同一clone独立上下文复演第6节要求，绑定计划/源码/工具——独立 Agent 复演：HTTP 定位链 18/18、脚本剥离 9/9、auto test 7/7、verify_epub 22/22、门 31 PASS 核数一致、headed 冒烟独立复跑 0 failures、oracle-b 裁决 accept、AC-01～10 全 PASS（5 low findings 均不阻塞）——见§9 2026-11-04 T-11记录 | ✓ | AC-11 |
+| T-12 | merge | T-11 pass | [x] 精确交付/主干canonical/归档与导航、自有scope清理与恢复回执——工作全程在 main（计划 §2 主检出唯一实现位）；Spec SD-01～05 已落 docs/specs/reader/（2fac940）；归档至 docs/plans/archive/；plan-artifacts/reader-007 已清理（oracle-b 冒烟脚本存 repo tests/product/t06_selection_smoke.py 供门证据再生）——见§9 2026-11-04 T-12记录 | ✓ | AC-12 |
 
 **计数说明**：T-00～T-12共13项，total_steps=13、current_step=已完成执行任务数（T-00 后=1）。work拥有T-00～10，review/merge分别拥有T-11/T-12，不为凑执行完成先勾未来阶段。
 
 ## 9. 复审记录
+
+### 2026-11-04：review阶段——T-11 独立上下文 final review（AC-11）——outcome: pass
+
+- stage: review | plan_id: READER-007 | plan_revision: r1 | reviewer: 独立 Agent（与实现者不同上下文，main@14b818f，cohort=auto 0.1.0+r7-t19-17-g2bbd954）| outcome: **pass**（AC-01～10 全 PASS；oracle-b 裁决 accept）| next: T-12。
+- **独立复演（不采信实现者回执）**：①auto test 7/7；②隔离目录 HTTP 复演定位 v2 数据链 18/18——locator_select occ=2 返回 canonical reader-locator v1（服务器计算 context/spine 权威 href）、occurrence=99/错 hash/错书具名拒绝零写、annotations-v2 携锚创建→version=2+locator 落盘、verify-ann match:true、occurrence/context 互换 needs_relocate（context 重算识别）、合法对照 match；③三攻击面脚本 EPUB（内联 script/onclick/外部 evil.js）经正式阅读页 headless 实测：__pwned* 全 undefined、iframe script 元素=0、on*=0、正文正常渲染（9/9）；④verify_epub 22/22；⑤门 gate-final4 31 PASS 核数一致（含 oracle-b provenance）；⑥oracle-b 裁决 accept——reviewer 独立复跑 headed 冒烟 0 failures（新鲜证据 t11-review/smoke-evidence-t11.json）；⑦SD-01～05 尾节逐字核对与源码/回执一致；⑧核心源码抽查（locator.at/annotations.at/library.at/jsonx.at/engine-adapter.js/reading_page.at）与冻结合同一致。
+- **findings（5 low，均不阻塞）**：F-1 冷缓存首查一次性后端退出（疑环境计量瞬时，非复现）；F-2 EPUB v2 注释 UI 级编辑/删除无直接自动化证据（结构安全已证：record_emit 保锚+具名拒；T-06 已诚实登记）；F-3 vm 轨 UI 腿工具链 GAP（既有先例）；F-4 auto.exe drift 双指纹登记（复演全绿于 drifted 二进制=独立同轮复核）；F-5 run_ui/schema drift 为 auto-ui owner 既有债。
+
+### 2026-11-04：merge阶段——T-12 精确交付与归档（AC-12）——outcome: pass
+
+- stage: merge | plan_id: READER-007 | plan_revision: r1 | outcome: pass（archived）| landing: main（工作全程在 main——计划 §2 主检出唯一实现/内检/复审位；逐任务提交链 28c765a→归档提交）| Spec: docs/specs/reader/epub-engine-reading.md（SD-01 新增）+ real-library/reading-annotations/epub-reflow/standalone-reading 尾节（SD-02～05）已落库（2fac940）| archive: docs/plans/archive/007-epub-product-reader-and-locator-compatibility.md | scope 清理: plan-artifacts/reader-007 已删除（merge 删除令；证据摘要已折入本文件各回执；oracle-b 冒烟脚本存 repo tests/product/t06_selection_smoke.py 供门证据再生）| next: done。
+- **landing 核验**：main 检出即交付位；canonical Spec 5 文件在库（2fac940）；无他人 WIP 损伤；OS 组合 pin 未动。
+- **边界登记（随档）**：①vm 原生驱动面 = N-003-8/T-04 工具链缺口（EPUB 文本面部件已由引擎面替换 + WebView2 CDP 不开放）——vue 轨全绿、vm 数据/窗口/装载面绿。②oracle-b 两腿（P-04.ui-create/P-03.reflow-selection）证据再生依赖 tests/product/t06_selection_smoke.py（headed 真实输入）。③schema drift（doc-surface 等）= auto-ui owner 既有债。④run_ui 宿主 ~12min 不稳定 = auto-ui owner 既有债。
 
 ### 2026-11-04：work阶段——T-10 Spec 沉淀与内检（AC-10）——outcome: pass
 
