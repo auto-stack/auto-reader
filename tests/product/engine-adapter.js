@@ -150,6 +150,82 @@ export async function mountProbe(opts) {
 
     say('makeBook (foliate-js)…')
     const book = await makeBook(file)
+    // ── T-08 受管渲染边界（设计 02 §2：书内活动脚本拒绝）──
+    // 包装各 section 的 createDocument：脚本元素与 on* 内联处理器在文档
+    // 进入渲染 DOM 前剥除（受管 adapter 是唯一转换接缝——不可信出版物
+    // 内容与可信引擎脚本隔离）。剥除后 createDocument 的文本行/CFI 语义
+    // 不变（script 不产文本行）。
+    if (book && Array.isArray(book.sections)) {
+        for (const sec of book.sections) {
+            if (!sec || !sec.createDocument) continue
+            const origCreate = sec.createDocument.bind(sec)
+            sec.createDocument = async (...args) => {
+                const d = await origCreate(...args)
+                try {
+                    // 离屏路径（TOC/搜索文本抽取）的脚本剥除
+                    d.querySelectorAll('script').forEach(x => x.remove())
+                    d.querySelectorAll('*').forEach(el => {
+                        for (const at of [...el.attributes]) {
+                            if (/^on/i.test(at.name)) el.removeAttribute(at.name)
+                        }
+                    })
+                } catch (e) { /* 剥除失败不阻断渲染 */ }
+                return d
+            }
+        }
+    }
+    // ── 渲染路径脚本拒绝（loader 的官方消费钩子）──
+    // foliate loader 在 loadItem 时 dispatch load 事件（detail={isScript,
+    // allow:true}）并 await detail.allow——消费方同步置 false 即拒绝该资源
+    // 落盘/加载（书内活动脚本不进渲染管线，设计 02 §2）。transformTarget
+    // 为 foliate-epub 显式暴露的拦截点。
+    if (book && book.transformTarget) {
+        book.transformTarget.addEventListener('load', e => {
+            if (e.detail && e.detail.isScript) e.detail.allow = false
+        })
+    }
+    // ── 渲染路径内联脚本剥除 ──
+    // 分页器经 section.load() 的 URL 把整篇 XHTML 写入 iframe（srcdoc 形态
+    // ——内联 <script>/on* 属于文档本体，非独立 .js 资源，loader 的
+    // isScript 面覆盖不到）。包装 load()：取回渲染 HTML 后剥内联脚本与
+    // on* 处理器再交渲染（受管 adapter 唯一转换接缝）。
+    if (book && Array.isArray(book.sections)) {
+        for (const sec of book.sections) {
+            // 渲染数据面：分页器 srcdoc = section.loadContent() 的 XHTML
+            // 数据串（内联 <script>/on* 属于文档本体——loader 的 isScript
+            // 面只覆盖独立 .js 资源）。包装 loadContent 剥脚本后再交渲染。
+            if (sec && sec.loadContent) {
+                const origContent = sec.loadContent.bind(sec)
+                sec.loadContent = async (...args) => {
+                    const data = await origContent(...args)
+                    if (typeof data !== 'string') return data
+                    const clean = data
+                        .replace(/<script[\s\S]*?<\/script>/gi, '')
+                        .replace(/ on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+                    return clean
+                }
+            }
+            // URL 面对冲：部分路径经 src = load() 的 blob URL 装载
+            if (sec && sec.load) {
+                const origLoad = sec.load.bind(sec)
+                sec.load = async (...args) => {
+                    const url = await origLoad(...args)
+                    try {
+                        const blob = await fetch(url).then(r => r.blob())
+                        const html = await blob.text()
+                        const clean = html
+                            .replace(/<script[\s\S]*?<\/script>/gi, '')
+                            .replace(/ on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+                        if (clean !== html) {
+                            return URL.createObjectURL(new Blob([clean],
+                                { type: blob.type || 'application/xhtml+xml' }))
+                        }
+                    } catch (e) { /* 剥除失败不阻断渲染 */ }
+                    return url
+                }
+            }
+        }
+    }
 
     say('mounting foliate-view into engine surface…')
     const view = document.createElement('foliate-view')

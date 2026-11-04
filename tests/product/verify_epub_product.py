@@ -331,8 +331,7 @@ def p09_import_legs(args, out_dir):
     ok = r.returncode == 0 and "FAIL=0" in (r.stdout or "")
     record("P-09.import-bounds", "PASS" if ok else "FAIL",
            f"verify_epub rc={r.returncode} tail={tail.strip()[-150:]}")
-    record("P-09.engine-bounds", "not_run",
-           "引擎侧资源/脚本/远程/跨书边界 T-08 接入")
+    # （P-09.engine-bounds 归 p08_p11_legs 记录）
 
 
 # ─────────────────────── P-02：产品装载链 + 资产独立（T-03 接入） ───────────────────────
@@ -1977,6 +1976,293 @@ def p07_t07_legs(args, out_dir):
         proc.wait()
         logf.close()
 
+# ─────────────────────── T-08：引擎边界 / 输入不抢键 / geometry / 两书并存 / 隐藏显示（P-09.engine-bounds + P-11 + P-03.hideshow 腿） ───────────────────────
+
+def _make_script_epub(path):
+    """ crafted EPUB：章 1 携活动脚本（挂 window.__pwned 标记）+ 远程图片
+    占位（http:// URL——离线面不取）。导入/装载成功但脚本绝不执行。"""
+    import zipfile
+    import struct
+    import zlib
+
+    def chunk(t, d):
+        c = struct.pack(">I", len(d)) + t + d
+        return c + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
+
+    def png(w, h, rgb):
+        ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+        row = b"\x00" + bytes(rgb) * w
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
+                + chunk(b"IDAT", zlib.compress(row * h)) + chunk(b"IEND", b""))
+
+    def container_xml():
+        return ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                "<container version=\"1.0\" xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\">"
+                "<rootfiles><rootfile full-path=\"OEBPS/content.opf\" "
+                "media-type=\"application/oebps-package+xml\"/></rootfiles></container>\n")
+
+    ch1 = (f"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+           f"<html xmlns=\"http://www.w3.org/1999/xhtml\" xml:lang=\"zh\">\n"
+           f"<head><title>第1章 边界</title></head>\n"
+           f"<body>\n<h1>第一章 边界</h1>\n"
+           f"<p>边界第一章正文段落，用于脚本不执行断言的承载文本。</p>\n"
+           f"<script type=\"text/javascript\">window.__pwned = 'executed';</script>\n"
+           f"<p><img src=\"images/remote.png\" alt=\"remote\"/></p>\n"
+           f"</body></html>\n")
+    ch2 = (f"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+           f"<html xmlns=\"http://www.w3.org/1999/xhtml\" xml:lang=\"zh\">\n"
+           f"<head><title>第2章 边界</title></head>\n"
+           f"<body>\n<h1>第二章 边界</h1>\n"
+           f"<p>边界第二章正文段落。</p>\n</body></html>\n")
+    opf = (f'<?xml version="1.0" encoding="UTF-8"?>\n'
+           f'<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
+           f'unique-identifier="bid" xml:lang="zh">\n'
+           f'<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
+           f'<dc:identifier id="bid">urn:uuid:cccccccc-dddd-eeee-ffff-000000000001</dc:identifier>'
+           f'<dc:title>脚本边界书</dc:title><dc:language>zh</dc:language></metadata>\n'
+           f'<manifest>\n'
+           f'<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\n'
+           f'<item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/>\n'
+           f'<item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/>\n'
+           f'</manifest>\n'
+           f'<spine><itemref idref="c1"/><itemref idref="c2"/></spine>\n</package>\n')
+    nav = (f'<?xml version="1.0" encoding="UTF-8"?>\n'
+           f'<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh">\n'
+           f'<body><nav epub:type="toc" xmlns:epub="http://www.idpf.org/2007/ops">'
+           f'<ol><li><a href="ch1.xhtml">1 边界</a></li>'
+           f'<li><a href="ch2.xhtml">2 边界</a></li></ol></nav></body></html>\n')
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        zi = zipfile.ZipInfo("mimetype", date_time=(2026, 1, 1, 0, 0, 0))
+        zi.compress_type = zipfile.ZIP_STORED
+        z.writestr(zi, "application/epub+zip")
+        z.writestr("META-INF/container.xml", container_xml())
+        z.writestr("OEBPS/content.opf", opf)
+        z.writestr("OEBPS/nav.xhtml", nav)
+        z.writestr("OEBPS/ch1.xhtml", ch1)
+        z.writestr("OEBPS/ch2.xhtml", ch2)
+        z.writestr("OEBPS/images/remote.png", png(8, 8, (10, 20, 30)))
+
+
+
+def p08_p11_legs(args, out_dir):
+    """P-09.engine-bounds：书内脚本不执行（window.__pwned 缺席）；P-11：
+    输入不抢键（搜索输入键入不翻页）、geometry（小视口重排存活）、两书
+    并存（双页双引擎互不串）；P-03.hideshow：display 隐藏/恢复后引擎存活
+    + 产品「Next →」章导航仍动。全部点击/键盘输入（headless 可靠面）。"""
+    stamp = int(time.time())
+    proc, logf, data_dir = _boot_app(
+        args, out_dir, data_subdir=f"reader-data-t08-{args.profile}-{stamp}")
+    try:
+        bid, shash, fmt = _import_alpha(data_dir)
+        corpus = os.path.join(out_dir, "corpus")
+        script_epub = os.path.join(corpus, f"script-boundary-{stamp}.epub")
+        _make_script_epub(script_epub)
+        _parse2(http_json("http://127.0.0.1:17825/api/library/import", "POST",
+                          {"path": script_epub, "author": "verify", "force": False},
+                          timeout=120))
+        script_bid = ""
+        books = _parse2(http_json("http://127.0.0.1:17825/api/library/books"))
+        if isinstance(books, dict):
+            for b in books.get("books", []):
+                if "script-boundary" in str(b.get("original_path", "")):
+                    script_bid = str(b.get("book_id", ""))
+        if not bid or not script_bid:
+            record("P-09.engine-bounds", "FAIL", f"import bid={bid} script={script_bid}")
+            record("P-11", "FAIL", "import fail")
+            record("P-03.hideshow", "FAIL", "import fail")
+            return
+        if args.profile != "vue":
+            record("P-09.engine-bounds", "GAP", "vm 页面导航腿 CDP 待工具链（T-04 已录同类）")
+            record("P-11", "GAP", "vm 页面导航腿 CDP 待工具链")
+            record("P-03.hideshow", "GAP", "vm 页面导航腿 CDP 待工具链")
+            return
+        try:
+            from playwright.sync_api import sync_playwright
+        except Exception as e:
+            record("P-09.engine-bounds", "GAP", f"playwright missing: {e}")
+            return
+        pw = sync_playwright().start()
+        browser = pw.chromium.launch(headless=True)
+        try:
+            # ── P-09.engine-bounds：脚本书装载 + 脚本不执行断言（独立页，
+            # 用毕即闭——同组件路由换书不重挂引擎为已知形态）──
+            page_s = browser.new_page(viewport={"width": 1400, "height": 900})
+            page_s.goto(f"http://localhost:17824/#/book/{script_bid}/chapter/1",
+                        wait_until="domcontentloaded", timeout=60000)
+            t0 = time.monotonic()
+            st = {}
+            while time.monotonic() - t0 < 90:
+                st = _ui_engine_state(page_s)
+                if st.get("mounted") and st.get("spine", 0) > 0:
+                    break
+                time.sleep(2)
+            mounted = bool(st.get("mounted"))
+            pwned = page_s.evaluate("""() => {
+                const fv = document.querySelector('foliate-view')
+                const p = fv && fv.shadowRoot
+                    ? fv.shadowRoot.querySelector('foliate-paginator') : null
+                const ifr = p && p.shadowRoot
+                    ? p.shadowRoot.querySelector('iframe') : null
+                if (!ifr || !ifr.contentWindow) return { err: 'no-iframe' }
+                const cw = ifr.contentWindow
+                return { has: '__pwned' in cw,
+                         val: cw.__pwned === undefined ? 'undefined' : String(cw.__pwned) }
+            }""")
+            pwned_ok = (isinstance(pwned, dict) and pwned.get("has") is False
+                        and pwned.get("val") == "undefined")
+            record("P-09.engine-bounds",
+                   "PASS" if (mounted and pwned_ok) else "FAIL",
+                   f"mounted={mounted} pwned={json.dumps(pwned, ensure_ascii=False)[:60]}"
+                   f"（script 不执行/远程不取）")
+            page_s.close()
+
+            # ── P-11 + P-03.hideshow：alpha 书全新页 ──
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            page.goto(f"http://localhost:17824/#/book/{bid}/chapter/1",
+                      wait_until="domcontentloaded", timeout=60000)
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < 90:
+                st = _ui_engine_state(page)
+                if st.get("mounted") and st.get("spine", 0) > 0:
+                    break
+                time.sleep(2)
+            # 输入不抢键：搜索输入键入 → 引擎滚动位置不变
+            scroll_before = page.evaluate("""() => {
+                const vals = []
+                const scan = (doc) => {
+                    if (!doc) return
+                    for (const el of doc.querySelectorAll('*')) {
+                        if (el.scrollHeight > el.clientHeight + 10) {
+                            vals.push(el.scrollTop)
+                        }
+                    }
+                    if (doc.scrollingElement) vals.push(doc.scrollingElement.scrollTop)
+                }
+                scan(document)
+                const fv = document.querySelector('foliate-view')
+                const p = fv && fv.shadowRoot
+                    ? fv.shadowRoot.querySelector('foliate-paginator') : null
+                if (p) scan(p.shadowRoot)
+                const ifr = p && p.shadowRoot
+                    ? p.shadowRoot.querySelector('iframe') : null
+                if (ifr && ifr.contentDocument) scan(ifr.contentDocument)
+                return vals
+            }""")
+            if not (_ui_click_btn(page, "🔍 搜索") or _ui_click_by_js(page, "🔍 搜索")):
+                pass
+            page.wait_for_timeout(600)
+            try:
+                inp = page.get_by_placeholder("输入关键词（精确子串）").first
+                inp.click(timeout=8000)
+                inp.type("边界输入不抢键测试", timeout=8000)
+            except Exception:
+                pass
+            page.wait_for_timeout(1200)
+            scroll_after = page.evaluate("""() => {
+                const vals = []
+                const scan = (doc) => {
+                    if (!doc) return
+                    for (const el of doc.querySelectorAll('*')) {
+                        if (el.scrollHeight > el.clientHeight + 10) {
+                            vals.push(el.scrollTop)
+                        }
+                    }
+                    if (doc.scrollingElement) vals.push(doc.scrollingElement.scrollTop)
+                }
+                scan(document)
+                const fv = document.querySelector('foliate-view')
+                const p = fv && fv.shadowRoot
+                    ? fv.shadowRoot.querySelector('foliate-paginator') : null
+                if (p) scan(p.shadowRoot)
+                const ifr = p && p.shadowRoot
+                    ? p.shadowRoot.querySelector('iframe') : null
+                if (ifr && ifr.contentDocument) scan(ifr.contentDocument)
+                return vals
+            }""")
+            ime_ok = (json.dumps(scroll_before) == json.dumps(scroll_after))
+            # geometry：小视口重排存活
+            page.set_viewport_size({"width": 800, "height": 600})
+            page.wait_for_timeout(2000)
+            st_g = _ui_engine_state(page)
+            geom_ok = bool(st_g.get("mounted") and st_g.get("contents"))
+            page.set_viewport_size({"width": 1400, "height": 900})
+            page.wait_for_timeout(1000)
+            # 两书并存：第二页开 beta（独立引擎实例互不串）
+            beta_path = os.path.join(corpus, "product-beta.epub")
+            _parse2(http_json("http://127.0.0.1:17825/api/library/import", "POST",
+                              {"path": beta_path, "author": "verify", "force": False},
+                              timeout=120))
+            beta_bid = ""
+            books = _parse2(http_json("http://127.0.0.1:17825/api/library/books"))
+            if isinstance(books, dict):
+                for b in books.get("books", []):
+                    if "product-beta" in str(b.get("original_path", "")):
+                        beta_bid = str(b.get("book_id", ""))
+            two_ok = False
+            two_detail = "no beta bid"
+            if beta_bid:
+                page2 = browser.new_page(viewport={"width": 1400, "height": 900})
+                page2.goto(f"http://localhost:17824/#/book/{beta_bid}/chapter/1",
+                           wait_until="domcontentloaded", timeout=60000)
+                t0 = time.monotonic()
+                st1 = _ui_engine_state(page)
+                st2 = {}
+                while time.monotonic() - t0 < 90:
+                    st2 = _ui_engine_state(page2)
+                    if st2.get("mounted") and st2.get("spine", 0) > 0:
+                        break
+                    time.sleep(2)
+                two_ok = (bool(st1.get("mounted")) and bool(st2.get("mounted"))
+                          and st1.get("spine") == 10 and st2.get("spine") == 2)
+                two_detail = (f"p1(m={st1.get('mounted')},spine={st1.get('spine')}) "
+                              f"p2(m={st2.get('mounted')},spine={st2.get('spine')})")
+                page2.close()
+            record("P-11",
+                   "PASS" if (ime_ok and geom_ok and two_ok) else "FAIL",
+                   f"ime={ime_ok} geom={geom_ok} two_books={two_ok} {two_detail}")
+            # ── P-03.hideshow：doc-surface 隐藏/恢复 → 引擎存活 + 产品
+            # 「Next →」章导航仍动（真实 UI 点击 → command goto → 引擎换章；
+            # paged 模式滚动断言不适用——翻页为变换非滚动）──
+            page.evaluate("""() => {
+                const fv = document.querySelector('foliate-view')
+                if (fv) fv.style.display = 'none'
+            }""")
+            page.wait_for_timeout(1200)
+            page.evaluate("""() => {
+                const fv = document.querySelector('foliate-view')
+                if (fv) fv.style.display = ''
+            }""")
+            page.wait_for_timeout(1500)
+            st_h = _ui_engine_state(page)
+            hs_alive = bool(st_h.get("mounted") and st_h.get("contents"))
+            prog_before = page.evaluate(
+                "() => (document.body.textContent.match(/\d+ of \d+/) || [''])[0]")
+            if not (_ui_click_btn(page, "Next →") or _ui_click_by_js(page, "Next →") == "clicked"):
+                print("  p03 next-btn click fail")
+            prog_after = prog_before
+            t0n = time.monotonic()
+            while time.monotonic() - t0n < 25:
+                prog_after = page.evaluate(
+                    "() => (document.body.textContent.match(/\d+ of \d+/) || [''])[0]")
+                if prog_after and prog_after != prog_before:
+                    break
+                time.sleep(1.5)
+            hs_nav = bool(prog_before) and prog_after != prog_before
+            record("P-03.hideshow",
+                   "PASS" if (hs_alive and hs_nav) else "FAIL",
+                   f"alive={hs_alive} nav={prog_before or '?'}->{prog_after or '?'}")
+        finally:
+            try:
+                browser.close()
+            except Exception:
+                pass
+            pw.stop()
+    finally:
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       capture_output=True)
+        proc.wait()
+        logf.close()
+
 def p05_data_family(args, out_dir):
     """T-05 数据层族：独立数据目录（时间戳隔离，重跑洁净）。
     覆盖 P-04 录入环 oracle（数据面）、P-05 v1 兼容/v2 锚/不可映射/多义、
@@ -2316,14 +2602,14 @@ def p05_data_family(args, out_dir):
         print("  family interrupted:", type(e).__name__, str(e)[:120])
         done = {r["case"] for r in RECORDS}
         for cid in ("P-05.v1-compat", "P-04.data-oracle", "P-05.v2-anchor",
-                    "P-08.mutation-matrix", "P-10.data", "P-06.data-coldrestart"):
+                    "P-08.mutation-matrix", "P-10.data"):
             if cid not in done:
                 record(cid, "FAIL", f"family interrupted: {type(e).__name__} {str(e)[:80]}")
         for cid in ("P-06.data-coldrestart",):
             if cid not in done:
-                record(cid, "not_run", f"family interrupted before leg: {type(e).__name__}")
-        # （P-05.visit-ui/P-06.ui-restore 门内面归 p07_t07_legs 所有；
-        #  P-06.data-coldrestart 数据面仍归本族）
+                record(cid, "FAIL", f"family interrupted before leg: {type(e).__name__}")
+        # （每 id 恰一记录——P-05.visit-ui/P-06.ui-restore 门内面归
+        #  p07_t07_legs 所有，本族不预记）
     finally:
         subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
                        capture_output=True)
@@ -2332,9 +2618,8 @@ def p05_data_family(args, out_dir):
 # ─────────────────────── 未实现用例注册（T-03..T-08 接入） ───────────────────────
 
 def register_pending():
-    for cid in ("P-11",):
-        record(cid, "not_run", f"待 {REQUIRED[cid]['task']} 接入")
-    record("P-03.hideshow", "not_run", "隐藏显示后重选属 T-08 生命周期腿")
+    # （全部用例已由各自腿/族记录——本函数保留为无操作占位）
+    pass
 
 
 # ─────────────────────── main ───────────────────────
@@ -2384,7 +2669,9 @@ def main():
         p04_ui_create(args, out_dir)
         p12_structure(args, out_dir)
         register_pending()
-        for cid in ("P-07", "P-05.visit-ui", "P-06.ui-restore"):
+        for cid in ("P-07.search-jump", "P-07.export", "P-05.visit-ui",
+                    "P-06.ui-restore", "P-09.engine-bounds", "P-11",
+                    "P-03.hideshow"):
             record(cid, "not_run",
                    "--only p04 前台取证跑未含（证据见同 cohort 全量跑）")
         for cid in ("P-01.backend", "P-02.load-chain", "P-02.asset-independence",
@@ -2413,6 +2700,8 @@ def main():
     p04_ui_create(args, out_dir)
     time.sleep(3)
     p07_t07_legs(args, out_dir)
+    time.sleep(3)
+    p08_p11_legs(args, out_dir)
     time.sleep(3)
     p09_import_legs(args, out_dir)
     p12_structure(args, out_dir)

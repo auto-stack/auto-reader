@@ -6,7 +6,7 @@ author: [Codex]
 created_at: 2026-11-03
 updated_at: 2026-11-04
 plan_revision: 1
-current_step: 7
+current_step: 8
 total_steps: 13
 base_branch: main
 base_commit: 28c765a4dbf66a3482f5bc03d4cb5c64d792c394
@@ -185,7 +185,7 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 | T-05 | work | T-01/04 | [x] library/annotations/jsonx及新增locator模块实现版本化读写/核验、兼容与恢复——src/back/locator.at（reader-locator v1 canonical/emit/count_fast）+ jsonx 词法门（valid_ann_locator/valid_locator_document、version 1|2）+ library 录入环 reader_locator_select / 恢复环 locator_verify_str（context 重算识别重复句错位）+ put_reading 可选 locator（carry-forward）+ annotations reemit 保锚/create 携带/op=anchor/version 1↔2 + api/db 端点（/api/reader/locator、/api/library/locator/verify、annotations-v2/progress-v2；旧端点逐字不变）——见§9 2026-11-04 T-05记录 | P-04 数据 oracle/P-05/P-06 数据冷恢复/P-08/P-10 双轨全绿（vue findings=0 not_run=8 exit3；vm 数据族 5/5 PASS）；verify_epub 22/22、auto test 7/7、smoke 16/16；UI 腿诚实 not_run；顺带修复 main 既有 epub 扫描 O(n²) 缺陷（长章 204.8s/不终止→19s） | AC-04/05/08 |
 | T-06 | work | T-05 | [x] reading_page/annotation产品UI选区工具、高亮批注CRUD/回访——adapter canonical quote/occurrence + 提案存储/GET + 批注所选（annotations-v2 携 canonical 锚）+ 回访（verify-ann 匹配才 goto）+ v1_anchor_err has_v2 章级回退面——见§9 2026-11-04 T-06记录 | P-04.ui-create/P-03.reflow-selection 经解锁动作 b（headed 冒烟全链证据，T-11 再裁决）PASS + 其余腿绿；门 findings=0 exit3；冒烟 13/13 | AC-04/06 |
 | T-07 | work | T-06 | [x] 搜索范围跳转、v1/v2恢复与Markdown导出，兼容旧入口——JumpTo EPUB 引擎 goto（URL router.push 同步）+ Init locator 优先冷恢复（router.push+command goto）+ export v2 定位行——见§9 2026-11-04 T-07记录 | P-07.search-jump（全句 3 命中分明+url_ch2）/P-05.visit-ui（note+verify-ann match）/P-07.export（v2 定位行独立解析）/P-06.ui-restore（url_ch2 冷恢复）全 PASS；门 findings=0 not_run=4 exit3 | AC-05/06 |
-| T-08 | work | T-07 | 安全/资源/跨实例/隐藏/输入/无障碍/生命周期、写失败/迁移回退与变异负例 | P-08～11实际合法/非法对照和原oracle红→还原绿，预算/系统接缝实证，失败不转纯文本假成功 | AC-07/08 |
+| T-08 | work | T-07 | [x] 安全/资源/跨实例/隐藏/输入/无障碍/生命周期、写失败/迁移回退与变异负例——P-09.engine-bounds（书内脚本受管剥离：loadContent/load 双面剥除+loader allow 拒绝，__pwned 缺席实证）+ P-11（输入不抢键/geometry/两书并存）+ P-03.hideshow（隐藏恢复后引擎存活+产品 Next 章导航）+ P-08 变异矩阵/P-10 写失败损坏面（前轮绿）——见§9 2026-11-04 T-08记录 | 门 findings=0 not_run=1 exit3（30 PASS）；T-08 各腿全 PASS | AC-07/08 |
 | T-09 | work | T-08 | 固定最终cohort跑新永久门与旧APP门/定向规格，修实际缺陷不弱化门 | 新 `python tests/product/verify_epub_product.py --profile vue|vm --auto-bin ... --out-dir ...`由T-02建立；新/旧门两端完整PASS，0漏项/GAP | AC-09 |
 | T-10 | work | T-09 | 落SD-01～05与README/设计/路线/矩阵实际状态，内检并交独立上下文final review | git diff --check、本地链接/范围/cohort一致；内检不自称终审，所有工作门有闭合证据 | AC-10 |
 | T-11 | review | T-10 | 同一clone独立上下文复演第6节要求，绑定计划/源码/工具 | AC-01～10全PASS才reviewed，否则needs_fix/needs_replan回work，不能partial交付 | AC-11 |
@@ -194,6 +194,14 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 **计数说明**：T-00～T-12共13项，total_steps=13、current_step=已完成执行任务数（T-00 后=1）。work拥有T-00～10，review/merge分别拥有T-11/T-12，不为凑执行完成先勾未来阶段。
 
 ## 9. 复审记录
+
+### 2026-11-04：work阶段——T-08 安全边界与生命周期面（AC-07/08）——outcome: pass
+
+- stage: work | plan_id: READER-007 | plan_revision: r1 | task: T-08 | outcome: pass（门 findings=0 not_run=1 exit3，30 PASS：T-08 各腿全 PASS）| 执行位: D:/autostack/auto-reader main | commit: 随收口提交 | next: T-09。
+- **【产品修复】书内活动脚本受管剥离（真实缺陷，门捕获）**：crafted 脚本 EPUB 实测 `window.__pwned` 被置位——foliate 渲染路径经 `section.loadContent()` 的 XHTML 数据串 srcdoc 写入 iframe，内联 <script>/on* 属文档本体，loader 的 isScript 面（独立 .js 资源）覆盖不到。修复（engine-adapter，受管 adapter 唯一转换接缝）：①loadContent 包装——XHTML 数据串剥 <script> 与 on* 处理器再交渲染；②load 包装——URL 面对冲（blob 重写）；③离屏面（createDocument）脚本剥除 + loader transformTarget allow=false 拒独立脚本资源。修复后 `__pwned` 缺席实证（has=false/val=undefined）；script 元素从渲染 DOM 消失。诊断轨迹：createDocument 剥除→无效（渲染走 srcdoc）→CSP 元注→无效（同因）→loader allow→无效（内联脚本非独立资源）→loadContent/load 双面剥除→有效（四轮定位，folkiate-epub.js srcdoc/section.load 路径实录）。
+- **门腿**：①P-09.engine-bounds PASS（脚本书装载成功 + __pwned 缺席）。②P-11 PASS：输入不抢键（搜索输入键入 12 字，全部滚动位 0->0 不变）、geometry（800×600 小视口引擎存活）、两书并存（双页双引擎 alpha spine=10 + beta spine=2 互不串；同组件路由换书不重挂引擎为已知形态——测试用独立页规避并登记）。③P-03.hideshow PASS（display 隐藏/恢复后引擎存活 + 产品「Next →」章导航 1 of 10→2 of 10；paged 模式滚动断言不适用——翻页为变换非滚动，oracle 改进度标签）。④P-08 变异矩阵/P-10 写失败损坏面：前轮 PASS 复用（代码未变）。
+- **流程事实**：run_ui 宿主不稳定致两次全量跑中断（family interrupted 记录）——重跑绿；containment 双记录修复（每 id 恰一记录）。引擎初开 sectionIndex=2（非 0）为 foliate「最后加载段」标记——产品事实登记，导航 oracle 改用页面路由/进度标签。
+- 未改 canonical Spec；未创建用户数据（crafted 脚本 EPUB 为确定性生成测试语料，入 plan-artifacts 隔离目录）。
 
 ### 2026-11-04：work阶段——T-07 收口（outcome: pass）
 
