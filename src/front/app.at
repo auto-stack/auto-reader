@@ -3,6 +3,11 @@
 // strong-typed rust backend (015/017 CRUD pattern).
 use book_store: BooksStore
 
+// auto-os/PLAN-059 T-02：官方主题包主题名导入（031 合同消费面——pac `dep
+// themes` 声明使包可解析，本 use 把包内 pub 主题收进收集链；无此行 themes
+// 树不注册，design.theme/follow 宿主候选都会在 C-11 未注册拒绝）。
+use themes.themes: Auto
+
 style sub_text = "text-sm text-muted-foreground"
 
 widget App {
@@ -14,6 +19,28 @@ widget App {
     }
 
     msg { Init }
+
+    // auto-os/PLAN-059 T-02：主题模式位（App 级保留名，015-notes 056 交付
+    // 先例——运行时种子链 AUTO_UI_THEME env > os-config > 系统主题与宿主
+    // 策略统一驱动；独立缺省 false = 本产品原纯浅色语义）。design mode 与
+    // 阅读页引擎默认派生消费（阅读页自带同名位，双轨种子同源）。
+    model {
+        var dark_mode bool = false
+    }
+
+    // auto-os/PLAN-059 T-02：主题设计默认（独立默认腿）。本产品原为纯浅色
+    // 壳（无明暗切换），独立默认腿取静态 light 保现默认语义（056 todo 先例，
+    // 2026-11-04 交付）；mode 表达式消费 store 保留名 dark_mode（默认 false
+    // = light）。桌面内宿主策略完整快照（family+mode）按 031 full-host 语义
+    // 整体接管本默认（follow——pac theme 键保持缺省）；standalone 独立环境
+    // 由 458/672 种子链（AUTO_UI_THEME env > os-config > 系统主题）写保留
+    // 名位。视图全部为语义 token 类，族内明暗由 token 切换承接。
+    // 位置纪律：design 块置于 msg 之后 view 之前（056/058 交付先例同位；
+    // routes 后紧邻时 codegen 静默丢块——2026-11-04 T-02 实测）。
+    design {
+        theme: "Auto"
+        mode: if .dark_mode { "dark" } else { "light" }
+    }
 
     view {
         // PLAN-684 F-1 嵌入安全壳层：禁用 viewport-fixed 铬件。

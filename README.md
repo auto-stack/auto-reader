@@ -2,9 +2,17 @@
 
 图书阅读器，使用 AutoLang / AutoUI 开发的独立应用。
 
+主题采纳（auto-os/PLAN-059，2026-11-04）：官方主题包固定快照
+`vendor/themes`（0.2.0，`dep themes`）+ `use themes.themes: Auto` + App
+`design { theme: "Auto" }`；壳面语义 token 随包，pac `theme` 键缺省 =
+follow 宿主；阅读配色经 READER-007 引擎命令端口按"显式书级选择 > 应用
+模式派生"接入。合同页 [docs/specs/theme-adoption.md](docs/specs/theme-adoption.md)，
+宿主主合同 auto-os `docs/specs/shell/host-theme-policy-and-delivery.md`，
+批次页 auto-os `docs/specs/apps/product-theme-batch-059.md`。
+
 更新：2026-11-03。001真实TXT/Markdown书库与定位已交付；003的最小EPUB数据面已落地；002 r4以本地A（搜索、注释、Markdown导出）收尾；004验收驱动归属迁移已交付；**005 EPUB实际阅读与双端验收已交付归档**——EPUB图片真实显示（应用自有稳定媒体服务 `/api/reader/media/...`，双射扁平名防碰撞、12MiB 提取闸、诚实错误行）、书内链接/脚注/跨章往返（chips + V-20 入 pane 逐字 oracle）、真实 UI 注释/搜索/导出/恢复双端验收（`python tests/basic/verify_standalone.py --profile vue|vm` 聚合门 vue 28/28、vm 27/0，R-01..06 含毁损反例）。原生轨 UI 写传输受两项在册框架缺口阻断（见下 N-005-A-1/A-2），UI 创建/编辑面由 Vue 轨承载；Notes 交接继续留 AutoOS TODO。
 
-**006调研与026实验已归档，029收口仍待最终交付核实。** 本地029为executing、9/12，Vue重排GAP与最终冻结验收/独立review尚未闭合；不得因多项门已绿就宣称全部完成。下一份已起草 [READER-007：正式EPUB阅读表面接入与定位兼容](docs/plans/007-epub-product-reader-and-locator-compatibility.md)（drafting/r1、0/13），由本仓主导，将引擎接入真实书架/阅读页、精确标注与v1/v2兼容；**029全部必需门通过、独立review并固定版本交付后才能实施**。本轮只计划，不改产品代码或在途029工作。
+**006调研与026实验已归档，029收口仍待最终交付核实。** 本地029为executing、9/12，Vue重排GAP与最终冻结验收/独立review尚未闭合；不得因多项门已绿就宣称全部完成。[READER-007：正式EPUB阅读表面接入与定位兼容](docs/plans/archive/007-epub-product-reader-and-locator-compatibility.md)已于 2026-11-04 交付归档（12/13，T-11 独立 review pass）——正式 EPUB 阅读面/Locator v2/来源支持合同见 `docs/specs/reader/epub-engine-reading.md`。
 
 ## 运行
 

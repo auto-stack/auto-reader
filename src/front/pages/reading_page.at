@@ -447,6 +447,13 @@ widget reading_page {
         // ── READER-002 A：排版偏好扩展（SD-02 可选键；缺省=001 原状）──
         var layout str = "medium"
         var theme str = "light"
+        // auto-os/PLAN-059 T-03：Init 装载到显式主题（reading-state）时置真；
+        // 无显式选择时引擎默认随应用模式（本页保留名 dark_mode 位，运行时
+        // 种子链与宿主策略同源驱动），显式值始终优先。
+        var theme_explicit bool = false
+        // auto-os/PLAN-059 T-03：本页模式位（保留名；vue 轨由 458 种子链
+        // 按窗引导播种，VM 轨并入统一状态与壳根同字段）。
+        var dark_mode bool = false
         // ── 搜索（T-01）──
         var show_search bool = false
         var search_q str = ""
@@ -1151,6 +1158,11 @@ widget reading_page {
                     if th == "light" {
                         .theme = "light"
                     }
+                    // auto-os/PLAN-059 T-03：书内显式主题（含显式 light）优先
+                    // 于模式派生——有值即标记，末段派生分支跳过。
+                    if th != "" {
+                        .theme_explicit = true
+                    }
                 }
                 let toc = parse_lib(Http.get_json("/api/library/books/" + .route_id + "/toc"))
                 if toc != null {
@@ -1388,6 +1400,16 @@ widget reading_page {
             .font_size = fill_pref(.font_size, "br-font-size", "medium")
             .line_height = fill_pref(.line_height, "br-line-height", "comfy")
             .body_style = body_style_of(.font_size, .line_height)
+            // auto-os/PLAN-059 T-03：阅读配色接入（经 READER-007 正式引擎
+            // 端口）。优先级 = 显式书级选择（reading-state/选择器）> 应用模式
+            // 派生（本页 dark_mode 位由运行时种子链/宿主策略驱动）> 内置缺省
+            // light。无显式选择且应用处于 dark 时默认派生 dark（浅/深与壳
+            // 同步；sepia 恒为显式选择）。
+            if !.theme_explicit {
+                if .dark_mode {
+                    .theme = "dark"
+                }
+            }
             // READER-002 派生样式刷新（SetLayout/SetTheme 同式）
             .theme_body_cls = theme_body_of(.theme)
             .theme_hover_cls = theme_hover_of(.theme)
@@ -1395,6 +1417,14 @@ widget reading_page {
             .para_marked_cls = theme_marked_of(.theme) + " border-primary para-marked"
             .para_idle_cls = "border-transparent " + theme_hover_of(.theme)
             .layout_col_cls = layout_cls_of(.layout)
+            // PLAN-059 T-03（既有缺口修复，有反例）：冷恢复此前不向引擎端口
+            // 补发主题——stored/派生 theme=dark 重开后引擎面停留默认浅色。
+            // 现按 SetTheme 同式经命令端口下发当前主题（含非 EPUB 面零副作用）。
+            if .is_epub {
+                if .epub_sid != "" {
+                    Http.post("/api/reader/command", { session_id: .epub_sid, op: "settings", index: 0, font_size: "", layout: "", theme: .theme, flow_mode: "" })
+                }
+            }
             if !.is_real {
                 .loaded = true
                 store.SetProgress(.book_id, .progress_pct)

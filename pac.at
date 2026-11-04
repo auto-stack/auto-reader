@@ -14,6 +14,18 @@ front_port: 17824
 back_port: 17825
 desktop: "true"
 
+# auto-os/PLAN-059 T-02：官方主题包主题名导入消费面。pac `theme` 键保持
+# 缺省 = **follow 宿主**（宿主策略完整快照 > 本 design 默认 > legacy 回退）。
+# `vendor/themes` 为 UI 管理渠道发布的**固定版本快照**（themes 0.2.0，内容
+# digest 9fa07742dc68aa5377ae06cb2d966386002063f184c515b6c5dddf8a6bef838e，
+# per-file sha256 与源包逐文件校验同律；不可二次编辑、非第二权威源）。
+# 本产品原为纯浅色壳（无 dark_mode 位、无明暗切换），独立默认腿沿静态 light
+# （056 todo 先例）；宿主内策略完整快照按 031 full-host 语义整体接管。
+# 主合同反链见 README 与 docs/specs/theme-adoption.md。
+dep themes {
+    path: "vendor/themes"
+}
+
 dep stylekit {
     path: "vendor/stylekit"
 }
