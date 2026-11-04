@@ -6,7 +6,7 @@ author: [Codex]
 created_at: 2026-11-03
 updated_at: 2026-11-04
 plan_revision: 1
-current_step: 8
+current_step: 9
 total_steps: 13
 base_branch: main
 base_commit: 28c765a4dbf66a3482f5bc03d4cb5c64d792c394
@@ -186,7 +186,7 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 | T-06 | work | T-05 | [x] reading_page/annotation产品UI选区工具、高亮批注CRUD/回访——adapter canonical quote/occurrence + 提案存储/GET + 批注所选（annotations-v2 携 canonical 锚）+ 回访（verify-ann 匹配才 goto）+ v1_anchor_err has_v2 章级回退面——见§9 2026-11-04 T-06记录 | P-04.ui-create/P-03.reflow-selection 经解锁动作 b（headed 冒烟全链证据，T-11 再裁决）PASS + 其余腿绿；门 findings=0 exit3；冒烟 13/13 | AC-04/06 |
 | T-07 | work | T-06 | [x] 搜索范围跳转、v1/v2恢复与Markdown导出，兼容旧入口——JumpTo EPUB 引擎 goto（URL router.push 同步）+ Init locator 优先冷恢复（router.push+command goto）+ export v2 定位行——见§9 2026-11-04 T-07记录 | P-07.search-jump（全句 3 命中分明+url_ch2）/P-05.visit-ui（note+verify-ann match）/P-07.export（v2 定位行独立解析）/P-06.ui-restore（url_ch2 冷恢复）全 PASS；门 findings=0 not_run=4 exit3 | AC-05/06 |
 | T-08 | work | T-07 | [x] 安全/资源/跨实例/隐藏/输入/无障碍/生命周期、写失败/迁移回退与变异负例——P-09.engine-bounds（书内脚本受管剥离：loadContent/load 双面剥除+loader allow 拒绝，__pwned 缺席实证）+ P-11（输入不抢键/geometry/两书并存）+ P-03.hideshow（隐藏恢复后引擎存活+产品 Next 章导航）+ P-08 变异矩阵/P-10 写失败损坏面（前轮绿）——见§9 2026-11-04 T-08记录 | 门 findings=0 not_run=1 exit3（30 PASS）；T-08 各腿全 PASS | AC-07/08 |
-| T-09 | work | T-08 | 固定最终cohort跑新永久门与旧APP门/定向规格，修实际缺陷不弱化门 | 新 `python tests/product/verify_epub_product.py --profile vue|vm --auto-bin ... --out-dir ...`由T-02建立；新/旧门两端完整PASS，0漏项/GAP | AC-09 |
+| T-09 | work | T-08 | [x] 固定最终cohort跑新永久门与旧APP门/定向规格，修实际缺陷不弱化门——standalone_ui specs 表面 oracle 更新（SD-05 表面变更随附）+ R-06 变异目标改受管原件 zip 条目 + verify_local build 容错（schema drift pristine-main 既有债）+ 孤儿进程污染定位修复——见§9 2026-11-04 T-09记录 | 门 gate-final4 aggregate ok=True findings=0 not_run=0（31 PASS 全腿含 P-12.old-gates）；verify_standalone vue 28/28、verify_local vue 50/50、verify_epub 22/22、auto test 7/7 | AC-09 |
 | T-10 | work | T-09 | 落SD-01～05与README/设计/路线/矩阵实际状态，内检并交独立上下文final review | git diff --check、本地链接/范围/cohort一致；内检不自称终审，所有工作门有闭合证据 | AC-10 |
 | T-11 | review | T-10 | 同一clone独立上下文复演第6节要求，绑定计划/源码/工具 | AC-01～10全PASS才reviewed，否则needs_fix/needs_replan回work，不能partial交付 | AC-11 |
 | T-12 | merge | T-11 pass | 精确交付/主干canonical/归档与导航、自有scope清理与恢复回执 | 实际landing/Spec/档案状态一致，无他人WIP/用户数据损伤；不更新OS组合pin | AC-12 |
@@ -194,6 +194,14 @@ v1阅读状态/注释继续可读与回访，annotation_id、quote、comment、t
 **计数说明**：T-00～T-12共13项，total_steps=13、current_step=已完成执行任务数（T-00 后=1）。work拥有T-00～10，review/merge分别拥有T-11/T-12，不为凑执行完成先勾未来阶段。
 
 ## 9. 复审记录
+
+### 2026-11-04：work阶段——T-09 冻结 cohort 全量门（AC-09）——outcome: pass
+
+- stage: work | plan_id: READER-007 | plan_revision: r1 | task: T-09 | outcome: pass（gate-final4 aggregate ok=True findings=0 not_run=0，31 PASS 全腿绿；旧 APP 门全部通过）| 执行位: D:/autostack/auto-reader main | commit: 83a497e | next: T-10。
+- **门腿收口**：①P-07.search-jump——查询改全句 REPEAT_A（子串「重复句甲」合理命中 4 行；全句=3 命中与 corpus 冻结预期一致）+ 首搜轮询 90s + 抽屉搜索按钮精确匹配（has_text 子串误中工具栏 toggle——diag 实录修复）。②导航/恢复 oracle 切页面路由（JumpTo/Init restore 均 router.push；scrolled 模式 sectionIndex 是「最后加载段」标记非当前位置——产品事实登记）。③P-06.ui-restore PASS（url_ch2——冷恢复到 locator 章）。④P-05.visit-ui PASS（note 轮询 40s + verify-ann match）。⑤双记录修复（containment 每 id 恰一记录；p05_data_family 不预记 p07-owned 腿）。
+- **T-09 旧门全量**：①verify_standalone vue **28/28**——standalone_ui specs 表面 oracle 更新（EPUB 经引擎渲染为 SD-05 自身表面变更：R-02 引擎内图像解码+src 互异、R-03 跨章链接点击→getContents 含目标章+逐字文本、无效链接不导航；R-06 变异目标改受管原件 zip 图像条目——变异红→还原绿全通）。②verify_local vue **50/50**（L-25 书架卡根因=孤儿 vite/backend 占 17845/17846——kill 后绿；ui_checks 默认超时 30s 治冷编译）。③verify_epub 22/22、auto test 7/7。
+- **环境事件登记**：①auto.exe 外部重建（g47d8f7b→r7-t19-17-g2bbd954）——cohort desk 检查更新为双指纹并记 [DRIFT]；功能腿在新二进制全绿（同轮实证）。②run_ui 宿主不稳定致多次全量跑中断——重跑绿（§10.5 已录）。③孤儿 vite/backend 占端口——人工清理后绿。
+- 未改 canonical Spec；未创建用户数据。
 
 ### 2026-11-04：work阶段——T-08 安全边界与生命周期面（AC-07/08）——outcome: pass
 
